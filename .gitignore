@@ -1,0 +1,8 @@
+Cargo.lock
+cobertura.xml
+/docs/
+*junk*
+Makefile.scmf.toml
+**/*.rs.bk
+.*.sw*
+/target/
