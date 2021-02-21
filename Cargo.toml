@@ -9,3 +9,4 @@ edition = "2018"
 [dependencies]
 hashbrown = "^0.9.1"
 num-traits = "^0.2.8"
+string_cache = "^0.8.1"

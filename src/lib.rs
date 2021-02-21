@@ -15,6 +15,7 @@ use num_traits::FromPrimitive;
 use num_traits::ToPrimitive;
 use std::fmt::Display;
 use std::hash::Hash;
+use std::marker::PhantomData;
 use std::sync::Arc;
 use std::sync::RwLock;
 
@@ -225,13 +226,16 @@ const VALID_ID: InvalidId = InvalidId::max_value();
 
 /// A trait describing a set of agents of some type.
 pub trait AgentType<M> {
-    /// Create a new instance of the agent type, sharing the memoized messages and invalid reasons.
+    /// Provide access to the shared invalid conditions memoization.
     ///
     /// This should create the initial state of the agent with `StateId` zero.
-    fn new(invalids: Arc<RwLock<Memoize<String, InvalidId>>>) -> Self;
+    fn set_invalids(&mut self, invalids: Arc<RwLock<Memoize<String, InvalidId>>>);
 
     /// The name of the type of the agents.
-    fn name(&self) -> &str;
+    fn name(&self) -> &'static str;
+
+    /// The number of agents of this type that will be used in the system.
+    fn count(&self) -> AgentIndex;
 
     /// Return the actions that may be taken by an agent instance with some state when receiving a
     /// message.
@@ -254,10 +258,117 @@ pub trait AgentType<M> {
     /// `<state-name>(<state-data>)` if the state contains additional data. The `Debug` of the state
     /// might be acceptable as-is, but typically it is better to get rid or shorten the explicit
     /// field names, and/or format their values in a more compact form.
-    fn state_display(&self, state_id: StateId) -> &str;
+    ///
+    /// Since we are caching the display string, we can't return it; instead, you'll need to provide
+    /// a work function that will process it.
+    fn state_display<W: FnOnce(&str)>(&self, state_id: StateId, work: W);
 
     /// Return the short state name.
-    fn state_name(&self, state_id: StateId) -> &str;
+    fn state_name(&self, state_id: StateId) -> &'static str;
+}
+
+/// The data we need to implement an agent type.
+///
+/// This should be placed in a `Singleton` to allow the agent states to get services from it.
+pub struct AgentTypeData<S, M> {
+    /// Memoization of the invalid conditions.
+    memoize_invalids: Option<Arc<RwLock<Memoize<String, InvalidId>>>>,
+
+    /// Memoization of the agent states.
+    memoize_states: Arc<RwLock<Memoize<S, StateId>>>,
+
+    /// The name of the agent type.
+    name: &'static str,
+
+    /// The number of instances of this type we'll be using in the system.
+    count: AgentIndex,
+
+    /// Trick the compiler into thinking we have a field of type M.
+    _phantom: PhantomData<M>,
+}
+
+impl<S: Eq + Copy + Clone + Hash + Display, M> AgentTypeData<S, M> {
+    /// Create new agent type data with the specified name and number of instances.
+    pub fn new(name: &'static str, count: AgentIndex) -> Self {
+        AgentTypeData {
+            name,
+            count,
+            memoize_invalids: None,
+            memoize_states: Arc::new(RwLock::new(Memoize::new(true, None))),
+            _phantom: PhantomData,
+        }
+    }
+}
+
+/// A trait for a single agent state.
+pub trait AgentState<M> {
+    /// Return the short state name.
+    fn name(&self) -> &'static str;
+
+    /// Return the actions that may be taken by an agent instance with this state when receiving a
+    /// message.
+    fn message_response(&self, agent_index: AgentIndex, message: &M) -> Response<M>;
+
+    /// Return the actions that may be taken by an agent with some state when time passes.
+    fn time_response(&self, agent_index: AgentIndex) -> Response<M>;
+
+    /// Whether any agent in this state is deferring messages.
+    fn is_deferring(&self) -> bool {
+        false
+    }
+}
+
+impl<S: Eq + Copy + Clone + Hash + Display + AgentState<M>, M> AgentType<M>
+    for AgentTypeData<S, M>
+{
+    fn set_invalids(&mut self, invalids: Arc<RwLock<Memoize<String, InvalidId>>>) {
+        self.memoize_invalids = Some(invalids);
+    }
+
+    fn name(&self) -> &'static str {
+        &self.name
+    }
+
+    fn count(&self) -> AgentIndex {
+        self.count
+    }
+
+    fn message_response(
+        &self,
+        agent_index: AgentIndex,
+        state_id: StateId,
+        message: &M,
+    ) -> Response<M> {
+        self.memoize_states
+            .read()
+            .unwrap()
+            .get(state_id)
+            .message_response(agent_index, message)
+    }
+
+    fn time_response(&self, agent_index: AgentIndex, state_id: StateId) -> Response<M> {
+        self.memoize_states
+            .read()
+            .unwrap()
+            .get(state_id)
+            .time_response(agent_index)
+    }
+
+    fn state_is_deferring(&self, state_id: StateId) -> bool {
+        self.memoize_states
+            .read()
+            .unwrap()
+            .get(state_id)
+            .is_deferring()
+    }
+
+    fn state_display<W: FnOnce(&str)>(&self, state_id: StateId, work: W) {
+        work(self.memoize_states.read().unwrap().display(state_id))
+    }
+
+    fn state_name(&self, state_id: StateId) -> &'static str {
+        self.memoize_states.read().unwrap().get(state_id).name()
+    }
 }
 
 /// Specify how a message is ordered relative to other messages between the same source and target
