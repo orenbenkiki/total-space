@@ -19,7 +19,7 @@ impl Display for Data {
 
 #[test]
 fn test_memoize_value() {
-    let mut memoize = Memoize::<Data, u8>::new(false);
+    let mut memoize = Memoize::<Data, u8>::new(false, None);
 
     let first = Data { i: 17 };
     assert_eq!(first.i, 17);
@@ -40,7 +40,7 @@ fn test_memoize_value() {
 
 #[test]
 fn test_memoize_display() {
-    let mut memoize = Memoize::<Data, u8>::new(true);
+    let mut memoize = Memoize::<Data, u8>::new(true, None);
 
     let first = Data { i: 17 };
     assert_eq!(first.i, 17);
@@ -62,4 +62,19 @@ fn test_memoize_display() {
     assert_eq!(second, *memoize.get(1));
     assert_eq!("17", memoize.display(0));
     assert_eq!("11", memoize.display(1));
+}
+
+#[test]
+#[should_panic(expected = "too many memoized objects")]
+fn test_memoize_limit() {
+    let mut memoize = Memoize::<Data, u8>::new(false, Some(1));
+
+    let first = Data { i: 17 };
+    assert_eq!(first.i, 17);
+    assert_eq!(memoize.store(first), 0);
+    assert_eq!(first, *memoize.get(0));
+
+    let second = Data { i: 11 };
+    assert_eq!(second.i, 11);
+    memoize.store(second);
 }
