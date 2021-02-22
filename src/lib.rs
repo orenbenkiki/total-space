@@ -17,6 +17,8 @@ use num_traits::FromPrimitive;
 use num_traits::ToPrimitive;
 use num_traits::Unsigned;
 use std::fmt::Display;
+use std::fmt::Formatter;
+use std::fmt::Result as FormatterResult;
 use std::hash::Hash;
 use std::marker::PhantomData;
 use std::ops::Sub;
@@ -27,7 +29,7 @@ use std::sync::RwLock;
 pub trait KeyLike = Eq + Hash + Copy + Sized + Display;
 
 /// A trait for anything we use as a zero-based index.
-pub trait IndexLike = Copy + Bounded + FromPrimitive + ToPrimitive + Unsigned;
+pub trait IndexLike = KeyLike + Bounded + FromPrimitive + ToPrimitive + Unsigned;
 
 /// Memoize values and, optionally, display strings.
 ///
@@ -265,7 +267,7 @@ pub trait AgentType<AgentIndex, StateId, Payload> {
     ///
     /// Since we are caching the display string, we can't return it; instead, you'll need to provide
     /// a work function that will process it.
-    fn state_display<W: FnOnce(&str)>(&self, state_id: StateId, work: W);
+    fn state_display(&self, state_id: StateId, callback: Box<dyn FnOnce(&str)>);
 
     /// Return the short state name.
     fn state_name(&self, state_id: StateId) -> &'static str;
@@ -436,8 +438,8 @@ impl<
         self.states.read().unwrap().get(state_id).is_deferring()
     }
 
-    fn state_display<W: FnOnce(&str)>(&self, state_id: StateId, work: W) {
-        work(self.states.read().unwrap().display(state_id))
+    fn state_display(&self, state_id: StateId, callback: Box<dyn FnOnce(&str)>) {
+        (callback)(self.states.read().unwrap().display(state_id));
     }
 
     fn state_name(&self, state_id: StateId) -> &'static str {
@@ -494,6 +496,7 @@ pub enum Invalid<AgentIndex, Payload, MessageOrder> {
 /// possible is critical. The maximal sizes were chosen so that the configuration plus its memoized
 /// identifier will fit together inside exactly one cache lines, which should make this more
 /// cache-friendly when placed inside a hash table.
+#[derive(PartialEq, Eq, Hash, Copy, Clone)]
 pub struct Configuration<
     StateId,
     MessageId,
@@ -525,6 +528,19 @@ impl<
             messages: [MessageId::max_value(); MAX_MESSAGES],
             invalid: InvalidId::max_value(),
         }
+    }
+}
+
+impl<
+        StateId: IndexLike,
+        MessageId: IndexLike,
+        InvalidId: IndexLike,
+        const MAX_AGENTS: usize,
+        const MAX_MESSAGES: usize,
+    > Display for Configuration<StateId, MessageId, InvalidId, MAX_AGENTS, MAX_MESSAGES>
+{
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> FormatterResult {
+        write!(formatter, "todo")
     }
 }
 
@@ -568,6 +584,9 @@ pub struct Model<
     const MAX_AGENTS: usize,
     const MAX_MESSAGES: usize,
 > {
+    /// The agent types that will be used in the model.
+    pub types: Vec<Box<dyn AgentType<AgentIndex, StateId, Payload>>>,
+
     /// Memoization of the configurations.
     pub configurations: RwLock<
         Memoize<
@@ -585,14 +604,50 @@ pub struct Model<
     /// Count of invalid configurations.
     pub invalids: RwLock<ConfigurationId>,
 
-    /// Trick the compiler into thinking we have a field of type AgentIndex.
-    _agent_index: PhantomData<AgentIndex>,
-
-    /// Trick the compiler into thinking we have a field of type Payload.
-    _payload: PhantomData<Payload>,
-
     /// Trick the compiler into thinking we have a field of type MessageOrder.
     _message_order: PhantomData<MessageOrder>,
+}
+
+/// Allow querying the model's meta-parameters.
+pub trait MetaModel {
+    /// The type of agent indices.
+    type AgentIndex;
+
+    /// The type of state identifiers.
+    type StateId;
+
+    /// The type of message identifiers.
+    type MessageId;
+
+    /// The type of invalid condition identifiers.
+    type InvalidId;
+
+    /// The type of configuration identifiers.
+    type ConfigurationId;
+
+    /// The type of message payloads.
+    type Payload;
+
+    /// The type of message orders.
+    type MessageOrder;
+
+    /// The maximal number of agents.
+    const MAX_AGENTS: usize;
+
+    /// The maximal number of in-flight messages.
+    const MAX_MESSAGES: usize;
+
+    /// The type of  boxed agent type.
+    type AgentTypeBox;
+
+    /// The type of in-flight messages.
+    type Message;
+
+    /// The type of invalid conditions.
+    type Invalid;
+
+    /// The type of the included configurations.
+    type Configuration;
 }
 
 impl<
@@ -601,7 +656,46 @@ impl<
         MessageId: IndexLike,
         InvalidId: IndexLike,
         ConfigurationId: IndexLike,
+        Payload: KeyLike,
+        MessageOrder: IndexLike,
+        const MAX_AGENTS: usize,
+        const MAX_MESSAGES: usize,
+    > MetaModel
+    for Model<
+        AgentIndex,
+        StateId,
+        MessageId,
+        InvalidId,
+        ConfigurationId,
         Payload,
+        MessageOrder,
+        MAX_AGENTS,
+        MAX_MESSAGES,
+    >
+{
+    type AgentIndex = AgentIndex;
+    type StateId = StateId;
+    type MessageId = MessageId;
+    type InvalidId = InvalidId;
+    type ConfigurationId = ConfigurationId;
+    type Payload = Payload;
+    type MessageOrder = MessageOrder;
+    const MAX_AGENTS: usize = MAX_AGENTS;
+    const MAX_MESSAGES: usize = MAX_MESSAGES;
+
+    type AgentTypeBox = Box<dyn AgentType<AgentIndex, StateId, Payload>>;
+    type Message = Message<AgentIndex, Payload, MessageOrder>;
+    type Invalid = Invalid<AgentIndex, Payload, MessageOrder>;
+    type Configuration = Configuration<StateId, MessageId, InvalidId, MAX_AGENTS, MAX_MESSAGES>;
+}
+
+impl<
+        AgentIndex: IndexLike,
+        StateId: IndexLike,
+        MessageId: IndexLike,
+        InvalidId: IndexLike,
+        ConfigurationId: IndexLike,
+        Payload: KeyLike,
         MessageOrder: IndexLike + Sub<Output = MessageOrder>,
         const MAX_AGENTS: usize,
         const MAX_MESSAGES: usize,
@@ -618,6 +712,21 @@ impl<
         MAX_MESSAGES,
     >
 {
+    /// Create a new model.
+    pub fn new(types: Vec<<Self as MetaModel>::AgentTypeBox>) -> Self {
+        Model {
+            types,
+            configurations: RwLock::new(Memoize::new(
+                false,
+                Some(Self::invalid_configuration_id()),
+            )),
+            outgoing: RwLock::new(vec![]),
+            incoming: RwLock::new(vec![]),
+            invalids: RwLock::new(ConfigurationId::from_usize(0).unwrap()),
+            _message_order: Default::default(),
+        }
+    }
+
     /// An invalid agent index.
     pub fn invalid_agent_index() -> AgentIndex {
         AgentIndex::max_value()
@@ -652,29 +761,14 @@ impl<
 // BNF for configuration display (`[ ... ]` stands for optional).
 //
 // CONFIGURATION := AGENT & AGENT & ...
-//                  [ | IN_FLIGHT_MESSAGE & IN_FLIGHT_MESSAGE & ... ]
+//                  [ | MESSAGE & MESSAGE & ... ]
 //                  [ ! INVALID & INVALID & ... ]
 //
 // AGENT := TYPE[-INDEX] # STATE_NAME[(STATE_DATA)]
 //
-// IN_FLIGHT_MESSAGE := SOURCE_TYPE[-INDEX} ->
-//                      [REPLACED_NAME[(REPLACED_DATA) => ]
-//                      [@INT or *] NAME(DATA) ->
-//                      TARGET_TYPE[-INDEX]
+// MESSAGE := SOURCE_TYPE[-INDEX} ->
+//            [REPLACED_NAME[(REPLACED_DATA) => ]
+//            [@INT or *] NAME(DATA) ->
+//            TARGET_TYPE[-INDEX]
 //
 // INVALID := KIND is INVALID because REASON
-
-#[cfg(test)]
-use std::mem::size_of;
-
-/// A configuration that takes exactly half of a cache line in the hash table.
-pub type TinyConfiguration = Configuration<u8, u8, u8, 9, 18>;
-
-/// A configuration that takes exactly a single cache line in the hash table.
-pub type SmallConfiguration = Configuration<u8, u8, u8, 19, 38>;
-
-#[test]
-fn test_sizes() {
-    assert_eq!(32, size_of::<(TinyConfiguration, u32)>());
-    assert_eq!(64, size_of::<(SmallConfiguration, u32)>());
-}

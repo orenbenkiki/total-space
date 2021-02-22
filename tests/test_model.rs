@@ -4,6 +4,7 @@ use std::fmt::Debug;
 use std::fmt::Display;
 use std::fmt::Formatter;
 use std::hash::Hash;
+use std::mem::size_of;
 use total_space::*;
 
 #[derive(PartialEq, Eq, Hash, Copy, Clone, Debug)]
@@ -77,4 +78,46 @@ fn test_memoize_limit() {
     let second = Data { i: 11 };
     assert_eq!(second.i, 11);
     memoize.insert(second);
+}
+
+type TinyModel = Model<
+    u8,  // AgentIndex
+    u8,  // StateId
+    u8,  // MessageId
+    u8,  // InvalidId
+    u32, // ConfigurationId
+    u8,  // Payload
+    u8,  // MessageOrder
+    9,   // MAX_AGENTS
+    18,  // MAX_MESSAGES
+>;
+
+type SmallModel = Model<
+    u8,  // AgentIndex
+    u8,  // StateId
+    u8,  // MessageId
+    u8,  // InvalidId
+    u32, // ConfigurationId
+    u8,  // Payload
+    u8,  // MessageOrder
+    19,  // MAX_AGENTS
+    38,  // MAX_MESSAGES
+>;
+
+#[test]
+fn test_sizes() {
+    assert_eq!(
+        32,
+        size_of::<(
+            <TinyModel as MetaModel>::Configuration,
+            <TinyModel as MetaModel>::ConfigurationId
+        )>()
+    );
+    assert_eq!(
+        64,
+        size_of::<(
+            <SmallModel as MetaModel>::Configuration,
+            <SmallModel as MetaModel>::ConfigurationId
+        )>()
+    );
 }
