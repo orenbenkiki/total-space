@@ -94,6 +94,11 @@ impl<T: KeyLike, I: IndexLike> Memoize<T, I> {
 
     /// Given a value that does not exist in the memory, insert it and return its short identifier.
     pub fn insert(&mut self, value: T) -> I {
+        debug_assert!(
+            self.lookup(&value).is_none(),
+            "inserting an already existing value {}",
+            value
+        );
         if self.usize() > self.max_id {
             panic!("too many memoized objects");
         }
@@ -648,6 +653,12 @@ pub trait MetaModel {
 
     /// The type of the included configurations.
     type Configuration;
+
+    /// The type of the incoming transitions.
+    type Incoming;
+
+    /// The type of the outgoing transitions.
+    type Outgoing;
 }
 
 impl<
@@ -687,6 +698,8 @@ impl<
     type Message = Message<AgentIndex, Payload, MessageOrder>;
     type Invalid = Invalid<AgentIndex, Payload, MessageOrder>;
     type Configuration = Configuration<StateId, MessageId, InvalidId, MAX_AGENTS, MAX_MESSAGES>;
+    type Incoming = Incoming<ConfigurationId>;
+    type Outgoing = Outgoing<ConfigurationId>;
 }
 
 impl<
@@ -714,17 +727,71 @@ impl<
 {
     /// Create a new model.
     pub fn new(types: Vec<<Self as MetaModel>::AgentTypeBox>) -> Self {
-        Model {
+        let mut model = Model {
             types,
             configurations: RwLock::new(Memoize::new(
                 false,
                 Some(Self::invalid_configuration_id()),
             )),
-            outgoing: RwLock::new(vec![]),
-            incoming: RwLock::new(vec![]),
+            outgoing: RwLock::new(Vec::new()),
+            incoming: RwLock::new(Vec::new()),
             invalids: RwLock::new(ConfigurationId::from_usize(0).unwrap()),
             _message_order: Default::default(),
+        };
+
+        let initial_configuration = Configuration {
+            states: [StateId::from_usize(0).unwrap(); MAX_AGENTS],
+            ..Default::default()
+        };
+        model.insert_configuration(initial_configuration, None);
+
+        model
+    }
+
+    fn insert_configuration(
+        &mut self,
+        configuration: <Self as MetaModel>::Configuration,
+        incoming: Option<<Self as MetaModel>::Incoming>,
+    ) {
+        let configuration_id = self.configurations.write().unwrap().insert(configuration);
+        self.outgoing.write().unwrap().push(RwLock::new(Vec::new()));
+        let mut incoming_vector = self.incoming.write().unwrap();
+        incoming_vector.push(RwLock::new(Vec::new()));
+
+        if let Some(transition) = incoming {
+            incoming_vector[ConfigurationId::to_usize(&configuration_id).unwrap()]
+                .write()
+                .unwrap()
+                .push(transition);
         }
+    }
+
+    /// Return the index of the agent with the specified type name.
+    ///
+    /// If more than one agent of this type exist, also specify its index within its type.
+    pub fn agent_index(&self, name: &'static str, index: Option<usize>) -> AgentIndex {
+        let mut agent_index: usize = 0;
+        for agent_type in self.types.iter() {
+            if agent_type.name() != name {
+                agent_index += AgentIndex::to_usize(&agent_type.count()).unwrap();
+            } else {
+                match index {
+                    None => {
+                        assert!(agent_type.count() == AgentIndex::from_usize(1).unwrap(),
+                                "no index specified when locating an agent of type {} which has {} instances",
+                                name, agent_type.count());
+                    }
+                    Some(index_in_type) => {
+                        assert!(index_in_type < AgentIndex::to_usize(&agent_type.count()).unwrap(),
+                                "too large index {} specified when locating an agent of type {} which has {} instances",
+                                index_in_type, name, agent_type.count());
+                        agent_index += index_in_type;
+                    }
+                }
+                return AgentIndex::from_usize(agent_index).unwrap();
+            }
+        }
+        panic!("looking for an agent of an unknown type {}", name);
     }
 
     /// An invalid agent index.
