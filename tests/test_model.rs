@@ -23,17 +23,17 @@ fn test_memoize_value() {
 
     let first = Data { i: 17 };
     assert_eq!(first.i, 17);
-    assert_eq!(memoize.store(first), 0);
+    assert_eq!(memoize.insert(first), 0);
     assert_eq!(first, *memoize.get(0));
 
     let second = Data { i: 11 };
     assert_eq!(second.i, 11);
-    assert_eq!(memoize.store(second), 1);
+    assert_eq!(memoize.insert(second), 1);
     assert_eq!(first, *memoize.get(0));
     assert_eq!(second, *memoize.get(1));
 
-    assert_eq!(memoize.store(second), 1);
-    assert_eq!(memoize.store(first), 0);
+    assert_eq!(*memoize.lookup(&second).unwrap(), 1);
+    assert_eq!(*memoize.lookup(&first).unwrap(), 0);
     assert_eq!(first, *memoize.get(0));
     assert_eq!(second, *memoize.get(1));
 }
@@ -44,20 +44,20 @@ fn test_memoize_display() {
 
     let first = Data { i: 17 };
     assert_eq!(first.i, 17);
-    assert_eq!(memoize.store(first), 0);
+    assert_eq!(memoize.insert(first), 0);
     assert_eq!(first, *memoize.get(0));
     assert_eq!("17", memoize.display(0));
 
     let second = Data { i: 11 };
     assert_eq!(second.i, 11);
-    assert_eq!(memoize.store(second), 1);
+    assert_eq!(memoize.insert(second), 1);
     assert_eq!(first, *memoize.get(0));
     assert_eq!(second, *memoize.get(1));
     assert_eq!("17", memoize.display(0));
     assert_eq!("11", memoize.display(1));
 
-    assert_eq!(memoize.store(second), 1);
-    assert_eq!(memoize.store(first), 0);
+    assert_eq!(*memoize.lookup(&second).unwrap(), 1);
+    assert_eq!(*memoize.lookup(&first).unwrap(), 0);
     assert_eq!(first, *memoize.get(0));
     assert_eq!(second, *memoize.get(1));
     assert_eq!("17", memoize.display(0));
@@ -71,10 +71,10 @@ fn test_memoize_limit() {
 
     let first = Data { i: 17 };
     assert_eq!(first.i, 17);
-    assert_eq!(memoize.store(first), 0);
+    assert_eq!(memoize.insert(first), 0);
     assert_eq!(first, *memoize.get(0));
 
     let second = Data { i: 11 };
     assert_eq!(second.i, 11);
-    memoize.store(second);
+    memoize.insert(second);
 }

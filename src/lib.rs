@@ -9,15 +9,25 @@
 
 //! Explore the total space of states of communicating finite state machines.
 
+#![feature(trait_alias)]
+
 use hashbrown::HashMap;
 use num_traits::Bounded;
 use num_traits::FromPrimitive;
 use num_traits::ToPrimitive;
+use num_traits::Unsigned;
 use std::fmt::Display;
 use std::hash::Hash;
 use std::marker::PhantomData;
+use std::ops::Sub;
 use std::sync::Arc;
 use std::sync::RwLock;
+
+/// A trait for anything we use as a key in a HashMap.
+pub trait KeyLike = Eq + Hash + Copy + Sized + Display;
+
+/// A trait for anything we use as a zero-based index.
+pub trait IndexLike = Copy + Bounded + FromPrimitive + ToPrimitive + Unsigned;
 
 /// Memoize values and, optionally, display strings.
 ///
@@ -44,11 +54,7 @@ pub struct Memoize<T, I> {
     display_by_id: Option<Vec<String>>,
 }
 
-impl<
-        T: Eq + Hash + Copy + Clone + Sized + Display,
-        I: Bounded + FromPrimitive + ToPrimitive + Copy + Clone,
-    > Memoize<T, I>
-{
+impl<T: KeyLike, I: IndexLike> Memoize<T, I> {
     /// Create a new memoization store.
     ///
     /// If `display`, will also memoize the display strings of the values.
@@ -69,24 +75,33 @@ impl<
         }
     }
 
-    /// Given a value, ensure it is stored in the memory and return its short identifier.
-    pub fn store(&mut self, value: T) -> I {
-        match self.id_by_value.get(&value) {
-            Some(id) => *id,
-            None => {
-                let size = self.id_by_value.len();
-                if size > self.max_id {
-                    panic!("too many memoized objects");
-                }
-                let id = I::from_usize(size).unwrap();
-                self.id_by_value.insert(value, id);
-                self.value_by_id.push(value);
-                if let Some(display_by_id) = &mut self.display_by_id {
-                    display_by_id.push(format!("{}", value));
-                }
-                id
-            }
+    /// The number of allocated identifiers.
+    pub fn usize(&self) -> usize {
+        self.id_by_value.len()
+    }
+
+    /// The number of allocated identifiers.
+    pub fn size(&self) -> I {
+        I::from_usize(self.usize()).unwrap()
+    }
+
+    /// Given a value, look it up in the memory.
+    pub fn lookup(&self, value: &T) -> Option<&I> {
+        self.id_by_value.get(value)
+    }
+
+    /// Given a value that does not exist in the memory, insert it and return its short identifier.
+    pub fn insert(&mut self, value: T) -> I {
+        if self.usize() > self.max_id {
+            panic!("too many memoized objects");
         }
+        let id = self.size();
+        self.id_by_value.insert(value, id);
+        self.value_by_id.push(value);
+        if let Some(display_by_id) = &mut self.display_by_id {
+            display_by_id.push(format!("{}", value));
+        }
+        id
     }
 
     /// Given a short identifier previously returned by `store`, return the full value.
@@ -101,37 +116,31 @@ impl<
     }
 }
 
-/// The type of the index for agent instances.
-type AgentIndex = u8;
-
-/// A value to use to indicate an invalid agent instance index.
-const INVALID_AGENT_INDEX: AgentIndex = AgentIndex::max_value();
-
 /// A message sent by an agent as part of an alternative action triggered by some event.
-pub struct Emit<M> {
-    /// The actual sent message.
-    pub message: M,
+pub struct Emit<AgentIndex, Payload> {
+    /// The payload that will be delivered to the target agent.
+    pub payload: Payload,
 
     /// Where to send the message to.
     pub target: AgentIndex,
 
     /// Allow this message to replace another message from the same source to the same target, if
     /// this function returns ``true``.
-    pub is_replacement: Option<fn(M) -> bool>,
+    pub is_replacement: Option<fn(Payload) -> bool>,
 
     /// Whether this message needs to be delivered immediately, before any other.
     pub is_immediate: bool,
 
-    /// Whether this message needs to be delivered only after all other ordered messages
-    /// between the same source and target have been delivered.
+    /// Whether this message needs to be delivered only after all other ordered messahes between the
+    /// same source and target have been delivered.
     pub is_ordered: bool,
 }
 
-impl<M: Default> Default for Emit<M> {
+impl<AgentIndex: IndexLike, Payload: KeyLike + Default> Default for Emit<AgentIndex, Payload> {
     fn default() -> Self {
         Emit {
-            message: Default::default(),
-            target: INVALID_AGENT_INDEX,
+            payload: Default::default(),
+            target: AgentIndex::max_value(),
             is_replacement: None,
             is_immediate: false,
             is_ordered: false,
@@ -139,98 +148,89 @@ impl<M: Default> Default for Emit<M> {
     }
 }
 
-/// All the messages sent by an agent as part of an alternative action triggered by some event.
-pub enum Cast<M> {
-    /// Do not send any messages.
-    Silent,
-
-    /// Send a single message.
-    One(Emit<M>),
-
-    /// Send two messages.
-    Two(Emit<M>, Emit<M>),
-
-    /// Send three messages.
-    Three(Emit<M>, Emit<M>, Emit<M>),
-
-    /// Send four messages.
-    Four(Emit<M>, Emit<M>, Emit<M>, Emit<M>),
-}
-
-/// The type of the memoized identifier for agent states.
-type StateId = u8;
-
-/// A value to use to indicate no change in the agent state.
-const SAME_STATE_ID: StateId = StateId::max_value();
-
-/// A value to use to indicate the event is deferred.
-const DEFER_STATE_ID: StateId = StateId::max_value() - 1;
-
-/// An action that may be taken by an agent as a response to some event.
-///
-/// This specifies the next state the agent will be at (or one of the special values `SAME_STATE_ID`
-/// and `DEFER_STATE_ID`), and the messages that the agent sends, if any.
-pub struct Do<M>(StateId, Cast<M>);
-
-impl<M> Do<M> {
-    /// Return an action that indicates the agent silently ignores the event.
+/// Specify an action the agent may take as a response to an event.
+pub enum Do<AgentIndex, State, Payload> {
+    /// Consume (ignore) the event, keep the state the same, do not send any messages.
     ///
     /// This is only useful if it is needed to be listed as an alternative with other actions;
     /// Otherwise, use the `Response.Ignore` value.
-    pub fn ignore() -> Self {
-        Do(SAME_STATE_ID, Cast::Silent)
-    }
+    Ignore,
 
-    /// Return an action that indicates the agent defers handling the event.
+    /// Defer the event, keep the state the same, do not send any messages.
     ///
     /// This is only useful if it is needed to be listed as an alternative with other actions;
     /// Otherwise, use the `Response.Defer` value.
     ///
     /// This is only allowed if the agent's `state_is_deferring`, waiting for
     /// specific message(s) to resume normal operations.
-    pub fn defer() -> Self {
-        Do(DEFER_STATE_ID, Cast::Silent)
-    }
+    Defer,
+
+    /// Consume (handle) the event, change the agent state, do not send any messages.
+    SendNone(State),
+
+    /// Consume (handle) the event, change the agent state, send a single message.
+    SendOne(State, Emit<AgentIndex, Payload>),
+
+    /// Consume (handle) the event, change the agent state, send two messages.
+    SendTwo(State, Emit<AgentIndex, Payload>, Emit<AgentIndex, Payload>),
+
+    /// Consume (handle) the event, change the agent state, send three messages.
+    SendThree(
+        State,
+        Emit<AgentIndex, Payload>,
+        Emit<AgentIndex, Payload>,
+        Emit<AgentIndex, Payload>,
+    ),
+
+    /// Consume (handle) the event, change the agent state, send four messages.
+    SendFour(
+        State,
+        Emit<AgentIndex, Payload>,
+        Emit<AgentIndex, Payload>,
+        Emit<AgentIndex, Payload>,
+        Emit<AgentIndex, Payload>,
+    ),
 }
 
 /// The response from an agent on some event.
-pub enum Response<M> {
+pub enum Response<AgentIndex, State, Payload> {
     /// Ignore the event.
     ///
-    /// This has the same effect as `One(Do.ignore())`.
+    /// This has the same effect as `One(Do.Ignore)`.
     Ignore,
 
     /// Defer handling the event.
     ///
-    /// This has the same effect as `One(Do.defer())`.
+    /// This has the same effect as `One(Do.Defer)`.
     Defer,
 
     /// A single action (deterministic).
-    One(Do<M>),
+    One(Do<AgentIndex, State, Payload>),
 
     /// One of two alternative actions (non-deterministic).
-    Two(Do<M>, Do<M>),
+    Two(
+        Do<AgentIndex, State, Payload>,
+        Do<AgentIndex, State, Payload>,
+    ),
 
     /// One of three alternative actions (non-deterministic).
-    Three(Do<M>, Do<M>, Do<M>),
+    Three(
+        Do<AgentIndex, State, Payload>,
+        Do<AgentIndex, State, Payload>,
+        Do<AgentIndex, State, Payload>,
+    ),
 
     /// One of four alternative actions (non-deterministic).
-    Four(Do<M>, Do<M>, Do<M>, Do<M>),
+    Four(
+        Do<AgentIndex, State, Payload>,
+        Do<AgentIndex, State, Payload>,
+        Do<AgentIndex, State, Payload>,
+        Do<AgentIndex, State, Payload>,
+    ),
 }
 
-/// The type of the memoized identifier for invalid conditions.
-type InvalidId = u32;
-
-/// A value to use to indicate there is no invalid condition.
-const VALID_ID: InvalidId = InvalidId::max_value();
-
 /// A trait describing a set of agents of some type.
-pub trait AgentType<M> {
-    /// Provide access to the shared invalid conditions memoization.
-    ///
-    /// This should create the initial state of the agent with `StateId` zero.
-    fn set_invalids(&mut self, invalids: Arc<RwLock<Memoize<String, InvalidId>>>);
-
+pub trait AgentType<AgentIndex, StateId, Payload> {
     /// The name of the type of the agents.
     fn name(&self) -> &'static str;
 
@@ -243,11 +243,15 @@ pub trait AgentType<M> {
         &self,
         agent_index: AgentIndex,
         state_id: StateId,
-        message: &M,
-    ) -> Response<M>;
+        payload: &Payload,
+    ) -> Response<AgentIndex, StateId, Payload>;
 
     /// Return the actions that may be taken by an agent with some state when time passes.
-    fn time_response(&self, agent_index: AgentIndex, state_id: StateId) -> Response<M>;
+    fn time_response(
+        &self,
+        agent_index: AgentIndex,
+        state_id: StateId,
+    ) -> Response<AgentIndex, StateId, Payload>;
 
     /// Whether any agent in the state is deferring messages.
     fn state_is_deferring(&self, state_id: StateId) -> bool;
@@ -270,12 +274,9 @@ pub trait AgentType<M> {
 /// The data we need to implement an agent type.
 ///
 /// This should be placed in a `Singleton` to allow the agent states to get services from it.
-pub struct AgentTypeData<S, M> {
-    /// Memoization of the invalid conditions.
-    memoize_invalids: Option<Arc<RwLock<Memoize<String, InvalidId>>>>,
-
+pub struct AgentTypeData<AgentIndex, StateId, State, Payload> {
     /// Memoization of the agent states.
-    memoize_states: Arc<RwLock<Memoize<S, StateId>>>,
+    states: Arc<RwLock<Memoize<State, StateId>>>,
 
     /// The name of the agent type.
     name: &'static str,
@@ -283,34 +284,39 @@ pub struct AgentTypeData<S, M> {
     /// The number of instances of this type we'll be using in the system.
     count: AgentIndex,
 
-    /// Trick the compiler into thinking we have a field of type M.
-    _phantom: PhantomData<M>,
+    /// Trick the compiler into thinking we have a field of type Payload.
+    _phantom: PhantomData<Payload>,
 }
 
-impl<S: Eq + Copy + Clone + Hash + Display, M> AgentTypeData<S, M> {
+impl<AgentIndex: IndexLike, StateId: IndexLike, State: KeyLike, Payload: KeyLike>
+    AgentTypeData<AgentIndex, StateId, State, Payload>
+{
     /// Create new agent type data with the specified name and number of instances.
     pub fn new(name: &'static str, count: AgentIndex) -> Self {
         AgentTypeData {
             name,
             count,
-            memoize_invalids: None,
-            memoize_states: Arc::new(RwLock::new(Memoize::new(true, None))),
+            states: Arc::new(RwLock::new(Memoize::new(true, None))),
             _phantom: PhantomData,
         }
     }
 }
 
 /// A trait for a single agent state.
-pub trait AgentState<M> {
+pub trait AgentState<AgentIndex, State, Payload> {
     /// Return the short state name.
     fn name(&self) -> &'static str;
 
     /// Return the actions that may be taken by an agent instance with this state when receiving a
     /// message.
-    fn message_response(&self, agent_index: AgentIndex, message: &M) -> Response<M>;
+    fn message_response(
+        &self,
+        agent_index: AgentIndex,
+        payload: &Payload,
+    ) -> Response<AgentIndex, State, Payload>;
 
     /// Return the actions that may be taken by an agent with some state when time passes.
-    fn time_response(&self, agent_index: AgentIndex) -> Response<M>;
+    fn time_response(&self, agent_index: AgentIndex) -> Response<AgentIndex, State, Payload>;
 
     /// Whether any agent in this state is deferring messages.
     fn is_deferring(&self) -> bool {
@@ -318,13 +324,77 @@ pub trait AgentState<M> {
     }
 }
 
-impl<S: Eq + Copy + Clone + Hash + Display + AgentState<M>, M> AgentType<M>
-    for AgentTypeData<S, M>
+impl<
+        AgentIndex: IndexLike,
+        StateId: IndexLike,
+        State: KeyLike + AgentState<AgentIndex, State, Payload>,
+        Payload: KeyLike,
+    > AgentTypeData<AgentIndex, StateId, State, Payload>
 {
-    fn set_invalids(&mut self, invalids: Arc<RwLock<Memoize<String, InvalidId>>>) {
-        self.memoize_invalids = Some(invalids);
+    fn translate_response(
+        &self,
+        response: Response<AgentIndex, State, Payload>,
+    ) -> Response<AgentIndex, StateId, Payload> {
+        match response {
+            Response::Ignore => Response::Ignore,
+            Response::Defer => Response::Defer,
+            Response::One(action) => Response::One(self.translate_action(action)),
+            Response::Two(action1, action2) => Response::Two(
+                self.translate_action(action1),
+                self.translate_action(action2),
+            ),
+            Response::Three(action1, action2, action3) => Response::Three(
+                self.translate_action(action1),
+                self.translate_action(action2),
+                self.translate_action(action3),
+            ),
+            Response::Four(action1, action2, action3, action4) => Response::Four(
+                self.translate_action(action1),
+                self.translate_action(action2),
+                self.translate_action(action3),
+                self.translate_action(action4),
+            ),
+        }
     }
 
+    fn translate_action(
+        &self,
+        action: Do<AgentIndex, State, Payload>,
+    ) -> Do<AgentIndex, StateId, Payload> {
+        match action {
+            Do::Ignore => Do::Ignore,
+            Do::Defer => Do::Defer,
+            Do::SendNone(state) => Do::SendNone(self.translate_state(state)),
+            Do::SendOne(state, emit) => Do::SendOne(self.translate_state(state), emit),
+            Do::SendTwo(state, emit1, emit2) => {
+                Do::SendTwo(self.translate_state(state), emit1, emit2)
+            }
+            Do::SendThree(state, emit1, emit2, emit3) => {
+                Do::SendThree(self.translate_state(state), emit1, emit2, emit3)
+            }
+            Do::SendFour(state, emit1, emit2, emit3, emit4) => {
+                Do::SendFour(self.translate_state(state), emit1, emit2, emit3, emit4)
+            }
+        }
+    }
+
+    fn translate_state(&self, state: State) -> StateId {
+        if let Some(state_id) = self.states.read().unwrap().lookup(&state) {
+            *state_id
+        } else {
+            self.states.write().unwrap().insert(state)
+        }
+    }
+}
+
+impl<
+        AgentIndex: IndexLike,
+        StateId: IndexLike,
+        State: KeyLike + AgentState<AgentIndex, State, Payload>,
+        Payload: KeyLike,
+    > AgentType<AgentIndex, StateId, Payload>
+    for AgentTypeData<AgentIndex, StateId, State, Payload>
+{
     fn name(&self) -> &'static str {
         &self.name
     }
@@ -337,104 +407,86 @@ impl<S: Eq + Copy + Clone + Hash + Display + AgentState<M>, M> AgentType<M>
         &self,
         agent_index: AgentIndex,
         state_id: StateId,
-        message: &M,
-    ) -> Response<M> {
-        self.memoize_states
-            .read()
-            .unwrap()
-            .get(state_id)
-            .message_response(agent_index, message)
+        payload: &Payload,
+    ) -> Response<AgentIndex, StateId, Payload> {
+        self.translate_response(
+            self.states
+                .read()
+                .unwrap()
+                .get(state_id)
+                .message_response(agent_index, payload),
+        )
     }
 
-    fn time_response(&self, agent_index: AgentIndex, state_id: StateId) -> Response<M> {
-        self.memoize_states
-            .read()
-            .unwrap()
-            .get(state_id)
-            .time_response(agent_index)
+    fn time_response(
+        &self,
+        agent_index: AgentIndex,
+        state_id: StateId,
+    ) -> Response<AgentIndex, StateId, Payload> {
+        self.translate_response(
+            self.states
+                .read()
+                .unwrap()
+                .get(state_id)
+                .time_response(agent_index),
+        )
     }
 
     fn state_is_deferring(&self, state_id: StateId) -> bool {
-        self.memoize_states
-            .read()
-            .unwrap()
-            .get(state_id)
-            .is_deferring()
+        self.states.read().unwrap().get(state_id).is_deferring()
     }
 
     fn state_display<W: FnOnce(&str)>(&self, state_id: StateId, work: W) {
-        work(self.memoize_states.read().unwrap().display(state_id))
+        work(self.states.read().unwrap().display(state_id))
     }
 
     fn state_name(&self, state_id: StateId) -> &'static str {
-        self.memoize_states.read().unwrap().get(state_id).name()
+        self.states.read().unwrap().get(state_id).name()
     }
 }
 
-/// Specify how a message is ordered relative to other messages between the same source and target
-/// agents.
-///
-/// Special values are `UNORDERED_MESSAGE` and `IMMEDIATE_MESSAGE`.
-type MessageOrder = u8;
-
-/// Specify that a message is not ordered relative to the other messages between the same source and
-/// target agents.
-const UNORDERED_MESSAGE: MessageOrder = MessageOrder::max_value();
-
-/// Specify that the message needs to be delivered immediately, bypassing any other message in the
-/// system.
-// const IMMEDIATE_MESSAGE: MessageOrder = MessageOrder::max_value() - 1;
-
 /// A message in-flight between agents.
-pub struct InFlightMessage<M> {
-    /// The actual message, if any.
-    pub message: M,
-
-    /// The replaced message, if any.
-    pub replaced_message: Option<M>,
+pub struct Message<AgentIndex, Payload, MessageOrder> {
+    /// The source agent index.
+    pub source: AgentIndex,
 
     /// The target agent index.
-    ///
-    /// We know the source agent index by the index of the in-flight message in the
-    /// `in_flight_messages` array.
-    pub target_agent_index: AgentIndex,
+    pub target: AgentIndex,
 
-    /// How the message is ordered relative to other messages between the same source and target
-    /// agents.
+    /// How the message is ordered.
+    ///
+    /// Zero means the message is the first to be delivered next, bypassing anything else. The
+    /// maximal value means the message is unordered. Otherwise, the value is the order of the
+    /// message relative to other ordered messages between the same source and target agents.
     pub order: MessageOrder,
+
+    /// The actual payload.
+    pub payload: Payload,
+
+    /// The replaced message, if any.
+    pub replaced: Option<Payload>,
 }
 
-impl<M: Default> Default for InFlightMessage<M> {
+impl<AgentIndex: IndexLike, Payload: KeyLike + Default, MessageOrder: IndexLike> Default
+    for Message<AgentIndex, Payload, MessageOrder>
+{
     fn default() -> Self {
-        InFlightMessage {
-            message: Default::default(),
-            replaced_message: None,
-            target_agent_index: INVALID_AGENT_INDEX,
-            order: UNORDERED_MESSAGE,
+        Message {
+            source: AgentIndex::max_value(),
+            target: AgentIndex::max_value(),
+            order: MessageOrder::max_value(),
+            payload: Default::default(),
+            replaced: None,
         }
     }
 }
 
-/// The type of the memoized identifier for in-flight messages.
-pub type InFlightMessageId = u8;
-
-/// A value to use to indicate an invalid in-flight message.
-const INVALID_IN_FLIGHT_MESSAGE_ID: InFlightMessageId = InFlightMessageId::max_value();
-
-/// The maximal number of agents in a system.
-const MAX_CONFIGURATION_AGENTS: usize = 10;
-
-/// The maximal number of in-flight messages from a single agent.
-const MAX_AGENT_IN_FLIGHT_MESSAGES: usize = 4;
-
-/// The maximal invalid conditions in a configuration.
-const MAX_CONFIGURATION_INVALIDS: usize = 2;
-
-/// The type of the memoized identifier for configurations.
-pub type ConfigurationId = u32;
-
-/// A value to use to indicate an invalid configuration identifier.
-// const INVALID_CONFIGURATION_ID: ConfigurationId = ConfigurationId::max_value();
+/// An indicator that something is invalid.
+pub enum Invalid<AgentIndex, Payload, MessageOrder> {
+    Configuration(&'static str),
+    Agent(&'static str, Option<AgentIndex>, &'static str),
+    Message(Message<AgentIndex, Payload, MessageOrder>, &'static str),
+}
 
 /// A complete system configuration.
 ///
@@ -442,26 +494,158 @@ pub type ConfigurationId = u32;
 /// possible is critical. The maximal sizes were chosen so that the configuration plus its memoized
 /// identifier will fit together inside exactly one cache lines, which should make this more
 /// cache-friendly when placed inside a hash table.
-pub struct Configuration {
-    /// The messages sent by each agent.
-    pub in_flight_message_ids:
-        [[InFlightMessageId; MAX_AGENT_IN_FLIGHT_MESSAGES]; MAX_CONFIGURATION_AGENTS],
-
+pub struct Configuration<
+    StateId,
+    MessageId,
+    InvalidId,
+    const MAX_AGENTS: usize,
+    const MAX_MESSAGES: usize,
+> {
     /// The state of each agent.
-    pub agent_state_ids: [StateId; MAX_CONFIGURATION_AGENTS],
+    pub states: [StateId; MAX_AGENTS],
 
-    /// The invalid conditions, if any.
-    pub invalids: [InvalidId; MAX_CONFIGURATION_INVALIDS],
+    /// The messages sent by each agent.
+    pub messages: [MessageId; MAX_MESSAGES],
+
+    /// The invalid condition, if any.
+    pub invalid: InvalidId,
 }
 
-impl Default for Configuration {
+impl<
+        StateId: IndexLike,
+        MessageId: IndexLike,
+        InvalidId: IndexLike,
+        const MAX_AGENTS: usize,
+        const MAX_MESSAGES: usize,
+    > Default for Configuration<StateId, MessageId, InvalidId, MAX_AGENTS, MAX_MESSAGES>
+{
     fn default() -> Self {
         Configuration {
-            agent_state_ids: [INVALID_AGENT_INDEX; MAX_CONFIGURATION_AGENTS],
-            in_flight_message_ids: [[INVALID_IN_FLIGHT_MESSAGE_ID; MAX_AGENT_IN_FLIGHT_MESSAGES];
-                MAX_CONFIGURATION_AGENTS],
-            invalids: [VALID_ID; MAX_CONFIGURATION_INVALIDS],
+            states: [StateId::max_value(); MAX_AGENTS],
+            messages: [MessageId::max_value(); MAX_MESSAGES],
+            invalid: InvalidId::max_value(),
         }
+    }
+}
+
+/// A transition from a given configuration.
+pub struct Outgoing<ConfigurationId> {
+    /// The identifier of the target configuration.
+    pub to: ConfigurationId,
+
+    /// The index of the message of the source configuration that was delivered to its target agent
+    /// to reach the target configuration.
+    ///
+    /// We use the configuration identifier type as this is guaranteed to be large enough, and
+    /// anything smaller will not reduce the structure size, if we want fields to be properly
+    /// aligned.
+    pub message: ConfigurationId,
+}
+
+/// A transition to a given configuration.
+pub struct Incoming<ConfigurationId> {
+    /// The identifier of the source configuration.
+    pub from: ConfigurationId,
+
+    /// The index of the message of the source configuration that was delivered to its target agent
+    /// to reach the target configuration.
+    ///
+    /// We use the configuration identifier type as this is guaranteed to be large enough, and
+    /// anything smaller will not reduce the structure size, if we want fields to be properly
+    /// aligned.
+    pub message: ConfigurationId,
+}
+
+/// A complete model.
+pub struct Model<
+    AgentIndex,
+    StateId,
+    MessageId,
+    InvalidId,
+    ConfigurationId,
+    Payload,
+    MessageOrder,
+    const MAX_AGENTS: usize,
+    const MAX_MESSAGES: usize,
+> {
+    /// Memoization of the configurations.
+    pub configurations: RwLock<
+        Memoize<
+            Configuration<StateId, MessageId, InvalidId, MAX_AGENTS, MAX_MESSAGES>,
+            ConfigurationId,
+        >,
+    >,
+
+    /// For each configuration, which configuration is reachable from it.
+    pub outgoing: RwLock<Vec<RwLock<Vec<Outgoing<ConfigurationId>>>>>,
+
+    /// For each configuration, which configuration can reach it.
+    pub incoming: RwLock<Vec<RwLock<Vec<Incoming<ConfigurationId>>>>>,
+
+    /// Count of invalid configurations.
+    pub invalids: RwLock<ConfigurationId>,
+
+    /// Trick the compiler into thinking we have a field of type AgentIndex.
+    _agent_index: PhantomData<AgentIndex>,
+
+    /// Trick the compiler into thinking we have a field of type Payload.
+    _payload: PhantomData<Payload>,
+
+    /// Trick the compiler into thinking we have a field of type MessageOrder.
+    _message_order: PhantomData<MessageOrder>,
+}
+
+impl<
+        AgentIndex: IndexLike,
+        StateId: IndexLike,
+        MessageId: IndexLike,
+        InvalidId: IndexLike,
+        ConfigurationId: IndexLike,
+        Payload,
+        MessageOrder: IndexLike + Sub<Output = MessageOrder>,
+        const MAX_AGENTS: usize,
+        const MAX_MESSAGES: usize,
+    >
+    Model<
+        AgentIndex,
+        StateId,
+        MessageId,
+        InvalidId,
+        ConfigurationId,
+        Payload,
+        MessageOrder,
+        MAX_AGENTS,
+        MAX_MESSAGES,
+    >
+{
+    /// An invalid agent index.
+    pub fn invalid_agent_index() -> AgentIndex {
+        AgentIndex::max_value()
+    }
+
+    /// An invalid state identifier.
+    pub fn invalid_state_id() -> StateId {
+        StateId::max_value()
+    }
+
+    /// An invalid message identifier.
+    pub fn invalid_message_id() -> MessageId {
+        MessageId::max_value()
+    }
+
+    /// An invalid configuration identifier.
+    pub fn invalid_configuration_id() -> ConfigurationId {
+        ConfigurationId::max_value()
+    }
+
+    /// A message order for immediate messages.
+    pub fn immediate_message_order() -> MessageOrder {
+        MessageOrder::from_usize(0).unwrap()
+    }
+
+    /// A message order for unordered messages.
+    pub fn unordered_message_order() -> MessageOrder {
+        MessageOrder::max_value() - MessageOrder::from_usize(1).unwrap()
     }
 }
 
@@ -483,7 +667,14 @@ impl Default for Configuration {
 #[cfg(test)]
 use std::mem::size_of;
 
+/// A configuration that takes exactly half of a cache line in the hash table.
+pub type TinyConfiguration = Configuration<u8, u8, u8, 9, 18>;
+
+/// A configuration that takes exactly a single cache line in the hash table.
+pub type SmallConfiguration = Configuration<u8, u8, u8, 19, 38>;
+
 #[test]
-fn test_configuration_hash_entry_is_cache_line() {
-    assert_eq!(64, size_of::<(Configuration, ConfigurationId)>());
+fn test_sizes() {
+    assert_eq!(32, size_of::<(TinyConfiguration, u32)>());
+    assert_eq!(64, size_of::<(SmallConfiguration, u32)>());
 }
