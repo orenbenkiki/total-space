@@ -3,6 +3,7 @@ extern crate total_space;
 use std::fmt::Debug;
 use std::fmt::Display;
 use std::fmt::Formatter;
+use std::fmt::Result as FormatterResult;
 use std::hash::Hash;
 use std::mem::size_of;
 use total_space::*;
@@ -24,17 +25,41 @@ fn test_memoize_value() {
 
     let first = Data { i: 17 };
     assert_eq!(first.i, 17);
-    assert_eq!(memoize.insert(first), 0);
+    assert_eq!(
+        memoize.store(first),
+        Stored {
+            id: 0,
+            is_new: true
+        }
+    );
     assert_eq!(first, *memoize.get(0));
 
     let second = Data { i: 11 };
     assert_eq!(second.i, 11);
-    assert_eq!(memoize.insert(second), 1);
+    assert_eq!(
+        memoize.store(second),
+        Stored {
+            id: 1,
+            is_new: true
+        }
+    );
     assert_eq!(first, *memoize.get(0));
     assert_eq!(second, *memoize.get(1));
 
-    assert_eq!(*memoize.lookup(&second).unwrap(), 1);
-    assert_eq!(*memoize.lookup(&first).unwrap(), 0);
+    assert_eq!(
+        memoize.store(second),
+        Stored {
+            id: 1,
+            is_new: false
+        }
+    );
+    assert_eq!(
+        memoize.store(first),
+        Stored {
+            id: 0,
+            is_new: false
+        }
+    );
     assert_eq!(first, *memoize.get(0));
     assert_eq!(second, *memoize.get(1));
 }
@@ -45,13 +70,13 @@ fn test_memoize_display() {
 
     let first = Data { i: 17 };
     assert_eq!(first.i, 17);
-    assert_eq!(memoize.insert(first), 0);
+    assert_eq!(memoize.store(first).id, 0);
     assert_eq!(first, *memoize.get(0));
     assert_eq!("17", memoize.display(0));
 
     let second = Data { i: 11 };
     assert_eq!(second.i, 11);
-    assert_eq!(memoize.insert(second), 1);
+    assert_eq!(memoize.store(second).id, 1);
     assert_eq!(first, *memoize.get(0));
     assert_eq!(second, *memoize.get(1));
     assert_eq!("17", memoize.display(0));
@@ -72,36 +97,45 @@ fn test_memoize_limit() {
 
     let first = Data { i: 17 };
     assert_eq!(first.i, 17);
-    assert_eq!(memoize.insert(first), 0);
+    assert_eq!(memoize.store(first).id, 0);
     assert_eq!(first, *memoize.get(0));
 
     let second = Data { i: 11 };
     assert_eq!(second.i, 11);
-    memoize.insert(second);
+    memoize.store(second);
 }
 
+#[derive(PartialEq, Eq, Hash, Copy, Clone)]
+struct Payload(u8);
+
+impl Validated for Payload {}
+
+impl Display for Payload {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> FormatterResult {
+        write!(formatter, "payload")
+    }
+}
+
+// Example model which takes half a cache line in the configurations hash table.
 type TinyModel = Model<
-    u8,  // AgentIndex
-    u8,  // StateId
-    u8,  // MessageId
-    u8,  // InvalidId
-    u32, // ConfigurationId
-    u8,  // Payload
-    u8,  // MessageOrder
-    9,   // MAX_AGENTS
-    18,  // MAX_MESSAGES
+    u8,      // StateId
+    u8,      // MessageId
+    u8,      // InvalidId
+    u32,     // ConfigurationId
+    Payload, // Payload
+    9,       // MAX_AGENTS
+    17,      // MAX_MESSAGES
 >;
 
+// Example model which takes a single cache line in the configurations hash table.
 type SmallModel = Model<
-    u8,  // AgentIndex
-    u8,  // StateId
-    u8,  // MessageId
-    u8,  // InvalidId
-    u32, // ConfigurationId
-    u8,  // Payload
-    u8,  // MessageOrder
-    19,  // MAX_AGENTS
-    38,  // MAX_MESSAGES
+    u8,      // StateId
+    u8,      // MessageId
+    u8,      // InvalidId
+    u32,     // ConfigurationId
+    Payload, // Payload
+    19,      // MAX_AGENTS
+    37,      // MAX_MESSAGES
 >;
 
 #[test]
