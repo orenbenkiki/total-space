@@ -19,18 +19,40 @@ use num_traits::Unsigned;
 use rayon::prelude::*;
 use rayon::ThreadPoolBuilder;
 use std::fmt::Display;
-use std::fmt::Formatter;
-use std::fmt::Result as FormatterResult;
 use std::hash::Hash;
 use std::marker::PhantomData;
 use std::sync::Arc;
 use std::sync::RwLock;
 
 /// A trait for anything we use as a key in a HashMap.
-pub trait KeyLike = Eq + Hash + Copy + Sized + Send + Sync + Display;
+pub trait KeyLike = Eq + Hash + Copy + Sized + Send + Sync;
 
 /// A trait for anything we use as a zero-based index.
 pub trait IndexLike = KeyLike + PartialOrd + Ord + Bounded + FromPrimitive + ToPrimitive + Unsigned;
+
+/// A trait for data having a short name.
+pub trait Name {
+    fn name(&self) -> &'static str;
+}
+
+/// A macro for implementing `Name` for enums annotated by `strum::IntoStaticStr`.
+///
+/// This should become unnecessary once `IntoStaticStr` allows converting a reference to a static
+/// string: https://github.com/Peternator7/strum/issues/142
+#[macro_export]
+macro_rules! impl_name_for_into_static_str {
+    ($name:ident) => {
+        impl total_space::Name for $name {
+            fn name(&self) -> &'static str {
+                self.into()
+            }
+        }
+    };
+}
+
+/// A trait for data that has a short name (via `AsRef<&'static str>`) and a full display name (via
+/// `Display`).
+pub trait Named = Display + Name;
 
 fn to_usize<I: IndexLike>(value: I) -> usize {
     I::to_usize(&value).unwrap()
@@ -107,7 +129,7 @@ impl<T: KeyLike, I: IndexLike> Memoize<T, I> {
 
     /// Given a value that may or may not exist in the memory, ensure it exists it and return its
     /// short identifier.
-    pub fn store(&mut self, value: T) -> Stored<I> {
+    pub fn store(&mut self, value: T, display: Option<String>) -> Stored<I> {
         match self.lookup(&value) {
             Some(id) => Stored {
                 id: *id,
@@ -122,7 +144,9 @@ impl<T: KeyLike, I: IndexLike> Memoize<T, I> {
                 self.id_by_value.insert(value, id);
                 self.value_by_id.push(value);
                 if let Some(display_by_id) = &mut self.display_by_id {
-                    display_by_id.push(format!("{}", value));
+                    display_by_id.push(display.unwrap());
+                } else {
+                    debug_assert!(display.is_none());
                 }
 
                 Stored { id, is_new: true }
@@ -169,13 +193,13 @@ pub enum Emit<Payload> {
     OrderedReplacement(fn(Option<Payload>) -> bool, Payload, usize),
 }
 
-/// Specify an action the agent may take as a response to an event.
+/// Specify an action the agent may take when handling an event.
 #[derive(PartialEq, Eq)]
 pub enum Action<State, Payload> {
     /// Defer the event, keep the state the same, do not send any messages.
     ///
     /// This is only useful if it is needed to be listed as an alternative with other actions;
-    /// Otherwise, use the `Response.Defer` value.
+    /// Otherwise, use the `Reaction.Defer` value.
     ///
     /// This is only allowed if the agent's `state_is_deferring`, waiting for
     /// specific message(s) to resume normal operations.
@@ -184,7 +208,7 @@ pub enum Action<State, Payload> {
     /// Consume (ignore) the event, keep the state the same, do not send any messages.
     ///
     /// This is only useful if it is needed to be listed as an alternative with other actions;
-    /// Otherwise, use the `Response.Remain` value.
+    /// Otherwise, use the `Reaction.Ignore` value.
     Ignore,
 
     /// Consume (handle) the event, change the agent state, do not send any messages.
@@ -221,9 +245,12 @@ pub enum Action<State, Payload> {
     ),
 }
 
-/// The response from an agent on some event.
+/// The reaction of an agent to an event.
 #[derive(PartialEq, Eq)]
-pub enum Response<State, Payload> {
+pub enum Reaction<State, Payload> {
+    /// Indicate an unexpected event.
+    // Unexpected, TODO
+
     /// Defer handling the event.
     ///
     /// This has the same effect as `DoOne(Action.Defer)`.
@@ -257,10 +284,7 @@ pub enum Response<State, Payload> {
 }
 
 /// A trait describing a set of agents of some type.
-pub trait AgentType<StateId, MessageId, Payload> {
-    /// The name of the type of the agents.
-    fn name(&self) -> &'static str;
-
+pub trait AgentType<StateId, MessageId, Payload>: Name {
     /// Whether this type supports multiple instances.
     ///
     /// If true, the count will always be 1.
@@ -271,16 +295,15 @@ pub trait AgentType<StateId, MessageId, Payload> {
 
     /// Return the actions that may be taken by an agent instance with some state when receiving a
     /// message.
-    fn message_response(
+    fn receive_message(
         &self,
         instance_index: usize,
         state_id: StateId,
         payload: &Payload,
-    ) -> Response<StateId, Payload>;
+    ) -> Reaction<StateId, Payload>;
 
     /// Return the actions that may be taken by an agent with some state when time passes.
-    fn time_response(&self, instance_index: usize, state_id: StateId)
-        -> Response<StateId, Payload>;
+    fn pass_time(&self, instance_index: usize, state_id: StateId) -> Reaction<StateId, Payload>;
 
     /// Whether any agent in the state is deferring messages.
     fn state_is_deferring(&self, state_id: StateId) -> bool;
@@ -317,11 +340,14 @@ pub struct AgentTypeData<State, StateId, Payload> {
     count: usize,
 
     /// Trick the compiler into thinking we have a field of type Payload.
-    _phantom: PhantomData<Payload>,
+    _payload: PhantomData<Payload>,
 }
 
-impl<State: KeyLike + Validated, StateId: IndexLike, Payload: KeyLike + Validated>
-    AgentTypeData<State, StateId, Payload>
+impl<
+        State: KeyLike + Validated + Named + Default,
+        StateId: IndexLike,
+        Payload: KeyLike + Validated + Named,
+    > AgentTypeData<State, StateId, Payload>
 {
     /// Create new agent type data with the specified name and number of instances.
     pub fn new(name: &'static str, is_indexed: bool, count: usize) -> Self {
@@ -329,31 +355,35 @@ impl<State: KeyLike + Validated, StateId: IndexLike, Payload: KeyLike + Validate
             !is_indexed || count == 1,
             "specifying multiple instances for a non-indexed agent type"
         );
+        let states = Arc::new(RwLock::new(Memoize::new(true)));
+        let default_state: State = Default::default();
+        states
+            .write()
+            .unwrap()
+            .store(default_state, Some(format!("{}", default_state)));
         AgentTypeData {
             name,
             count,
             is_indexed,
-            states: Arc::new(RwLock::new(Memoize::new(true))),
-            _phantom: PhantomData,
+            states,
+            _payload: PhantomData,
         }
     }
 }
 
 /// A trait for a single agent state.
-pub trait AgentState<State, Payload> {
-    /// Return the short state name.
-    fn name(&self) -> &'static str;
-
+pub trait AgentState<
+    State: KeyLike + Validated + Named + Default,
+    Payload: KeyLike + Validated + Named,
+>
+{
     /// Return the actions that may be taken by an agent instance with this state when receiving a
     /// message.
-    fn message_response(
-        &self,
-        instance_index: usize,
-        payload: &Payload,
-    ) -> Response<State, Payload>;
+    fn receive_message(&self, instance_index: usize, payload: &Payload)
+        -> Reaction<State, Payload>;
 
     /// Return the actions that may be taken by an agent with some state when time passes.
-    fn time_response(&self, instance_index: usize) -> Response<State, Payload>;
+    fn pass_time(&self, instance_index: usize) -> Reaction<State, Payload>;
 
     /// Whether any agent in this state is deferring messages.
     fn is_deferring(&self) -> bool {
@@ -369,26 +399,26 @@ pub trait Validated {
 }
 
 impl<
-        State: KeyLike + Validated + AgentState<State, Payload>,
+        State: KeyLike + Validated + Named + Default + AgentState<State, Payload>,
         StateId: IndexLike,
-        Payload: KeyLike + Validated,
+        Payload: KeyLike + Validated + Named,
     > AgentTypeData<State, StateId, Payload>
 {
-    fn translate_response(&self, response: Response<State, Payload>) -> Response<StateId, Payload> {
-        match response {
-            Response::Ignore => Response::Ignore,
-            Response::Defer => Response::Defer,
-            Response::Do1(action) => Response::Do1(self.translate_action(action)),
-            Response::Do1Of2(action1, action2) => Response::Do1Of2(
+    fn translate_reaction(&self, reaction: Reaction<State, Payload>) -> Reaction<StateId, Payload> {
+        match reaction {
+            Reaction::Ignore => Reaction::Ignore,
+            Reaction::Defer => Reaction::Defer,
+            Reaction::Do1(action) => Reaction::Do1(self.translate_action(action)),
+            Reaction::Do1Of2(action1, action2) => Reaction::Do1Of2(
                 self.translate_action(action1),
                 self.translate_action(action2),
             ),
-            Response::Do1Of3(action1, action2, action3) => Response::Do1Of3(
+            Reaction::Do1Of3(action1, action2, action3) => Reaction::Do1Of3(
                 self.translate_action(action1),
                 self.translate_action(action2),
                 self.translate_action(action3),
             ),
-            Response::Do1Of4(action1, action2, action3, action4) => Response::Do1Of4(
+            Reaction::Do1Of4(action1, action2, action3, action4) => Reaction::Do1Of4(
                 self.translate_action(action1),
                 self.translate_action(action2),
                 self.translate_action(action3),
@@ -430,22 +460,33 @@ impl<
         if let Some(state_id) = self.states.read().unwrap().lookup(&state) {
             *state_id
         } else {
-            self.states.write().unwrap().store(state).id
+            self.states
+                .write()
+                .unwrap()
+                .store(state, Some("todo".to_string()))
+                .id
         }
     }
 }
 
 impl<
-        State: KeyLike + Validated + AgentState<State, Payload>,
+        State: KeyLike + Validated + Named + Default + AgentState<State, Payload>,
         StateId: IndexLike,
-        MessageId: IndexLike,
-        Payload: KeyLike + Validated,
-    > AgentType<StateId, MessageId, Payload> for AgentTypeData<State, StateId, Payload>
+        Payload: KeyLike + Validated + Named,
+    > Name for AgentTypeData<State, StateId, Payload>
 {
     fn name(&self) -> &'static str {
         &self.name
     }
+}
 
+impl<
+        State: KeyLike + Validated + Named + Default + AgentState<State, Payload>,
+        StateId: IndexLike,
+        MessageId: IndexLike,
+        Payload: KeyLike + Validated + Named,
+    > AgentType<StateId, MessageId, Payload> for AgentTypeData<State, StateId, Payload>
+{
     fn is_indexed(&self) -> bool {
         self.is_indexed
     }
@@ -454,32 +495,28 @@ impl<
         self.count
     }
 
-    fn message_response(
+    fn receive_message(
         &self,
         instance_index: usize,
         state_id: StateId,
         payload: &Payload,
-    ) -> Response<StateId, Payload> {
-        self.translate_response(
+    ) -> Reaction<StateId, Payload> {
+        self.translate_reaction(
             self.states
                 .read()
                 .unwrap()
                 .get(state_id)
-                .message_response(instance_index, payload),
+                .receive_message(instance_index, payload),
         )
     }
 
-    fn time_response(
-        &self,
-        instance_index: usize,
-        state_id: StateId,
-    ) -> Response<StateId, Payload> {
-        self.translate_response(
+    fn pass_time(&self, instance_index: usize, state_id: StateId) -> Reaction<StateId, Payload> {
+        self.translate_reaction(
             self.states
                 .read()
                 .unwrap()
                 .get(state_id)
-                .time_response(instance_index),
+                .pass_time(instance_index),
         )
     }
 
@@ -529,24 +566,12 @@ pub struct Message<Payload> {
     pub replaced: Option<Payload>,
 }
 
-impl<Payload> Display for Message<Payload> {
-    fn fmt(&self, formatter: &mut Formatter<'_>) -> FormatterResult {
-        write!(formatter, "todo")
-    }
-}
-
 /// An indicator that something is invalid.
 #[derive(PartialEq, Eq, Hash, Copy, Clone)]
 pub enum Invalid<Payload> {
     Configuration(&'static str),
-    Agent(&'static str, Option<usize>, &'static str),
+    Agent(usize, usize, &'static str),
     Message(Message<Payload>, &'static str),
-}
-
-impl<Payload> Display for Invalid<Payload> {
-    fn fmt(&self, formatter: &mut Formatter<'_>) -> FormatterResult {
-        write!(formatter, "todo")
-    }
 }
 
 /// The type of the index of the immediate message in the configuration.
@@ -579,19 +604,6 @@ pub struct Configuration<
 
     /// The index of the immediate message, or 255 if there is none.
     pub immediate: ImmediateId,
-}
-
-impl<
-        StateId: IndexLike,
-        MessageId: IndexLike,
-        InvalidId: IndexLike,
-        const MAX_AGENTS: usize,
-        const MAX_MESSAGES: usize,
-    > Display for Configuration<StateId, MessageId, InvalidId, MAX_AGENTS, MAX_MESSAGES>
-{
-    fn fmt(&self, formatter: &mut Formatter<'_>) -> FormatterResult {
-        write!(formatter, "todo")
-    }
 }
 
 impl<
@@ -720,7 +732,7 @@ pub struct Model<
     MessageId: IndexLike,
     InvalidId: IndexLike,
     ConfigurationId: IndexLike,
-    Payload: KeyLike + Validated,
+    Payload: KeyLike + Validated + Named,
     const MAX_AGENTS: usize,
     const MAX_MESSAGES: usize,
 > {
@@ -784,8 +796,8 @@ pub trait MetaModel {
     /// The type of in-flight messages.
     type Message;
 
-    /// The type of a response from an agent.
-    type Response;
+    /// The type of a event handling by an agent.
+    type Reaction;
 
     /// The type of an action from an agent.
     type Action;
@@ -808,25 +820,25 @@ pub trait MetaModel {
     /// The type of the outgoing transitions.
     type Outgoing;
 
-    /// The context for processing responses.
+    /// The context for processing event handling by an agent.
     type Context;
 }
 
-/// The context for processing a response.
+/// The context for processing event handling by an agent.
 #[derive(Clone)]
 pub struct Context<
     StateId: IndexLike,
     MessageId: IndexLike,
     InvalidId: IndexLike,
     ConfigurationId: IndexLike,
-    Payload: KeyLike + Validated,
+    Payload: KeyLike + Validated + Named,
     const MAX_AGENTS: usize,
     const MAX_MESSAGES: usize,
 > {
     /// Incrementally updated to become the target configuration.
     to_configuration: Configuration<StateId, MessageId, InvalidId, MAX_AGENTS, MAX_MESSAGES>,
 
-    /// The index of the agent that generated the response.
+    /// The index of the agent that reacted to the event.
     agent_index: usize,
 
     /// The type of the agent.
@@ -835,7 +847,7 @@ pub struct Context<
     /// The index of the agent in its type.
     instance_index: usize,
 
-    /// The identifier of the state of the agent when generating the response.
+    /// The identifier of the state of the agent when handling the event.
     from_state_id: StateId,
 
     /// The identifier of the message that the agent received, or `None` if the agent received a
@@ -851,7 +863,7 @@ impl<
         MessageId: IndexLike,
         InvalidId: IndexLike,
         ConfigurationId: IndexLike,
-        Payload: KeyLike + Validated,
+        Payload: KeyLike + Validated + Named,
         const MAX_AGENTS: usize,
         const MAX_MESSAGES: usize,
     > MetaModel
@@ -867,7 +879,7 @@ impl<
 
     type AgentTypeArc = Arc<dyn AgentType<StateId, MessageId, Payload> + Send + Sync>;
     type Message = Message<Payload>;
-    type Response = Response<StateId, Payload>;
+    type Reaction = Reaction<StateId, Payload>;
     type Action = Action<StateId, Payload>;
     type Emit = Emit<Payload>;
     type Invalid = Invalid<Payload>;
@@ -886,7 +898,7 @@ impl<
         MessageId: IndexLike,
         InvalidId: IndexLike,
         ConfigurationId: IndexLike,
-        Payload: KeyLike + Validated,
+        Payload: KeyLike + Validated + Named,
         const MAX_AGENTS: usize,
         const MAX_MESSAGES: usize,
     > Model<StateId, MessageId, InvalidId, ConfigurationId, Payload, MAX_AGENTS, MAX_MESSAGES>
@@ -1018,9 +1030,9 @@ impl<
         let state_id = configuration.states[agent_index];
         let agent_type = self.agent_types[agent_index].clone();
         let instance_index = self.instance_index(agent_index);
-        let response = agent_type.time_response(instance_index, state_id);
+        let reaction = agent_type.pass_time(instance_index, state_id);
 
-        if response == Response::Ignore {
+        if reaction == Reaction::Ignore {
             return;
         }
 
@@ -1039,7 +1051,7 @@ impl<
             delivered_message_id: None,
             incoming,
         };
-        self.process_response(context, response);
+        self.process_reaction(context, reaction);
     }
 
     fn deliver_message_event(
@@ -1064,7 +1076,7 @@ impl<
         let instance_index = self.instance_index(agent_index);
         let from_state_id = configuration.states[agent_index];
         let agent_type = self.agent_types[agent_index].clone();
-        let response = agent_type.message_response(instance_index, from_state_id, &payload);
+        let reaction = agent_type.receive_message(instance_index, from_state_id, &payload);
 
         let incoming = Incoming {
             from: configuration_id,
@@ -1082,32 +1094,32 @@ impl<
             delivered_message_id: Some(message_id),
             incoming,
         };
-        self.process_response(context, response);
+        self.process_reaction(context, reaction);
     }
 
-    fn process_response(
+    fn process_reaction(
         &self,
         context: <Self as MetaModel>::Context,
-        response: <Self as MetaModel>::Response,
+        reaction: <Self as MetaModel>::Reaction,
     ) {
-        match response {
-            Response::Defer => self.is_deferring_message(context),
-            Response::Ignore => self.is_ignoring_message(context),
+        match reaction {
+            Reaction::Defer => self.is_deferring_message(context),
+            Reaction::Ignore => self.is_ignoring_message(context),
 
-            Response::Do1(action1) => self.perform_action(context, action1),
+            Reaction::Do1(action1) => self.perform_action(context, action1),
 
-            Response::Do1Of2(action1, action2) => {
+            Reaction::Do1Of2(action1, action2) => {
                 self.perform_action(context.clone(), action1);
                 self.perform_action(context, action2);
             }
 
-            Response::Do1Of3(action1, action2, action3) => {
+            Reaction::Do1Of3(action1, action2, action3) => {
                 self.perform_action(context.clone(), action1);
                 self.perform_action(context.clone(), action2);
                 self.perform_action(context, action3);
             }
 
-            Response::Do1Of4(action1, action2, action3, action4) => {
+            Reaction::Do1Of4(action1, action2, action3, action4) => {
                 self.perform_action(context.clone(), action1);
                 self.perform_action(context.clone(), action2);
                 self.perform_action(context.clone(), action3);
@@ -1415,7 +1427,12 @@ impl<
                         let mut new_message = *message;
                         let new_message_order = message_order - 1;
                         new_message.order = MessageOrder::Ordered(new_message_order);
-                        configuration.messages[message_index] = messages.store(new_message).id;
+                        configuration.messages[message_index] =
+                            if let Some(new_message_id) = messages.lookup(&new_message) {
+                                *new_message_id
+                            } else {
+                                messages.store(new_message, Some("todo".to_string())).id
+                            };
                         did_modify = true;
                     }
                 }
@@ -1436,7 +1453,11 @@ impl<
         let message_id = if let Some(message_id) = self.messages.read().unwrap().lookup(&message) {
             *message_id
         } else {
-            self.messages.write().unwrap().store(message).id
+            self.messages
+                .write()
+                .unwrap()
+                .store(message, Some("todo".to_string()))
+                .id
         };
         context
             .to_configuration
@@ -1484,7 +1505,12 @@ impl<
                     if let Some(invalid_id) = self.invalids.read().unwrap().lookup(&invalid) {
                         configuration.invalid = *invalid_id;
                     } else {
-                        configuration.invalid = self.invalids.write().unwrap().store(invalid).id;
+                        configuration.invalid = self
+                            .invalids
+                            .write()
+                            .unwrap()
+                            .store(invalid, Some("todo".to_string()))
+                            .id;
                     }
                     break;
                 }
@@ -1497,7 +1523,11 @@ impl<
         configuration: <Self as MetaModel>::Configuration,
         incoming: Option<<Self as MetaModel>::Incoming>,
     ) -> Stored<ConfigurationId> {
-        let stored = self.configurations.write().unwrap().store(configuration);
+        let stored = self
+            .configurations
+            .write()
+            .unwrap()
+            .store(configuration, None);
         let is_new = stored.is_new;
         let to_configuration_id = stored.id;
         if is_new || incoming.is_some() {

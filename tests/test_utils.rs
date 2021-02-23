@@ -1,6 +1,5 @@
 extern crate total_space;
 
-use std::fmt::Debug;
 use std::fmt::Display;
 use std::fmt::Formatter;
 use std::fmt::Result as FormatterResult;
@@ -13,12 +12,6 @@ struct Data {
     pub value: usize,
 }
 
-impl Display for Data {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.value)
-    }
-}
-
 #[test]
 fn test_memoize_value() {
     let mut memoize = Memoize::<Data, u8>::new(false);
@@ -26,7 +19,7 @@ fn test_memoize_value() {
     let first = Data { value: 17 };
     assert_eq!(first.value, 17);
     assert_eq!(
-        memoize.store(first),
+        memoize.store(first, None),
         Stored {
             id: 0,
             is_new: true
@@ -37,7 +30,7 @@ fn test_memoize_value() {
     let second = Data { value: 11 };
     assert_eq!(second.value, 11);
     assert_eq!(
-        memoize.store(second),
+        memoize.store(second, None),
         Stored {
             id: 1,
             is_new: true
@@ -47,14 +40,14 @@ fn test_memoize_value() {
     assert_eq!(second, *memoize.get(1));
 
     assert_eq!(
-        memoize.store(second),
+        memoize.store(second, None),
         Stored {
             id: 1,
             is_new: false
         }
     );
     assert_eq!(
-        memoize.store(first),
+        memoize.store(first, None),
         Stored {
             id: 0,
             is_new: false
@@ -70,24 +63,24 @@ fn test_memoize_display() {
 
     let first = Data { value: 17 };
     assert_eq!(first.value, 17);
-    assert_eq!(memoize.store(first).id, 0);
+    assert_eq!(memoize.store(first, Some("17!".to_string())).id, 0);
     assert_eq!(first, *memoize.get(0));
-    assert_eq!("17", memoize.display(0));
+    assert_eq!("17!", memoize.display(0));
 
     let second = Data { value: 11 };
     assert_eq!(second.value, 11);
-    assert_eq!(memoize.store(second).id, 1);
+    assert_eq!(memoize.store(second, Some("11!".to_string())).id, 1);
     assert_eq!(first, *memoize.get(0));
     assert_eq!(second, *memoize.get(1));
-    assert_eq!("17", memoize.display(0));
-    assert_eq!("11", memoize.display(1));
+    assert_eq!("17!", memoize.display(0));
+    assert_eq!("11!", memoize.display(1));
 
     assert_eq!(*memoize.lookup(&second).unwrap(), 1);
     assert_eq!(*memoize.lookup(&first).unwrap(), 0);
     assert_eq!(first, *memoize.get(0));
     assert_eq!(second, *memoize.get(1));
-    assert_eq!("17", memoize.display(0));
-    assert_eq!("11", memoize.display(1));
+    assert_eq!("17!", memoize.display(0));
+    assert_eq!("11!", memoize.display(1));
 }
 
 #[test]
@@ -98,7 +91,7 @@ fn test_memoize_limit() {
     for value in 0..256 {
         let data = Data { value: value };
         assert_eq!(data.value, value);
-        assert_eq!(memoize.store(data).id, u8::from_usize(value).unwrap());
+        assert_eq!(memoize.store(data, None).id, u8::from_usize(value).unwrap());
         assert_eq!(data, *memoize.get(u8::from_usize(value).unwrap()));
     }
 }
@@ -107,6 +100,12 @@ fn test_memoize_limit() {
 struct Payload(u8);
 
 impl Validated for Payload {}
+
+impl Name for Payload {
+    fn name(&self) -> &'static str {
+        "payload"
+    }
+}
 
 impl Display for Payload {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> FormatterResult {
