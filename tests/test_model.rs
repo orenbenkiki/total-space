@@ -10,21 +10,21 @@ use total_space::*;
 
 #[derive(PartialEq, Eq, Hash, Copy, Clone, Debug)]
 struct Data {
-    pub i: i32,
+    pub value: usize,
 }
 
 impl Display for Data {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.i)
+        write!(f, "{}", self.value)
     }
 }
 
 #[test]
 fn test_memoize_value() {
-    let mut memoize = Memoize::<Data, u8>::new(false, None);
+    let mut memoize = Memoize::<Data, u8>::new(false);
 
-    let first = Data { i: 17 };
-    assert_eq!(first.i, 17);
+    let first = Data { value: 17 };
+    assert_eq!(first.value, 17);
     assert_eq!(
         memoize.store(first),
         Stored {
@@ -34,8 +34,8 @@ fn test_memoize_value() {
     );
     assert_eq!(first, *memoize.get(0));
 
-    let second = Data { i: 11 };
-    assert_eq!(second.i, 11);
+    let second = Data { value: 11 };
+    assert_eq!(second.value, 11);
     assert_eq!(
         memoize.store(second),
         Stored {
@@ -66,16 +66,16 @@ fn test_memoize_value() {
 
 #[test]
 fn test_memoize_display() {
-    let mut memoize = Memoize::<Data, u8>::new(true, None);
+    let mut memoize = Memoize::<Data, u8>::new(true);
 
-    let first = Data { i: 17 };
-    assert_eq!(first.i, 17);
+    let first = Data { value: 17 };
+    assert_eq!(first.value, 17);
     assert_eq!(memoize.store(first).id, 0);
     assert_eq!(first, *memoize.get(0));
     assert_eq!("17", memoize.display(0));
 
-    let second = Data { i: 11 };
-    assert_eq!(second.i, 11);
+    let second = Data { value: 11 };
+    assert_eq!(second.value, 11);
     assert_eq!(memoize.store(second).id, 1);
     assert_eq!(first, *memoize.get(0));
     assert_eq!(second, *memoize.get(1));
@@ -91,18 +91,16 @@ fn test_memoize_display() {
 }
 
 #[test]
-#[should_panic(expected = "too many memoized objects")]
+#[should_panic(expected = "too many (256) memoized objects")]
 fn test_memoize_limit() {
-    let mut memoize = Memoize::<Data, u8>::new(false, Some(1));
+    let mut memoize = Memoize::<Data, u8>::new(false);
 
-    let first = Data { i: 17 };
-    assert_eq!(first.i, 17);
-    assert_eq!(memoize.store(first).id, 0);
-    assert_eq!(first, *memoize.get(0));
-
-    let second = Data { i: 11 };
-    assert_eq!(second.i, 11);
-    memoize.store(second);
+    for value in 0..256 {
+        let data = Data { value: value };
+        assert_eq!(data.value, value);
+        assert_eq!(memoize.store(data).id, u8::from_usize(value).unwrap());
+        assert_eq!(data, *memoize.get(u8::from_usize(value).unwrap()));
+    }
 }
 
 #[derive(PartialEq, Eq, Hash, Copy, Clone)]

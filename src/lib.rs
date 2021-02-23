@@ -30,7 +30,15 @@ use std::sync::RwLock;
 pub trait KeyLike = Eq + Hash + Copy + Sized + Send + Sync + Display;
 
 /// A trait for anything we use as a zero-based index.
-pub trait IndexLike = KeyLike + Bounded + FromPrimitive + ToPrimitive + Unsigned;
+pub trait IndexLike = KeyLike + PartialOrd + Ord + Bounded + FromPrimitive + ToPrimitive + Unsigned;
+
+fn to_usize<I: IndexLike>(value: I) -> usize {
+    I::to_usize(&value).unwrap()
+}
+
+fn from_usize<I: IndexLike>(value: usize) -> I {
+    I::from_usize(value).unwrap()
+}
 
 /// Result of a memoization store operation.
 #[derive(PartialEq, Eq, Hash, Copy, Clone, Debug)]
@@ -52,11 +60,8 @@ pub struct Stored<I> {
 /// This uses roughly twice the amount of memory it should, because the values are stored both as
 /// keys in the HashMap and also as values in the vector. In principle, with clever use of
 /// RawEntryBuilder it might be possible to replace the HashMap key size to the size of an index of
-/// the vector. This is probably not worth the effort though.
+/// the vector.
 pub struct Memoize<T, I> {
-    /// The maximal identifier allowed (restricts the number of memoized objects).
-    max_id: usize,
-
     /// Lookup the memoized identifier for a value.
     id_by_value: HashMap<T, I>,
 
@@ -71,11 +76,8 @@ impl<T: KeyLike, I: IndexLike> Memoize<T, I> {
     /// Create a new memoization store.
     ///
     /// If `display`, will also memoize the display strings of the values.
-    pub fn new(display: bool, stop_id: Option<I>) -> Self {
+    pub fn new(display: bool) -> Self {
         Memoize {
-            max_id: stop_id.map_or(I::to_usize(&I::max_value()).unwrap(), |id| {
-                I::to_usize(&id).unwrap() - 1usize
-            }),
             id_by_value: HashMap::new(),
             value_by_id: Vec::new(),
             display_by_id: {
@@ -95,7 +97,7 @@ impl<T: KeyLike, I: IndexLike> Memoize<T, I> {
 
     /// The number of allocated identifiers.
     pub fn size(&self) -> I {
-        I::from_usize(self.usize()).unwrap()
+        from_usize(self.usize())
     }
 
     /// Given a value, look it up in the memory.
@@ -112,8 +114,8 @@ impl<T: KeyLike, I: IndexLike> Memoize<T, I> {
                 is_new: false,
             },
             None => {
-                if self.usize() > self.max_id {
-                    panic!("too many memoized objects");
+                if self.usize() >= to_usize(I::max_value()) {
+                    panic!("too many ({}) memoized objects", self.usize() + 1);
                 }
 
                 let id = self.size();
@@ -154,6 +156,10 @@ pub enum Emit<Payload> {
     /// messages from this source agent to the same target agent.
     Ordered(Payload, usize),
 
+    /// Send an immediate message that will replace the single in-flight message accepted by the
+    /// callback, or be created as a new message is the callback accepts `None`.
+    ImmediateReplacement(fn(Option<Payload>) -> bool, Payload, usize),
+
     /// Send an unordered message that will replace the single in-flight message accepted by the
     /// callback, or be created as a new message is the callback accepts `None`.
     UnorderedReplacement(fn(Option<Payload>) -> bool, Payload, usize),
@@ -161,10 +167,6 @@ pub enum Emit<Payload> {
     /// Send an ordered message that will replace the single in-flight message accepted by the
     /// callback, or be created as a new message is the callback accepts `None`.
     OrderedReplacement(fn(Option<Payload>) -> bool, Payload, usize),
-
-    /// Send an immediate message that will replace the single in-flight message accepted by the
-    /// callback, or be created as a new message is the callback accepts `None`.
-    ImmediateReplacement(fn(Option<Payload>) -> bool, Payload, usize),
 }
 
 /// Specify an action the agent may take as a response to an event.
@@ -331,7 +333,7 @@ impl<State: KeyLike + Validated, StateId: IndexLike, Payload: KeyLike + Validate
             name,
             count,
             is_indexed,
-            states: Arc::new(RwLock::new(Memoize::new(true, Some(StateId::max_value())))),
+            states: Arc::new(RwLock::new(Memoize::new(true))),
             _phantom: PhantomData,
         }
     }
@@ -547,6 +549,11 @@ impl<Payload> Display for Invalid<Payload> {
     }
 }
 
+/// The type of the index of the immediate message in the configuration.
+///
+/// "A total of 256 in-flight messages should be enough for everybody" ;-)
+type ImmediateId = u8;
+
 /// A complete system configuration.
 ///
 /// We will have a *lot* of these, so keeping their size down and avoiding heap memory as much as
@@ -571,7 +578,7 @@ pub struct Configuration<
     pub invalid: InvalidId,
 
     /// The index of the immediate message, or 255 if there is none.
-    pub immediate: u8,
+    pub immediate: ImmediateId,
 }
 
 impl<
@@ -599,6 +606,18 @@ impl<
     fn remove_message(&mut self, mut message_index: usize) {
         debug_assert!(self.messages[message_index] != MessageId::max_value());
 
+        if self.immediate != ImmediateId::max_value() {
+            match to_usize(self.immediate) {
+                immediate_index if immediate_index > message_index => {
+                    self.immediate -= 1;
+                }
+                immediate_index if immediate_index == message_index => {
+                    self.immediate = ImmediateId::max_value();
+                }
+                _ => {}
+            }
+        }
+
         loop {
             let next_message_index = message_index + 1;
             let next_message_id = if next_message_index < MAX_MESSAGES {
@@ -611,6 +630,51 @@ impl<
                 return;
             }
             message_index = next_message_index;
+        }
+    }
+
+    /// Add a message to the configuration.
+    fn add_message(&mut self, message_id: MessageId, is_immediate: bool) {
+        debug_assert!(
+            !is_immediate || !self.has_immediate(),
+            "adding a second immediate message"
+        );
+        assert!(
+            self.messages[MAX_MESSAGES - 1] != MessageId::max_value(),
+            "too many in-flight messages, must be at most {}",
+            MAX_MESSAGES
+        );
+
+        self.messages[MAX_MESSAGES - 1] = message_id;
+        let immediate_id = if is_immediate {
+            message_id
+        } else {
+            self.immediate_id().unwrap_or_else(MessageId::max_value)
+        };
+
+        self.messages.sort();
+
+        if immediate_id != MessageId::max_value() {
+            let immediate_index = self
+                .messages
+                .iter()
+                .position(|&message_id| message_id == immediate_id)
+                .unwrap();
+            self.immediate = from_usize(immediate_index);
+        }
+    }
+
+    /// Return whether there is an immediate message.
+    fn has_immediate(&self) -> bool {
+        self.immediate != ImmediateId::max_value()
+    }
+
+    /// Return the immediate message identifier, if any.
+    fn immediate_id(&self) -> Option<MessageId> {
+        if self.has_immediate() {
+            Some(self.messages[to_usize(self.immediate)])
+        } else {
+            None
         }
     }
 
@@ -665,6 +729,9 @@ pub struct Model<
 
     /// The type of each agent.
     pub agent_types: Vec<<Self as MetaModel>::AgentTypeArc>,
+
+    /// The label of each agent.
+    pub agent_labels: Vec<Arc<String>>,
 
     /// The first instance of the same type of each agent.
     pub first_instances: Vec<usize>,
@@ -756,8 +823,8 @@ pub struct Context<
     const MAX_AGENTS: usize,
     const MAX_MESSAGES: usize,
 > {
-    /// The configuration the agent belonged to.
-    configuration: Configuration<StateId, MessageId, InvalidId, MAX_AGENTS, MAX_MESSAGES>,
+    /// Incrementally updated to become the target configuration.
+    to_configuration: Configuration<StateId, MessageId, InvalidId, MAX_AGENTS, MAX_MESSAGES>,
 
     /// The index of the agent that generated the response.
     agent_index: usize,
@@ -768,12 +835,12 @@ pub struct Context<
     /// The index of the agent in its type.
     instance_index: usize,
 
-    /// The identifier state of the state of the agent when generating the response.
-    state_id: StateId,
+    /// The identifier of the state of the agent when generating the response.
+    from_state_id: StateId,
 
-    /// The identifier of the message that the agent received, or `max_value` if the agent received
-    /// a time event.
-    message_id: MessageId,
+    /// The identifier of the message that the agent received, or `None` if the agent received a
+    /// time event.
+    delivered_message_id: Option<MessageId>,
 
     /// The incoming transition into the new configuration to be generated.
     incoming: Incoming<ConfigurationId>,
@@ -830,8 +897,16 @@ impl<
         validators: Vec<<Self as MetaModel>::Validator>,
         threads: usize,
     ) -> Self {
+        assert!(
+            MAX_MESSAGES < to_usize(ImmediateId::max_value()),
+            "MAX_MESSAGES {} is too large, must be less than {}",
+            MAX_MESSAGES,
+            ImmediateId::max_value()
+        );
+
         let mut agent_types: Vec<<Self as MetaModel>::AgentTypeArc> = vec![];
         let mut first_instances: Vec<usize> = vec![];
+        let mut agent_labels: Vec<Arc<String>> = vec![];
 
         for agent_type in types.iter() {
             let count = agent_type.count();
@@ -841,35 +916,37 @@ impl<
                 agent_type.name()
             );
             let first_instance = agent_types.len();
-            for _ in 0..count {
+            for instance_index in 0..count {
                 first_instances.push(first_instance);
                 agent_types.push(agent_type.clone());
+                let agent_label = if agent_type.is_indexed() {
+                    format!("{}-{}", agent_type.name(), instance_index)
+                } else {
+                    debug_assert!(instance_index == 0);
+                    agent_type.name().to_string()
+                };
+                agent_labels.push(Arc::new(agent_label));
             }
         }
 
         let model = Model {
             types,
             agent_types,
+            agent_labels,
             first_instances,
             validators,
-            configurations: RwLock::new(Memoize::new(
-                false,
-                Some(Self::invalid_configuration_id()),
-            )),
-            messages: Arc::new(RwLock::new(Memoize::new(
-                true,
-                Some(MessageId::max_value()),
-            ))),
-            invalids: RwLock::new(Memoize::new(true, Some(Self::invalid_invalid_id()))),
+            configurations: RwLock::new(Memoize::new(false)),
+            messages: Arc::new(RwLock::new(Memoize::new(true))),
+            invalids: RwLock::new(Memoize::new(true)),
             outgoing: RwLock::new(Vec::new()),
             incoming: RwLock::new(Vec::new()),
         };
 
         let initial_configuration = Configuration {
-            states: [StateId::from_usize(0).unwrap(); MAX_AGENTS],
+            states: [from_usize(0); MAX_AGENTS],
             messages: [MessageId::max_value(); MAX_MESSAGES],
             invalid: InvalidId::max_value(),
-            immediate: u8::max_value(),
+            immediate: ImmediateId::max_value(),
         };
 
         ThreadPoolBuilder::new()
@@ -892,38 +969,38 @@ impl<
         let configuration_id = stored.id;
         if !stored.is_new {
             if let Some(transition) = incoming {
-                self.incoming.read().unwrap()
-                    [ConfigurationId::to_usize(&configuration_id).unwrap()]
-                .write()
-                .unwrap()
-                .push(transition);
+                self.incoming.read().unwrap()[to_usize(configuration_id)]
+                    .write()
+                    .unwrap()
+                    .push(transition);
             }
             return;
         }
 
         let agents_count = self.agent_types.len();
-
-        let messages_count = if configuration.immediate == u8::max_value() {
+        let messages_count = if configuration.has_immediate() {
+            1
+        } else {
             configuration
                 .messages
                 .iter()
-                .position(|&message_id| message_id == Self::invalid_message_id())
+                .position(|&message_id| message_id == MessageId::max_value())
                 .unwrap_or(MAX_MESSAGES)
-        } else {
-            1
         };
         let events_count = agents_count + messages_count;
+
         (0..events_count).into_par_iter().for_each(|event_index| {
             if event_index < agents_count {
-                self.time_transition(configuration_id, configuration, event_index);
-            } else if configuration.immediate == 1 {
-                self.message_transition(
+                self.deliver_time_event(configuration_id, configuration, event_index);
+            } else if configuration.has_immediate() {
+                debug_assert!(event_index == agents_count);
+                self.deliver_message_event(
                     configuration_id,
                     configuration,
-                    u8::to_usize(&configuration.immediate).unwrap(),
+                    to_usize(configuration.immediate),
                 );
             } else {
-                self.message_transition(
+                self.deliver_message_event(
                     configuration_id,
                     configuration,
                     event_index - agents_count,
@@ -932,7 +1009,7 @@ impl<
         });
     }
 
-    fn time_transition(
+    fn deliver_time_event(
         &self,
         configuration_id: ConfigurationId,
         configuration: <Self as MetaModel>::Configuration,
@@ -947,26 +1024,25 @@ impl<
             return;
         }
 
-        let state_id = configuration.states[agent_index];
-        let message_id = Self::invalid_message_id();
+        let from_state_id = configuration.states[agent_index];
         let incoming = Incoming {
             from: configuration_id,
             message: ConfigurationId::max_value(),
         };
 
         let context = Context {
-            configuration,
+            to_configuration: configuration,
             agent_index,
             agent_type,
             instance_index,
-            state_id,
-            message_id,
+            from_state_id,
+            delivered_message_id: None,
             incoming,
         };
-        self.response_transition(context, response);
+        self.process_response(context, response);
     }
 
-    fn message_transition(
+    fn deliver_message_event(
         &self,
         configuration_id: ConfigurationId,
         mut configuration: <Self as MetaModel>::Configuration,
@@ -977,34 +1053,39 @@ impl<
         let (agent_index, payload) = {
             let messages = self.messages.read().unwrap();
             let message = messages.get(message_id);
+            if let MessageOrder::Ordered(order) = message.order {
+                if order > 0 {
+                    return;
+                }
+            }
             (message.target, message.payload)
         };
 
         let instance_index = self.instance_index(agent_index);
-        let state_id = configuration.states[agent_index];
+        let from_state_id = configuration.states[agent_index];
         let agent_type = self.agent_types[agent_index].clone();
-        let response = agent_type.message_response(instance_index, state_id, &payload);
+        let response = agent_type.message_response(instance_index, from_state_id, &payload);
 
         let incoming = Incoming {
             from: configuration_id,
-            message: ConfigurationId::from_usize(message_index).unwrap(),
+            message: from_usize(message_index),
         };
 
-        configuration.remove_message(message_index);
+        self.remove_message(&mut configuration, message_index);
 
         let context = Context {
-            configuration,
+            to_configuration: configuration,
             agent_index,
             agent_type,
             instance_index,
-            state_id,
-            message_id,
+            from_state_id,
+            delivered_message_id: Some(message_id),
             incoming,
         };
-        self.response_transition(context, response);
+        self.process_response(context, response);
     }
 
-    fn response_transition(
+    fn process_response(
         &self,
         context: <Self as MetaModel>::Context,
         response: <Self as MetaModel>::Response,
@@ -1013,29 +1094,29 @@ impl<
             Response::Defer => self.is_deferring_message(context),
             Response::Ignore => self.is_ignoring_message(context),
 
-            Response::Do1(action) => self.action_transition(context, action),
+            Response::Do1(action1) => self.perform_action(context, action1),
 
             Response::Do1Of2(action1, action2) => {
-                self.action_transition(context.clone(), action1);
-                self.action_transition(context, action2);
+                self.perform_action(context.clone(), action1);
+                self.perform_action(context, action2);
             }
 
             Response::Do1Of3(action1, action2, action3) => {
-                self.action_transition(context.clone(), action1);
-                self.action_transition(context.clone(), action2);
-                self.action_transition(context, action3);
+                self.perform_action(context.clone(), action1);
+                self.perform_action(context.clone(), action2);
+                self.perform_action(context, action3);
             }
 
             Response::Do1Of4(action1, action2, action3, action4) => {
-                self.action_transition(context.clone(), action1);
-                self.action_transition(context.clone(), action2);
-                self.action_transition(context.clone(), action3);
-                self.action_transition(context, action4);
+                self.perform_action(context.clone(), action1);
+                self.perform_action(context.clone(), action2);
+                self.perform_action(context.clone(), action3);
+                self.perform_action(context, action4);
             }
         }
     }
 
-    fn action_transition(
+    fn perform_action(
         &self,
         mut context: <Self as MetaModel>::Context,
         action: <Self as MetaModel>::Action,
@@ -1044,19 +1125,26 @@ impl<
             Action::Defer => self.is_deferring_message(context),
 
             Action::Ignore => self.is_ignoring_message(context),
-            Action::Change(state_id) => {
+            Action::Change(to_state_id) => {
                 context
-                    .configuration
-                    .change_state(context.agent_index, state_id);
-                self.reach_configuration(context.configuration, Some(context.incoming));
+                    .to_configuration
+                    .change_state(context.agent_index, to_state_id);
+                self.reach_configuration(context.to_configuration, Some(context.incoming));
             }
 
-            Action::Send1(emit) => self.emit_transition(context, emit),
+            Action::Send1(emit1) => self.emit_transition(context, emit1),
 
-            Action::ChangeAndSend2(state_id, emit1, emit2) => {
+            Action::ChangeAndSend1(to_state_id, emit1) => {
                 context
-                    .configuration
-                    .change_state(context.agent_index, state_id);
+                    .to_configuration
+                    .change_state(context.agent_index, to_state_id);
+                self.emit_transition(context, emit1);
+            }
+
+            Action::ChangeAndSend2(to_state_id, emit1, emit2) => {
+                context
+                    .to_configuration
+                    .change_state(context.agent_index, to_state_id);
                 self.emit_transition(context.clone(), emit1);
                 self.emit_transition(context, emit2);
             }
@@ -1066,10 +1154,10 @@ impl<
                 self.emit_transition(context, emit2);
             }
 
-            Action::ChangeAndSend3(state_id, emit1, emit2, emit3) => {
+            Action::ChangeAndSend3(to_state_id, emit1, emit2, emit3) => {
                 context
-                    .configuration
-                    .change_state(context.agent_index, state_id);
+                    .to_configuration
+                    .change_state(context.agent_index, to_state_id);
                 self.emit_transition(context.clone(), emit1);
                 self.emit_transition(context.clone(), emit2);
                 self.emit_transition(context, emit3);
@@ -1081,10 +1169,10 @@ impl<
                 self.emit_transition(context, emit3);
             }
 
-            Action::ChangeAndSend4(state_id, emit1, emit2, emit3, emit4) => {
+            Action::ChangeAndSend4(to_state_id, emit1, emit2, emit3, emit4) => {
                 context
-                    .configuration
-                    .change_state(context.agent_index, state_id);
+                    .to_configuration
+                    .change_state(context.agent_index, to_state_id);
                 self.emit_transition(context.clone(), emit1);
                 self.emit_transition(context.clone(), emit2);
                 self.emit_transition(context.clone(), emit3);
@@ -1097,71 +1185,299 @@ impl<
                 self.emit_transition(context.clone(), emit3);
                 self.emit_transition(context, emit4);
             }
-
-            _ => panic!("todo"),
         }
     }
 
     fn emit_transition(
         &self,
-        _context: <Self as MetaModel>::Context,
+        mut context: <Self as MetaModel>::Context,
         emit: <Self as MetaModel>::Emit,
     ) {
         match emit {
-            // Emit::Immediate(payload, target) =>
-            // Emit::Unordered(payload, target) =>
-            // Emit::Ordered(payload, target) =>
-            // Emit::UnorderedReplacement(callback, payload, target) =>
-            // Emit::OrderedReplacement(callback, payload, target) =>
-            // Emit::ImmediateReplacement(callback, payload, target) =>
-            _ => panic!("todo"),
+            Emit::Immediate(payload, target) => {
+                let message = Message {
+                    order: MessageOrder::Immediate,
+                    source: context.agent_index,
+                    target,
+                    payload,
+                    replaced: None,
+                };
+                self.emit_message(context, message);
+            }
+
+            Emit::Unordered(payload, target) => {
+                let message = Message {
+                    order: MessageOrder::Unordered,
+                    source: context.agent_index,
+                    target,
+                    payload,
+                    replaced: None,
+                };
+                self.emit_message(context, message);
+            }
+
+            Emit::Ordered(payload, target) => {
+                let order =
+                    self.count_ordered(&context.to_configuration, context.agent_index, target) + 1;
+                let message = Message {
+                    order: MessageOrder::Ordered(order),
+                    source: context.agent_index,
+                    target,
+                    payload,
+                    replaced: None,
+                };
+                self.emit_message(context, message);
+            }
+
+            Emit::ImmediateReplacement(callback, payload, target) => {
+                let replaced = self.replace_message(&mut context, callback, &payload, target);
+                let message = Message {
+                    order: MessageOrder::Immediate,
+                    source: context.agent_index,
+                    target,
+                    payload,
+                    replaced,
+                };
+                self.emit_message(context, message);
+            }
+
+            Emit::UnorderedReplacement(callback, payload, target) => {
+                let replaced = self.replace_message(&mut context, callback, &payload, target);
+                let message = Message {
+                    order: MessageOrder::Unordered,
+                    source: context.agent_index,
+                    target,
+                    payload,
+                    replaced,
+                };
+                self.emit_message(context, message);
+            }
+
+            Emit::OrderedReplacement(callback, payload, target) => {
+                let replaced = self.replace_message(&mut context, callback, &payload, target);
+                let order =
+                    self.count_ordered(&context.to_configuration, context.agent_index, target) + 1;
+                let message = Message {
+                    order: MessageOrder::Ordered(order),
+                    source: context.agent_index,
+                    target,
+                    payload,
+                    replaced,
+                };
+                self.emit_message(context, message);
+            }
         }
     }
 
+    fn count_ordered(
+        &self,
+        configuration: &<Self as MetaModel>::Configuration,
+        source: usize,
+        target: usize,
+    ) -> u16 {
+        let messages = self.messages.read().unwrap();
+        from_usize(
+            configuration
+                .messages
+                .iter()
+                .filter(|message_id| **message_id != MessageId::max_value())
+                .map(|message_id| messages.get(*message_id))
+                .filter(|message| {
+                    message.source == source
+                        && message.target == target
+                        && matches!(message.order, MessageOrder::Ordered(_))
+                })
+                .fold(0, |count, _message| count + 1),
+        )
+    }
+
+    fn replace_message(
+        &self,
+        context: &mut <Self as MetaModel>::Context,
+        callback: fn(Option<Payload>) -> bool,
+        payload: &Payload,
+        target: usize,
+    ) -> Option<Payload> {
+        let replaced = {
+            let messages = self.messages.read().unwrap();
+            context.to_configuration
+                .messages
+                .iter()
+                .enumerate()
+                .filter(|(_, message_id)| **message_id != MessageId::max_value())
+                .map(|(message_index, message_id)| (message_index, messages.get(*message_id)))
+                .filter(|(_, message)| {
+                        message.source == context.agent_index
+                            && message.target == target
+                            && callback(Some(message.payload))
+                })
+                .fold(None, |replaced, (message_index, message)| {
+                    match replaced {
+                        None => Some((message_index, message)),
+                        Some((_, conflict)) => {
+                            let conflict_payload = format!("{}", conflict.payload);
+                            let message_payload = format!("{}", message.payload);
+                            let replacement_payload = format!("{}", payload);
+                            let source_agent_label = self.agent_labels[context.agent_index].clone();
+                            let target_agent_label = self.agent_labels[target].clone();
+                            let event_label = self.event_label(context.delivered_message_id);
+                            context.agent_type.state_display(context.from_state_id, Box::new(move |from_state| {
+                                panic!(
+                                    "both the message {} and the message {} can be replaced by the ambiguous replacement message {} sent to the agent {} by the agent {} in the state {} when responding to the {}",
+                                   conflict_payload,
+                                   message_payload,
+                                   replacement_payload,
+                                   target_agent_label,
+                                   source_agent_label,
+                                   from_state,
+                                   event_label
+                               );
+                            }));
+                            None // NOT REACHED
+                        }
+                    }
+                })
+                .map(|(message_index, message)| Some((message_index, message.payload)))
+                .unwrap_or_else(|| {
+                    if !callback(None) {
+                        let replacement_payload = format!("{}", payload);
+                        let source_agent_label = self.agent_labels[context.agent_index].clone();
+                        let target_agent_label = self.agent_labels[target].clone();
+                        let event_label = self.event_label(context.delivered_message_id);
+                        context.agent_type.state_display(context.from_state_id, Box::new(move |from_state| {
+                            panic!(
+                                "nothing was replaced by the required replacement message {} sent to the agent {} by the agent {} in the state {} when responding to the {}",
+                               replacement_payload,
+                               target_agent_label,
+                               source_agent_label,
+                               from_state,
+                               event_label
+                           );
+                        }));
+                    }
+                    None
+                })
+        };
+
+        if let Some((replaced_index, replaced_payload)) = replaced {
+            self.remove_message(&mut context.to_configuration, replaced_index);
+            Some(replaced_payload)
+        } else {
+            None
+        }
+    }
+
+    fn remove_message(
+        &self,
+        configuration: &mut <Self as MetaModel>::Configuration,
+        message_index: usize,
+    ) {
+        let removed_message_id = configuration.messages[message_index];
+        let (removed_message_source, removed_message_target, removed_order) = {
+            let messages = self.messages.read().unwrap();
+            let removed_message = messages.get(removed_message_id);
+            if let MessageOrder::Ordered(removed_order) = removed_message.order {
+                (
+                    removed_message.source,
+                    removed_message.target,
+                    Some(removed_order),
+                )
+            } else {
+                (removed_message.source, removed_message.target, None)
+            }
+        };
+
+        configuration.remove_message(message_index);
+
+        if let Some(removed_message_order) = removed_order {
+            let mut messages = self.messages.write().unwrap();
+            let mut did_modify = false;
+            for message_index in 0..MAX_MESSAGES {
+                let message_id = configuration.messages[message_index];
+
+                if message_id == MessageId::max_value() {
+                    break;
+                }
+
+                if message_id == removed_message_id {
+                    continue;
+                }
+
+                let message = messages.get(message_id);
+                if message.source != removed_message_source
+                    || message.target != removed_message_target
+                {
+                    continue;
+                }
+
+                if let MessageOrder::Ordered(message_order) = message.order {
+                    if message_order > removed_message_order {
+                        let mut new_message = *message;
+                        let new_message_order = message_order - 1;
+                        new_message.order = MessageOrder::Ordered(new_message_order);
+                        configuration.messages[message_index] = messages.store(new_message).id;
+                        did_modify = true;
+                    }
+                }
+            }
+
+            if did_modify {
+                configuration.messages.sort();
+            }
+        }
+    }
+
+    fn emit_message(
+        &self,
+        mut context: <Self as MetaModel>::Context,
+        message: <Self as MetaModel>::Message,
+    ) {
+        let is_immediate = message.order == MessageOrder::Immediate;
+        let message_id = if let Some(message_id) = self.messages.read().unwrap().lookup(&message) {
+            *message_id
+        } else {
+            self.messages.write().unwrap().store(message).id
+        };
+        context
+            .to_configuration
+            .add_message(message_id, is_immediate);
+        self.reach_configuration(context.to_configuration, Some(context.incoming));
+    }
+
     fn is_ignoring_message(&self, context: <Self as MetaModel>::Context) {
-        if context.incoming.message != Self::invalid_configuration_id() {
-            self.reach_configuration(context.configuration, Some(context.incoming));
+        if context.incoming.message != ConfigurationId::max_value() {
+            self.reach_configuration(context.to_configuration, Some(context.incoming));
         }
     }
 
     fn is_deferring_message(&self, context: <Self as MetaModel>::Context) {
-        if context.message_id == Self::invalid_message_id() {
-            let name = context.agent_type.name();
-            let is_indexed = context.agent_type.is_indexed();
-            let instance_index = context.instance_index;
-            context.agent_type.state_display(context.state_id, Box::new(move |state| {
-                if is_indexed {
-                    panic!("agent {}-{} is deferring (should be ignoring) the time event while in the state {}",
-                           name, instance_index, state);
-                } else {
-                    panic!("agent {} is deferring (should be ignoring) the time event while in the state {}",
-                           name, state);
-                }
-            }));
-        } else if !context.agent_type.state_is_deferring(context.state_id) {
-            let name = context.agent_type.name();
-            let display = self
-                .messages
-                .read()
-                .unwrap()
-                .display(context.message_id)
-                .to_string();
-            let is_indexed = context.agent_type.is_indexed();
-            let instance_index = context.instance_index;
-            context.agent_type.state_display(context.state_id, Box::new(move |state| {
-                if is_indexed {
-                    panic!("agent {}-{} is deferring the message {} while in the non-deferring state {}",
-                           name, instance_index, display, state);
-                } else {
-                    panic!("agent {} is deferring the message {} while in the non-deferring state {}",
-                           name, display, state);
-                }
-            }));
+        match context.delivered_message_id {
+            None => {
+                let agent_label = self.agent_labels[context.agent_index].clone();
+                let event_label = self.event_label(None);
+                context.agent_type.state_display(context.from_state_id, Box::new(move |from_state| {
+                    panic!("the agent {} is deferring (should be ignoring) the {} while in the state {}",
+                           agent_label, event_label, from_state);
+                }));
+            }
+
+            Some(delivered_message_id)
+                if !context.agent_type.state_is_deferring(context.from_state_id) =>
+            {
+                let agent_label = self.agent_labels[context.agent_index].clone();
+                let event_label = self.event_label(Some(delivered_message_id));
+                context.agent_type.state_display(context.from_state_id, Box::new(move |from_state| {
+                    panic!("the agent {} is deferring (should be ignoring) the {} while in the state {}",
+                           agent_label, event_label, from_state);
+                }));
+            }
+
+            _ => {}
         }
     }
 
     fn validate_configuration(&self, configuration: &mut <Self as MetaModel>::Configuration) {
-        if configuration.invalid == Self::invalid_invalid_id() {
+        if configuration.invalid == InvalidId::max_value() {
             for validator in self.validators.iter() {
                 if let Some(reason) = validator(&configuration) {
                     let invalid = <Self as MetaModel>::Invalid::Configuration(reason);
@@ -1185,32 +1501,39 @@ impl<
         let is_new = stored.is_new;
         let to_configuration_id = stored.id;
         if is_new || incoming.is_some() {
-            let mut incoming_vector = self.incoming.write().unwrap();
+            {
+                let mut incoming_vector = self.incoming.write().unwrap();
 
-            if is_new {
-                incoming_vector.push(RwLock::new(Vec::new()));
-                self.outgoing.write().unwrap().push(RwLock::new(Vec::new()));
+                if is_new {
+                    incoming_vector.push(RwLock::new(Vec::new()));
+                }
+
+                if let Some(transition) = incoming {
+                    incoming_vector[to_usize(to_configuration_id)]
+                        .write()
+                        .unwrap()
+                        .push(transition);
+                }
             }
+            {
+                let mut outgoing_vector = self.outgoing.write().unwrap();
 
-            if let Some(transition) = incoming {
-                incoming_vector[ConfigurationId::to_usize(&to_configuration_id).unwrap()]
-                    .write()
-                    .unwrap()
-                    .push(transition);
+                if is_new {
+                    outgoing_vector.push(RwLock::new(Vec::new()));
+                }
+
+                if let Some(transition) = incoming {
+                    let from_configuration_id = transition.from;
+                    let outgoing = Outgoing {
+                        to: to_configuration_id,
+                        message: transition.message,
+                    };
+                    outgoing_vector[to_usize(from_configuration_id)]
+                        .write()
+                        .unwrap()
+                        .push(outgoing);
+                }
             }
-        }
-
-        if let Some(transition) = incoming {
-            let from_configuration_id = transition.from;
-            let outgoing = Outgoing {
-                to: to_configuration_id,
-                message: transition.message,
-            };
-            self.outgoing.write().unwrap()
-                [ConfigurationId::to_usize(&from_configuration_id).unwrap()]
-            .write()
-            .unwrap()
-            .push(outgoing);
         }
 
         stored
@@ -1255,24 +1578,13 @@ impl<
         self.invalids.read().unwrap().usize() == 0
     }
 
-    /// An invalid state identifier.
-    pub fn invalid_state_id() -> StateId {
-        StateId::max_value()
-    }
-
-    /// An invalid message identifier.
-    pub fn invalid_message_id() -> MessageId {
-        MessageId::max_value()
-    }
-
-    /// An invalid configuration identifier.
-    pub fn invalid_configuration_id() -> ConfigurationId {
-        ConfigurationId::max_value()
-    }
-
-    /// An invalid invalid condition identifier.
-    pub fn invalid_invalid_id() -> InvalidId {
-        InvalidId::max_value()
+    fn event_label(&self, message_id: Option<MessageId>) -> String {
+        let messages = self.messages.read().unwrap();
+        match message_id {
+            None => "time event".to_string(),
+            Some(message_id) if message_id == MessageId::max_value() => "time event".to_string(),
+            Some(message_id) => "message ".to_string() + messages.display(message_id),
+        }
     }
 }
 
