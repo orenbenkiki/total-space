@@ -1,5 +1,7 @@
 extern crate total_space;
 
+use num_traits::cast::FromPrimitive;
+use num_traits::cast::ToPrimitive;
 use std::fmt::Display;
 use std::fmt::Formatter;
 use std::fmt::Result as FormatterResult;
@@ -40,7 +42,8 @@ impl Display for ClientState {
 impl Validated for ClientState {}
 
 impl Default for ClientState {
-    fn default() -> Self {
+    fn default() -> Self // NOT TESTED
+    {
         Self::Idle
     }
 }
@@ -51,7 +54,7 @@ impl AgentState<ClientState, Payload> for ClientState {
             Self::Wait => Reaction::Ignore,
             Self::Idle => Reaction::Do1(Action::ChangeAndSend1(
                 Self::Wait,
-                Emit::Unordered(Payload::Request, 0),
+                Emit::Unordered(Payload::Request, 1),
             )),
         }
     }
@@ -59,7 +62,14 @@ impl AgentState<ClientState, Payload> for ClientState {
     fn receive_message(&self, _instance: usize, payload: &Payload) -> Reaction<Self, Payload> {
         match (self, payload) {
             (Self::Wait, Payload::Response) => Reaction::Do1(Action::Change(Self::Idle)),
-            _ => panic!("unexpected"),
+            _ => Reaction::Unexpected, // NOT TESTED
+        }
+    }
+
+    fn max_in_flight_messages(&self) -> Option<usize> {
+        match self {
+            Self::Wait => Some(1),
+            Self::Idle => Some(0),
         }
     }
 }
@@ -81,7 +91,8 @@ impl Display for ServerState {
 impl Validated for ServerState {}
 
 impl Default for ServerState {
-    fn default() -> Self {
+    fn default() -> Self // NOT TESTED
+    {
         Self::Listen
     }
 }
@@ -92,7 +103,7 @@ impl AgentState<ServerState, Payload> for ServerState {
             Self::Listen => Reaction::Ignore,
             Self::Work => Reaction::Do1(Action::ChangeAndSend1(
                 Self::Listen,
-                Emit::Unordered(Payload::Response, 1),
+                Emit::Unordered(Payload::Response, 0),
             )),
         }
     }
@@ -100,24 +111,37 @@ impl AgentState<ServerState, Payload> for ServerState {
     fn receive_message(&self, _instance: usize, payload: &Payload) -> Reaction<Self, Payload> {
         match (self, payload) {
             (Self::Listen, Payload::Request) => Reaction::Do1(Action::Change(Self::Work)),
-            (Self::Work, Payload::Request) => Reaction::Defer,
-            _ => panic!("unexpected"),
+            (Self::Work, Payload::Request) => Reaction::Defer, // NOT TESTED
+            _ => Reaction::Unexpected,                         // NOT TESTED
         }
     }
 
-    fn is_deferring(&self) -> bool {
-        self == &Self::Work
+    fn is_deferring(&self) -> bool // NOT TESTED
+    {
+        self == &Self::Work // NOT TESTED
+    }
+
+    fn max_in_flight_messages(&self) -> Option<usize> {
+        match self {
+            Self::Listen => Some(1),
+            Self::Work => Some(0),
+        }
     }
 }
 
+index_type! { StateId, u8 }
+index_type! { MessageId, u8 }
+index_type! { InvalidId, u8 }
+index_type! { ConfigurationId, u32 }
+
 type TestModel = Model<
-    u8,      // StateId
-    u8,      // MessageId
-    u8,      // InvalidId
-    u32,     // ConfigurationId
-    Payload, // Payload
-    19,      // MAX_AGENTS
-    37,      // MAX_MESSAGES
+    StateId,
+    MessageId,
+    InvalidId,
+    ConfigurationId,
+    Payload,
+    6,  // MAX_AGENTS
+    14, // MAX_MESSAGES
 >;
 
 #[test]

@@ -3,6 +3,12 @@ name = "total-space"
 version = "0.1.0"
 authors = ["Oren Ben-Kiki <oren@ben-kiki.org>"]
 edition = "2018"
+license = "GPL-3.0"
+description = "Explore the total space of states of communicating finite state machines."
+# repository = "TODO"
+# readme = "README.md"
+# keywords = [ "TODO" ]
+# categories =[ "TODO" ]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
