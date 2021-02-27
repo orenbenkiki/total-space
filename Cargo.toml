@@ -14,8 +14,9 @@ description = "Explore the total space of states of communicating finite state m
 
 [dependencies]
 hashbrown = "^0.9.1"
+lazy_static = "^1.4.0"
 num-traits = "^0.2.8"
-string_cache = "^0.8.1"
 rayon = "^1.5.0"
-strum = { version = "^0.20.0", features = ["derive"] }
+string_cache = "^0.8.1"
 strum_macros = "^0.20.0"
+strum = { version = "^0.20.0", features = [ "derive" ] }
