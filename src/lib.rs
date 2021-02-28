@@ -1713,11 +1713,9 @@ impl<
             let messages = self.messages.read().unwrap();
             let message = messages.get(message_id);
             if let MessageOrder::Ordered(order) = message.order {
-                // BEGIN NOT TESTED
                 if order.to_usize() > 0 {
                     return;
                 }
-                // END NOT TESTED
             }
             (
                 message.source_index,
@@ -1895,13 +1893,12 @@ impl<
                 self.emit_message(context, message);
             }
 
-            // BEGIN NOT TESTED
             Emit::Ordered(payload, target_index) => {
                 let order = self.count_ordered(
                     &context.to_configuration,
                     context.agent_index,
                     target_index,
-                ) + 1;
+                );
                 let message = Message {
                     order: MessageOrder::Ordered(MessageIndex::from_usize(order)),
                     source_index: context.agent_index,
@@ -1911,7 +1908,7 @@ impl<
                 };
                 self.emit_message(context, message);
             }
-            // END NOT TESTED
+
             Emit::ImmediateReplacement(callback, payload, target_index) => {
                 let replaced = self.replace_message(&mut context, callback, &payload, target_index);
                 let message = Message {
@@ -1956,7 +1953,6 @@ impl<
         }
     }
 
-    // BEGIN NOT TESTED
     fn count_ordered(
         &self,
         configuration: &<Self as MetaModel>::Configuration,
@@ -1976,7 +1972,6 @@ impl<
             })
             .fold(0, |count, _message| count + 1)
     }
-    // END NOT TESTED
 
     fn replace_message(
         &self,
@@ -2073,13 +2068,11 @@ impl<
             let messages = self.messages.read().unwrap();
             let removed_message = messages.get(removed_message_id);
             if let MessageOrder::Ordered(removed_order) = removed_message.order {
-                // BEGIN NOT TESTED
                 (
                     removed_message.source_index,
                     removed_message.target_index,
                     Some(removed_order),
                 )
-                // END NOT TESTED
             } else {
                 (
                     removed_message.source_index,
@@ -2092,7 +2085,6 @@ impl<
         configuration.remove_message(source, message_index);
 
         if let Some(removed_message_order) = removed_order {
-            // BEGIN NOT TESTED
             let mut messages = self.messages.write().unwrap();
             let mut did_modify = false;
             for message_index in 0..MAX_MESSAGES {
@@ -2121,9 +2113,11 @@ impl<
                             if let Some(new_message_id) = messages.lookup(&new_message) {
                                 *new_message_id
                             } else {
+                                // BEGIN NOT TESTED
                                 messages
                                     .store(new_message, Some(self.display_message(&new_message)))
                                     .id
+                                // END NOT TESTED
                             };
                         did_modify = true;
                     }
@@ -2131,10 +2125,9 @@ impl<
             }
 
             if did_modify {
-                assert!(configuration.immediate_index.is_valid());
+                assert!(!configuration.immediate_index.is_valid());
                 configuration.message_ids.sort();
             }
-            // END NOT TESTED
         }
     }
 
@@ -2416,11 +2409,10 @@ impl<
         string.push_str(&*self.agent_labels[message.source_index]);
         string.push_str(" -> ");
 
-        match message.order // MAYBE TESTED
-        {
-            MessageOrder::Immediate => string.push_str("* "), // MAYBE TESTED
+        match message.order {
+            MessageOrder::Immediate => string.push_str("* "),
             MessageOrder::Unordered => {}
-            MessageOrder::Ordered(order) => string.push_str(&format!("@{} ", order)), // NOT TESTED
+            MessageOrder::Ordered(order) => string.push_str(&format!("@{} ", order)), //
         }
 
         if let Some(ref replaced) = message.replaced {
