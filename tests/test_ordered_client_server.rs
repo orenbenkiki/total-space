@@ -165,9 +165,9 @@ fn test_model() {
 
     {
         let app = add_clap(App::new("test_client_server_model"));
-        let mut arg_matches = app.get_matches_from(vec!["test", "-p", "-t", "1", "agents"].iter());
+        let arg_matches = app.get_matches_from(vec!["test", "-p", "-t", "1", "agents"].iter());
         let mut stdout_bytes = Vec::new();
-        assert!(model.do_clap(&mut arg_matches, &mut stdout_bytes));
+        assert!(model.do_clap(&arg_matches, &mut stdout_bytes));
         let stdout = str::from_utf8(&stdout_bytes).unwrap();
         assert_eq!(
             stdout,
@@ -180,10 +180,10 @@ fn test_model() {
 
     {
         let app = add_clap(App::new("test_client_server_model"));
-        let mut arg_matches =
+        let arg_matches =
             app.get_matches_from(vec!["test", "-p", "-t", "1", "configurations"].iter());
         let mut stdout_bytes = Vec::new();
-        assert!(model.do_clap(&mut arg_matches, &mut stdout_bytes));
+        assert!(model.do_clap(&arg_matches, &mut stdout_bytes));
         let stdout = str::from_utf8(&stdout_bytes).unwrap();
         assert_eq!(
             stdout,
@@ -202,10 +202,9 @@ fn test_model() {
 
     {
         let app = add_clap(App::new("test_client_server_model"));
-        let mut arg_matches =
-            app.get_matches_from(vec!["test", "-p", "-t", "1", "transitions"].iter());
+        let arg_matches = app.get_matches_from(vec!["test", "-p", "-t", "1", "transitions"].iter());
         let mut stdout_bytes = Vec::new();
-        assert!(model.do_clap(&mut arg_matches, &mut stdout_bytes));
+        assert!(model.do_clap(&arg_matches, &mut stdout_bytes));
         let stdout = str::from_utf8(&stdout_bytes).unwrap();
         assert_eq!(
             stdout,

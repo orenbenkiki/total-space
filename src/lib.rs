@@ -2573,7 +2573,7 @@ pub trait ClapModel {
     /// Execute the chosen clap subcommand.
     ///
     /// Return whether a command was executed.
-    fn do_clap(&mut self, arg_matches: &mut ArgMatches, stdout: &mut dyn Write) -> bool {
+    fn do_clap(&mut self, arg_matches: &ArgMatches, stdout: &mut dyn Write) -> bool {
         self.do_clap_agents(arg_matches, stdout)
             || self.do_clap_configurations(arg_matches, stdout)
             || self.do_clap_transitions(arg_matches, stdout)
@@ -2582,22 +2582,17 @@ pub trait ClapModel {
     /// Execute the `agents` clap subcommand, if requested to.
     ///
     /// This doesn't compute the model.
-    fn do_clap_agents(&mut self, arg_matches: &mut ArgMatches, stdout: &mut dyn Write) -> bool;
+    fn do_clap_agents(&mut self, arg_matches: &ArgMatches, stdout: &mut dyn Write) -> bool;
 
     /// Execute the `configurations` clap subcommand, if requested to.
     ///
     /// This computes the model.
-    fn do_clap_configurations(
-        &mut self,
-        arg_matches: &mut ArgMatches,
-        stdout: &mut dyn Write,
-    ) -> bool;
+    fn do_clap_configurations(&mut self, arg_matches: &ArgMatches, stdout: &mut dyn Write) -> bool;
 
     /// Execute the `transitions` clap subcommand, if requested to.
     ///
     /// This computes the model.
-    fn do_clap_transitions(&mut self, arg_matches: &mut ArgMatches, stdout: &mut dyn Write)
-        -> bool;
+    fn do_clap_transitions(&mut self, arg_matches: &ArgMatches, stdout: &mut dyn Write) -> bool;
 }
 
 impl<
@@ -2610,7 +2605,7 @@ impl<
         const MAX_MESSAGES: usize,
     > Model<StateId, MessageId, InvalidId, ConfigurationId, Payload, MAX_AGENTS, MAX_MESSAGES>
 {
-    fn do_compute(&mut self, arg_matches: &mut ArgMatches) {
+    fn do_compute(&mut self, arg_matches: &ArgMatches) {
         let threads = arg_matches.value_of("threads").unwrap();
         self.threads = if threads == "PHYSICAL" {
             Threads::Physical // NOT TESTED
@@ -2635,7 +2630,7 @@ impl<
     > ClapModel
     for Model<StateId, MessageId, InvalidId, ConfigurationId, Payload, MAX_AGENTS, MAX_MESSAGES>
 {
-    fn do_clap_agents(&mut self, arg_matches: &mut ArgMatches, stdout: &mut dyn Write) -> bool {
+    fn do_clap_agents(&mut self, arg_matches: &ArgMatches, stdout: &mut dyn Write) -> bool {
         match arg_matches.subcommand_matches("agents") {
             Some(_) => {
                 self.agent_labels.iter().for_each(|agent_label| {
@@ -2647,11 +2642,7 @@ impl<
         }
     }
 
-    fn do_clap_configurations(
-        &mut self,
-        arg_matches: &mut ArgMatches,
-        stdout: &mut dyn Write,
-    ) -> bool {
+    fn do_clap_configurations(&mut self, arg_matches: &ArgMatches, stdout: &mut dyn Write) -> bool {
         match arg_matches.subcommand_matches("configurations") {
             Some(_) => {
                 self.do_compute(arg_matches);
@@ -2672,11 +2663,7 @@ impl<
         }
     }
 
-    fn do_clap_transitions(
-        &mut self,
-        arg_matches: &mut ArgMatches,
-        stdout: &mut dyn Write,
-    ) -> bool {
+    fn do_clap_transitions(&mut self, arg_matches: &ArgMatches, stdout: &mut dyn Write) -> bool {
         match arg_matches.subcommand_matches("transitions") {
             Some(_) => {
                 self.do_compute(arg_matches);
