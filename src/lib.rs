@@ -20,6 +20,9 @@
 
 #![feature(trait_alias)]
 
+use clap::App;
+use clap::ArgMatches;
+use clap::SubCommand;
 use hashbrown::HashMap;
 use num_traits::FromPrimitive;
 use num_traits::ToPrimitive;
@@ -31,6 +34,7 @@ use std::fmt::Display;
 use std::fmt::Formatter;
 use std::fmt::Result as FormatterResult;
 use std::hash::Hash;
+use std::io::Write;
 use std::marker::PhantomData;
 use std::rc::Rc;
 use std::sync::Arc;
@@ -909,6 +913,29 @@ pub struct Incoming<ConfigurationId> {
     pub message_index: ConfigurationId,
 }
 
+/// Specify the number of threads to use.
+pub enum Threads {
+    /// Use all the logical processors.
+    Logical,
+
+    /// Use all the physical processors (ignore hyper-threading).
+    Physical,
+
+    /// Use a specific number of processors.
+    Count(usize),
+}
+
+impl Threads {
+    /// Get the actual number of threads to use.
+    pub fn count(&self) -> usize {
+        match self {
+            Threads::Logical => num_cpus::get(),
+            Threads::Physical => num_cpus::get_physical(),
+            Threads::Count(count) => *count,
+        }
+    }
+}
+
 /// A complete model.
 pub struct Model<
     StateId: IndexLike,
@@ -960,6 +987,11 @@ pub struct Model<
 
     /// Whether to print each new configuration as we reach it.
     pub eprint_progress: bool,
+
+    /// The number of threads to use for computing the model's configurations.
+    ///
+    /// If zero, uses all the available processors.
+    pub threads: Threads,
 }
 
 // END MAYBE TESTED
@@ -1126,7 +1158,7 @@ impl<
         let mut first_instances: Vec<usize> = vec![];
         let mut agent_labels: Vec<Arc<String>> = vec![];
 
-        for agent_type in types.iter() {
+        types.iter().for_each(|agent_type| {
             let count = agent_type.count();
             assert!(
                 count > 0,
@@ -1145,7 +1177,7 @@ impl<
                 };
                 agent_labels.push(Arc::new(agent_label));
             }
-        }
+        });
 
         Model {
             types,
@@ -1162,11 +1194,12 @@ impl<
             max_invalid_string_size: RwLock::new(0),
             max_configuration_string_size: RwLock::new(0),
             eprint_progress: false,
+            threads: Threads::Count(1),
         }
     }
 
     /// Compute all the configurations of the model.
-    pub fn compute(&self, threads: usize) {
+    pub fn compute(&self) {
         let dummy_type = self.agent_types[0].clone();
 
         let initial_configuration = Configuration {
@@ -1189,7 +1222,7 @@ impl<
         };
 
         ThreadPoolBuilder::new()
-            .num_threads(threads)
+            .num_threads(self.threads.count())
             .build()
             .unwrap()
             .install(|| self.reach_configuration(context));
@@ -1670,7 +1703,6 @@ impl<
             let mut did_modify = false;
             for message_index in 0..MAX_MESSAGES {
                 let message_id = configuration.message_ids[message_index];
-
                 if !message_id.is_valid() {
                     break;
                 }
@@ -1828,14 +1860,16 @@ impl<
                 {
                     // BEGIN NOT TESTED
                     let mut messages_string = String::new();
-                    for message_id in context.to_configuration.message_ids.iter() {
-                        if !message_id.is_valid() {
-                            break;
-                        }
-                        messages_string.push_str("\n- ");
-                        messages_string
-                            .push_str(self.messages.read().unwrap().display(*message_id));
-                    }
+                    context
+                        .to_configuration
+                        .message_ids
+                        .iter()
+                        .take_while(|message_id| message_id.is_valid())
+                        .for_each(|message_id| {
+                            messages_string.push_str("\n- ");
+                            messages_string
+                                .push_str(self.messages.read().unwrap().display(*message_id));
+                        });
 
                     let agent_label = self.agent_labels[context.agent_index].clone();
                     let event_label = self.event_label(context.delivered_message_id);
@@ -2102,7 +2136,7 @@ impl<
         )));
 
         let mut prefix = "";
-        for agent_index in 0..self.agents_count() {
+        (0..self.agents_count()).for_each(|agent_index| {
             let agent_type = &self.agent_types[agent_index];
             let agent_label = &self.agent_labels[agent_index];
             let agent_state_id = configuration.state_ids[agent_index];
@@ -2117,20 +2151,20 @@ impl<
                 }),
             );
             prefix = " & ";
-        }
+        });
 
         let mut string = string_rc.take();
 
         prefix = " | ";
-        for message_index in 0..MAX_MESSAGES {
-            let message_id = configuration.message_ids[message_index];
-            if !message_id.is_valid() {
-                break;
-            }
-            string.push_str(prefix);
-            string.push_str(self.messages.read().unwrap().display(message_id));
-            prefix = " & ";
-        }
+        configuration
+            .message_ids
+            .iter()
+            .take_while(|message_id| message_id.is_valid())
+            .for_each(|message_id| {
+                string.push_str(prefix);
+                string.push_str(self.messages.read().unwrap().display(*message_id));
+                prefix = " & ";
+            });
 
         if configuration.invalid_id.is_valid() {
             // BEGIN NOT TESTED
@@ -2154,5 +2188,94 @@ impl<
         }
 
         string
+    }
+}
+
+/// Add clap commands and flags to a clap application.
+pub fn add_clap_subcommands<'a, 'b>(app: App<'a, 'b>) -> App<'a, 'b> {
+    app.subcommand(SubCommand::with_name("agents").about("list the agents of the model"))
+        .subcommand(
+            SubCommand::with_name("configurations").about("list the configurations of the model"),
+        )
+}
+
+/// Execute operations on a model using clap commands.
+pub trait ClapModel {
+    /// Execute the chosen clap subcommand.
+    ///
+    /// Return whether a command was executed.
+    fn do_clap_subcommand(&mut self, arg_matches: &mut ArgMatches, stdout: &mut dyn Write) -> bool {
+        self.do_clap_agents_subcommand(arg_matches, stdout)
+            || self.do_clap_configurations_subcommand(arg_matches, stdout)
+    }
+
+    /// Execute the `agents` clap subcommand, if requested to.
+    ///
+    /// This doesn't compute the model.
+    fn do_clap_agents_subcommand(
+        &mut self,
+        arg_matches: &mut ArgMatches,
+        stdout: &mut dyn Write,
+    ) -> bool;
+
+    /// Execute the `configurations` clap subcommand, if requested to.
+    ///
+    /// This computes the model.
+    fn do_clap_configurations_subcommand(
+        &mut self,
+        arg_matches: &mut ArgMatches,
+        stdout: &mut dyn Write,
+    ) -> bool;
+}
+
+impl<
+        StateId: IndexLike,
+        MessageId: IndexLike,
+        InvalidId: IndexLike,
+        ConfigurationId: IndexLike,
+        Payload: KeyLike + Validated + Named,
+        const MAX_AGENTS: usize,
+        const MAX_MESSAGES: usize,
+    > ClapModel
+    for Model<StateId, MessageId, InvalidId, ConfigurationId, Payload, MAX_AGENTS, MAX_MESSAGES>
+{
+    fn do_clap_agents_subcommand(
+        &mut self,
+        arg_matches: &mut ArgMatches,
+        stdout: &mut dyn Write,
+    ) -> bool {
+        match arg_matches.subcommand_matches("agents") {
+            Some(_) => {
+                self.agent_labels.iter().for_each(|agent_label| {
+                    writeln!(stdout, "{}", agent_label).unwrap();
+                });
+                true
+            }
+            None => false,
+        }
+    }
+
+    fn do_clap_configurations_subcommand(
+        &mut self,
+        arg_matches: &mut ArgMatches,
+        stdout: &mut dyn Write,
+    ) -> bool {
+        match arg_matches.subcommand_matches("configurations") {
+            Some(_) => {
+                self.compute();
+                (0..self.configurations.read().unwrap().value_by_id.len())
+                    .map(ConfigurationId::from_usize)
+                    .for_each(|configuration_id| {
+                        writeln!(
+                            stdout,
+                            "{}",
+                            self.display_configuration_id(configuration_id)
+                        )
+                        .unwrap();
+                    });
+                true
+            }
+            None => false, // NOT TESTED
+        }
     }
 }

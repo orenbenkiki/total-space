@@ -1,10 +1,12 @@
 extern crate total_space;
 
+use clap::App;
 use num_traits::cast::FromPrimitive;
 use num_traits::cast::ToPrimitive;
 use std::fmt::Display;
 use std::fmt::Formatter;
 use std::fmt::Result as FormatterResult;
+use std::str;
 use std::sync::Arc;
 use strum::IntoStaticStr;
 use total_space::*;
@@ -145,7 +147,7 @@ type TestModel = Model<
 >;
 
 #[test]
-fn test_configurations() {
+fn test_model() {
     let client_type = AgentTypeData::<ClientState, <TestModel as MetaModel>::StateId, Payload>::new(
         "Client", false, 1,
     );
@@ -156,5 +158,37 @@ fn test_configurations() {
         vec![Arc::new(client_type), Arc::new(server_type)];
     let mut model = TestModel::new(types, vec![]);
     model.eprint_progress = true;
-    model.compute(1);
+    model.threads = Threads::Count(1);
+
+    {
+        let app = add_clap_subcommands(App::new("test_client_server_model"));
+        let mut arg_matches = app.get_matches_from(vec!["test", "agents"].iter());
+        let mut stdout_bytes = Vec::new();
+        assert!(model.do_clap_subcommand(&mut arg_matches, &mut stdout_bytes));
+        let stdout = str::from_utf8(&stdout_bytes).unwrap();
+        assert_eq!(
+            stdout,
+            "\
+            Client\n\
+            Server\n\
+            "
+        );
+    }
+
+    {
+        let app = add_clap_subcommands(App::new("test_client_server_model"));
+        let mut arg_matches = app.get_matches_from(vec!["test", "configurations"].iter());
+        let mut stdout_bytes = Vec::new();
+        assert!(model.do_clap_subcommand(&mut arg_matches, &mut stdout_bytes));
+        let stdout = str::from_utf8(&stdout_bytes).unwrap();
+        assert_eq!(
+            stdout,
+            "\
+            Client:Idle & Server:Listen\n\
+            Client:Wait & Server:Listen | Client -> Request -> Server\n\
+            Client:Wait & Server:Work\n\
+            Client:Wait & Server:Listen | Server -> Response -> Client\n\
+            "
+        );
+    }
 }

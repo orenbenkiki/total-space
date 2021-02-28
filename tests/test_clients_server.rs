@@ -1,11 +1,13 @@
 extern crate total_space;
 
+use clap::App;
 use lazy_static::*;
 use num_traits::cast::FromPrimitive;
 use num_traits::cast::ToPrimitive;
 use std::fmt::Display;
 use std::fmt::Formatter;
 use std::fmt::Result as FormatterResult;
+use std::str;
 use std::sync::Arc;
 use std::sync::RwLock;
 use strum::IntoStaticStr;
@@ -174,7 +176,7 @@ type TestModel = Model<
 >;
 
 #[test]
-fn test_configurations() {
+fn test_model() {
     let client_type =
         AgentTypeData::<ClientState, <TestModel as MetaModel>::StateId, Payload>::new("C", true, 2);
     let server_type = AgentTypeData::<ServerState, <TestModel as MetaModel>::StateId, Payload>::new(
@@ -183,12 +185,57 @@ fn test_configurations() {
     let types: Vec<<TestModel as MetaModel>::AgentTypeArc> =
         vec![Arc::new(client_type), Arc::new(server_type)];
     let mut model = TestModel::new(types, vec![]);
-    model.eprint_progress = true;
     {
         let mut clients = CLIENTS.write().unwrap();
         clients.push(model.agent_index("C", Some(0)));
         clients.push(model.agent_index("C", Some(1)));
     }
     *SERVER.write().unwrap() = model.agent_index("SRV", None);
-    model.compute(1);
+
+    model.eprint_progress = true;
+    model.threads = Threads::Count(1);
+
+    {
+        let app = add_clap_subcommands(App::new("test_client_server_model"));
+        let mut arg_matches = app.get_matches_from(vec!["test", "agents"].iter());
+        let mut stdout_bytes = Vec::new();
+        assert!(model.do_clap_subcommand(&mut arg_matches, &mut stdout_bytes));
+        let stdout = str::from_utf8(&stdout_bytes).unwrap();
+        assert_eq!(
+            stdout,
+            "\
+            C(0)\n\
+            C(1)\n\
+            SRV\n\
+            "
+        );
+    }
+
+    {
+        let app = add_clap_subcommands(App::new("test_client_server_model"));
+        let mut arg_matches = app.get_matches_from(vec!["test", "configurations"].iter());
+        let mut stdout_bytes = Vec::new();
+        assert!(model.do_clap_subcommand(&mut arg_matches, &mut stdout_bytes));
+        let stdout = str::from_utf8(&stdout_bytes).unwrap();
+        assert_eq!(
+            stdout,
+            "\
+            C(0):IDL & C(1):IDL & SRV:LST\n\
+            C(0):WAT & C(1):IDL & SRV:LST | C(0) -> REQ(C=0) -> SRV\n\
+            C(0):WAT & C(1):WAT & SRV:LST | C(0) -> REQ(C=0) -> SRV & C(1) -> REQ(C=1) -> SRV\n\
+            C(0):WAT & C(1):WAT & SRV:WRK(C=0) | C(1) -> REQ(C=1) -> SRV\n\
+            C(0):WAT & C(1):WAT & SRV:LST | C(1) -> REQ(C=1) -> SRV & SRV -> RSP -> C(0)\n\
+            C(0):WAT & C(1):WAT & SRV:WRK(C=1) | SRV -> RSP -> C(0)\n\
+            C(0):WAT & C(1):WAT & SRV:LST | SRV -> RSP -> C(0) & SRV -> RSP -> C(1)\n\
+            C(0):IDL & C(1):WAT & SRV:LST | SRV -> RSP -> C(1)\n\
+            C(0):WAT & C(1):WAT & SRV:LST | C(0) -> REQ(C=0) -> SRV & SRV -> RSP -> C(1)\n\
+            C(0):WAT & C(1):WAT & SRV:WRK(C=0) | SRV -> RSP -> C(1)\n\
+            C(0):WAT & C(1):IDL & SRV:WRK(C=0)\n\
+            C(0):WAT & C(1):IDL & SRV:LST | SRV -> RSP -> C(0)\n\
+            C(0):IDL & C(1):WAT & SRV:WRK(C=1)\n\
+            C(0):WAT & C(1):WAT & SRV:WRK(C=1) | C(0) -> REQ(C=0) -> SRV\n\
+            C(0):IDL & C(1):WAT & SRV:LST | C(1) -> REQ(C=1) -> SRV\n\
+            "
+        );
+    }
 }
