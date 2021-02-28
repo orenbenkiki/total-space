@@ -13,6 +13,7 @@ use total_space::*;
 
 #[derive(PartialEq, Eq, Hash, Copy, Clone, Debug, IntoStaticStr)]
 enum Payload {
+    Ping,
     Request,
     Response,
 }
@@ -50,14 +51,22 @@ impl Default for ClientState {
     }
 }
 
+fn is_ping(payload: Option<Payload>) -> bool {
+    match payload {
+        None => true,
+        Some(Payload::Ping) => true,
+        _ => false, // NOT TESTED
+    }
+}
+
 impl AgentState<ClientState, Payload> for ClientState {
     fn pass_time(&self, _instance: usize) -> Reaction<Self, Payload> {
         match self {
             Self::Wait => Reaction::Ignore,
-            Self::Idle => Reaction::Do1(Action::ChangeAndSend1(
-                Self::Wait,
-                Emit::Unordered(Payload::Request, 1),
-            )),
+            Self::Idle => Reaction::Do1Of2(
+                Action::ChangeAndSend1(Self::Wait, Emit::Unordered(Payload::Request, 1)),
+                Action::Send1(Emit::ImmediateReplacement(is_ping, Payload::Ping, 1)),
+            ),
         }
     }
 
@@ -69,10 +78,7 @@ impl AgentState<ClientState, Payload> for ClientState {
     }
 
     fn max_in_flight_messages(&self) -> Option<usize> {
-        match self {
-            Self::Wait => Some(1),
-            Self::Idle => Some(0),
-        }
+        Some(2)
     }
 }
 
@@ -112,6 +118,7 @@ impl AgentState<ServerState, Payload> for ServerState {
 
     fn receive_message(&self, _instance: usize, payload: &Payload) -> Reaction<Self, Payload> {
         match (self, payload) {
+            (_, Payload::Ping) => Reaction::Ignore,
             (Self::Listen, Payload::Request) => Reaction::Do1(Action::Change(Self::Work)),
             (Self::Work, Payload::Request) => Reaction::Defer, // NOT TESTED
             _ => Reaction::Unexpected,                         // NOT TESTED
@@ -183,11 +190,14 @@ fn test_model() {
         let stdout = str::from_utf8(&stdout_bytes).unwrap();
         assert_eq!(
             stdout,
-            "\
-            Client:Idle & Server:Listen\n\
+            "Client:Idle & Server:Listen\n\
             Client:Wait & Server:Listen | Client -> Request -> Server\n\
             Client:Wait & Server:Work\n\
             Client:Wait & Server:Listen | Server -> Response -> Client\n\
+            Client:Idle & Server:Listen | Client -> * Ping -> Server\n\
+            Client:Wait & Server:Listen | Client -> Request -> Server & Client -> * Ping -> Server\n\
+            Client:Idle & Server:Listen | Client -> * Ping => Ping -> Server\n\
+            Client:Wait & Server:Listen | Client -> Request -> Server & Client -> * Ping => Ping -> Server\n\
             "
         );
     }

@@ -506,11 +506,11 @@ impl<
             Reaction::Ignore => Reaction::Ignore,
             Reaction::Defer => Reaction::Defer,
             Reaction::Do1(action) => Reaction::Do1(self.translate_action(action)),
-            // BEGIN NOT TESTED
             Reaction::Do1Of2(action1, action2) => Reaction::Do1Of2(
                 self.translate_action(action1),
                 self.translate_action(action2),
             ),
+            // BEGIN NOT TESTED
             Reaction::Do1Of3(action1, action2, action3) => Reaction::Do1Of3(
                 self.translate_action(action1),
                 self.translate_action(action2),
@@ -533,7 +533,7 @@ impl<
             Action::Ignore => Action::Ignore, // NOT TESTED
             Action::Change(state) => Action::Change(self.translate_state(state)),
 
-            Action::Send1(emit) => Action::Send1(emit), // NOT TESTED
+            Action::Send1(emit) => Action::Send1(emit),
             Action::ChangeAndSend1(state, emit) => {
                 Action::ChangeAndSend1(self.translate_state(state), emit)
             }
@@ -798,17 +798,15 @@ impl<
         self.message_counts[source].decr();
 
         if self.immediate_index.is_valid() {
-            // BEGIN NOT TESTED
             match self.immediate_index.to_usize() {
                 immediate_index if immediate_index > message_index => {
-                    self.immediate_index.decr();
+                    self.immediate_index.decr(); // NOT TESTED
                 }
                 immediate_index if immediate_index == message_index => {
                     self.immediate_index = MessageIndex::invalid();
                 }
                 _ => {}
             }
-            // END NOT TESTED
         }
 
         loop {
@@ -842,7 +840,7 @@ impl<
 
         self.message_ids[MAX_MESSAGES - 1] = message_id;
         let immediate_index = if is_immediate {
-            message_id // NOT TESTED
+            message_id
         } else {
             self.immediate_index().unwrap_or_else(MessageId::invalid)
         };
@@ -850,14 +848,12 @@ impl<
         self.message_ids.sort();
 
         if immediate_index.is_valid() {
-            // BEGIN NOT TESTED
             let immediate_index = self
                 .message_ids
                 .iter()
                 .position(|&message_id| message_id == immediate_index)
                 .unwrap();
             self.immediate_index = MessageIndex::from_usize(immediate_index);
-            // END NOT TESTED
         }
     }
 
@@ -869,7 +865,7 @@ impl<
     /// Return the immediate message identifier, if any.
     fn immediate_index(&self) -> Option<MessageId> {
         if self.has_immediate() {
-            Some(self.message_ids[self.immediate_index.to_usize()]) // NOT TESTED
+            Some(self.message_ids[self.immediate_index.to_usize()])
         } else {
             None
         }
@@ -1088,6 +1084,9 @@ pub struct Context<
     /// The incoming transition into the new configuration to be generated.
     incoming: Option<Incoming<ConfigurationId>>,
 
+    /// The configuration when delivering the event.
+    from_configuration_id: ConfigurationId,
+
     /// Incrementally updated to become the target configuration.
     to_configuration: Configuration<StateId, MessageId, InvalidId, MAX_AGENTS, MAX_MESSAGES>,
 }
@@ -1218,6 +1217,7 @@ impl<
             agent_instance: usize::max_value(),
             agent_from_state_id: StateId::invalid(),
             incoming: None,
+            from_configuration_id: ConfigurationId::from_usize(0),
             to_configuration: initial_configuration,
         };
 
@@ -1251,7 +1251,7 @@ impl<
         }
 
         let messages_count = if context.to_configuration.has_immediate() {
-            1 // NOT TESTED
+            1
         } else {
             context
                 .to_configuration
@@ -1266,14 +1266,12 @@ impl<
             if event_index < self.agents_count() {
                 self.deliver_time_event(configuration_id, context.to_configuration, event_index);
             } else if context.to_configuration.has_immediate() {
-                // BEGIN NOT TESTED
                 debug_assert!(event_index == self.agents_count());
                 self.deliver_message_event(
                     configuration_id,
                     context.to_configuration,
                     context.to_configuration.immediate_index.to_usize(),
                 );
-                // END NOT TESTED
             } else {
                 self.deliver_message_event(
                     configuration_id,
@@ -1304,8 +1302,6 @@ impl<
             message_index: ConfigurationId::invalid(),
         });
 
-        let to_configuration = from_configuration;
-
         let context = Context {
             delivered_message_id: None,
             is_immediate: false,
@@ -1314,7 +1310,8 @@ impl<
             agent_instance,
             agent_from_state_id,
             incoming,
-            to_configuration,
+            from_configuration_id,
+            to_configuration: from_configuration,
         };
         self.process_reaction(context, reaction);
     }
@@ -1366,6 +1363,7 @@ impl<
             agent_instance: target_instance,
             agent_from_state_id: target_from_state_id,
             incoming,
+            from_configuration_id,
             to_configuration,
         };
         self.process_reaction(context, reaction);
@@ -1379,15 +1377,15 @@ impl<
         match reaction {
             Reaction::Unexpected => self.unexpected_message(context), // MAYBE TESTED
             Reaction::Defer => self.is_deferring_message(context),
-            Reaction::Ignore => self.is_ignoring_message(context), // NOT TESTED
+            Reaction::Ignore => self.is_ignoring_message(context),
             Reaction::Do1(action1) => self.perform_action(context, action1),
 
-            // BEGIN NOT TESTED
             Reaction::Do1Of2(action1, action2) => {
                 self.perform_action(context.clone(), action1);
                 self.perform_action(context, action2);
             }
 
+            // BEGIN NOT TESTED
             Reaction::Do1Of3(action1, action2, action3) => {
                 self.perform_action(context.clone(), action1);
                 self.perform_action(context.clone(), action2);
@@ -1418,9 +1416,7 @@ impl<
                     .change_state(context.agent_index, target_to_state_id);
                 self.reach_configuration(context);
             }
-            // BEGIN NOT TESTED
             Action::Send1(emit1) => self.emit_transition(context, emit1),
-            // END NOT TESTED
             Action::ChangeAndSend1(target_to_state_id, emit1) => {
                 context
                     .to_configuration
@@ -1522,7 +1518,7 @@ impl<
                 };
                 self.emit_message(context, message);
             }
-
+            // END NOT TESTED
             Emit::ImmediateReplacement(callback, payload, target_index) => {
                 let replaced = self.replace_message(&mut context, callback, &payload, target_index);
                 let message = Message {
@@ -1535,6 +1531,7 @@ impl<
                 self.emit_message(context, message);
             }
 
+            // BEGIN NOT TESTED
             Emit::UnorderedReplacement(callback, payload, target_index) => {
                 let replaced = self.replace_message(&mut context, callback, &payload, target_index);
                 let message = Message {
@@ -1586,6 +1583,7 @@ impl<
             })
             .fold(0, |count, _message| count + 1)
     }
+    // END NOT TESTED
 
     fn replace_message(
         &self,
@@ -1610,6 +1608,7 @@ impl<
                 .fold(None, |replaced, (message_index, message)| {
                     match replaced {
                         None => Some((message_index, message)),
+                        // BEGIN NOT TESTED
                         Some((_, ref conflict)) => {
                             let conflict_payload = format!("{}", conflict.payload);
                             let message_payload = format!("{}", message.payload);
@@ -1631,11 +1630,13 @@ impl<
                             }));
                             None // NOT REACHED
                         }
+                        // END NOT TESTED
                     }
                 })
                 .map(|(message_index, message)| Some((message_index, message.payload)))
                 .unwrap_or_else(|| {
                     if !callback(None) {
+                        // BEGIN NOT TESTED
                         let replacement_payload = format!("{}", payload);
                         let source_label = self.agent_labels[context.agent_index].clone();
                         let target_label = self.agent_labels[target_index].clone();
@@ -1650,6 +1651,7 @@ impl<
                                event_label
                            );
                         }));
+                        // END NOT TESTED
                     }
                     None
                 })
@@ -1666,7 +1668,6 @@ impl<
             None
         }
     }
-    // END NOT TESTED
 
     fn remove_message(
         &self,
@@ -1750,6 +1751,15 @@ impl<
         message: <Self as MetaModel>::Message,
     ) {
         let is_immediate = message.order == MessageOrder::Immediate;
+        if is_immediate && context.to_configuration.has_immediate() {
+            // BEGIN NOT TESTED
+            panic!(
+                "sending a second immediate message {} while in the configuration {}",
+                self.display_message(&message),
+                self.display_configuration(&context.to_configuration)
+            );
+            // END NOT TESTED
+        }
         let message_id = self.store_message(message);
         context
             .to_configuration
@@ -1789,13 +1799,13 @@ impl<
             }
         }
     }
+    // END NOT TESTED
 
     fn is_ignoring_message(&self, context: <Self as MetaModel>::Context) {
         if context.incoming.unwrap().message_index.is_valid() {
             self.reach_configuration(context);
         }
     }
-    // END NOT TESTED
 
     fn is_deferring_message(&self, context: <Self as MetaModel>::Context) {
         match context.delivered_message_id {
@@ -1859,29 +1869,17 @@ impl<
                     > max_in_flight_messages
                 {
                     // BEGIN NOT TESTED
-                    let mut messages_string = String::new();
-                    context
-                        .to_configuration
-                        .message_ids
-                        .iter()
-                        .take_while(|message_id| message_id.is_valid())
-                        .for_each(|message_id| {
-                            messages_string.push_str("\n- ");
-                            messages_string
-                                .push_str(self.messages.read().unwrap().display(*message_id));
-                        });
-
                     let agent_label = self.agent_labels[context.agent_index].clone();
                     let event_label = self.event_label(context.delivered_message_id);
+                    let to_configuration = self.display_configuration(&context.to_configuration);
+                    let from_configuration =
+                        self.display_configuration_id(context.from_configuration_id);
 
-                    context.agent_type.state_display(
-                        context.agent_from_state_id,
-                        Box::new(move |agent_from_state| {
-                            panic!(
-                                "the agent {} sends too many messages when reacting to the {} while in the state {}{}",
-                                agent_label, event_label, agent_from_state, messages_string
-                            );
-                        }),
+                    panic!(
+                        "the agent {} sends too many messages when reacting to the {} by moving\n\
+                        from the configuration {}\n\
+                        into the configuration {}",
+                        agent_label, event_label, from_configuration, to_configuration
                     );
                     // END NOT TESTED
                 }
@@ -2059,10 +2057,8 @@ impl<
         }
 
         if let Some(ref replaced) = message.replaced {
-            // BEGIN NOT TESTED
             string.push_str(&format!("{}", replaced));
             string.push_str(" => ");
-            // END NOT TESTED
         }
 
         string.push_str(&format!("{}", message.payload));
