@@ -161,14 +161,13 @@ fn test_model() {
     ));
 
     let mut model = TestModel::new(server_type, vec![]);
-    model.eprint_progress = true;
     model.threads = Threads::Count(1);
 
     {
-        let app = add_clap_subcommands(App::new("test_client_server_model"));
-        let mut arg_matches = app.get_matches_from(vec!["test", "agents"].iter());
+        let app = add_clap(App::new("test_client_server_model"));
+        let mut arg_matches = app.get_matches_from(vec!["test", "-p", "-t", "1", "agents"].iter());
         let mut stdout_bytes = Vec::new();
-        assert!(model.do_clap_subcommand(&mut arg_matches, &mut stdout_bytes));
+        assert!(model.do_clap(&mut arg_matches, &mut stdout_bytes));
         let stdout = str::from_utf8(&stdout_bytes).unwrap();
         assert_eq!(
             stdout,
@@ -180,10 +179,11 @@ fn test_model() {
     }
 
     {
-        let app = add_clap_subcommands(App::new("test_client_server_model"));
-        let mut arg_matches = app.get_matches_from(vec!["test", "configurations"].iter());
+        let app = add_clap(App::new("test_client_server_model"));
+        let mut arg_matches =
+            app.get_matches_from(vec!["test", "-p", "-t", "1", "configurations"].iter());
         let mut stdout_bytes = Vec::new();
-        assert!(model.do_clap_subcommand(&mut arg_matches, &mut stdout_bytes));
+        assert!(model.do_clap(&mut arg_matches, &mut stdout_bytes));
         let stdout = str::from_utf8(&stdout_bytes).unwrap();
         assert_eq!(
             stdout,
@@ -201,10 +201,11 @@ fn test_model() {
     }
 
     {
-        let app = add_clap_subcommands(App::new("test_client_server_model"));
-        let mut arg_matches = app.get_matches_from(vec!["test", "transitions"].iter());
+        let app = add_clap(App::new("test_client_server_model"));
+        let mut arg_matches =
+            app.get_matches_from(vec!["test", "-p", "-t", "1", "transitions"].iter());
         let mut stdout_bytes = Vec::new();
-        assert!(model.do_clap_subcommand(&mut arg_matches, &mut stdout_bytes));
+        assert!(model.do_clap(&mut arg_matches, &mut stdout_bytes));
         let stdout = str::from_utf8(&stdout_bytes).unwrap();
         assert_eq!(
             stdout,

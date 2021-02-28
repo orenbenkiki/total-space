@@ -19,6 +19,7 @@
 #![feature(trait_alias)]
 
 use clap::App;
+use clap::Arg;
 use clap::ArgMatches;
 use clap::SubCommand;
 use hashbrown::HashMap;
@@ -35,6 +36,7 @@ use std::hash::Hash;
 use std::io::Write;
 use std::marker::PhantomData;
 use std::rc::Rc;
+use std::str::FromStr;
 use std::sync::Arc;
 use std::sync::RwLock;
 
@@ -1525,7 +1527,7 @@ impl<
             max_invalid_string_size: RwLock::new(0),
             max_configuration_string_size: RwLock::new(0),
             eprint_progress: false,
-            threads: Threads::Count(1),
+            threads: Threads::Physical,
         }
     }
 
@@ -1606,15 +1608,15 @@ impl<
         if stored.is_new {
             if self.eprint_progress {
                 eprintln!(
-                    "reached the configuration: {}",
+                    "REACH {}",
                     self.display_configuration(&context.to_configuration)
                 );
                 /*
                 eprintln!(
-                    "FROM: {}",
+                    "FROM {}",
                     self.display_configuration(&context.from_configuration)
                 );
-                eprintln!("BY: {}", self.event_label(context.delivered_message_id));
+                eprintln!("BY {}", self.event_label(context.delivered_message_id));
                 eprintln!();
                 */
             }
@@ -2545,12 +2547,25 @@ impl<
 }
 
 /// Add clap commands and flags to a clap application.
-pub fn add_clap_subcommands<'a, 'b>(app: App<'a, 'b>) -> App<'a, 'b> {
-    app.subcommand(SubCommand::with_name("agents").about("list the agents of the model"))
-        .subcommand(
-            SubCommand::with_name("configurations").about("list the configurations of the model"),
-        )
-        .subcommand(SubCommand::with_name("transitions").about("list the transitions of the model"))
+pub fn add_clap<'a, 'b>(app: App<'a, 'b>) -> App<'a, 'b> {
+    app.arg(
+        Arg::with_name("progress")
+            .short("p")
+            .help("print configurations as they are reached"),
+    )
+    .arg(
+        Arg::with_name("threads")
+            .short("t")
+            .long("threads")
+            .value_name("COUNT")
+            .help("set the number of threads to use (may also specify PHYSICAL or LOGICAL)")
+            .default_value("PHYSICAL"),
+    )
+    .subcommand(SubCommand::with_name("agents").about("list the agents of the model"))
+    .subcommand(
+        SubCommand::with_name("configurations").about("list the configurations of the model"),
+    )
+    .subcommand(SubCommand::with_name("transitions").about("list the transitions of the model"))
 }
 
 /// Execute operations on a model using clap commands.
@@ -2558,25 +2573,21 @@ pub trait ClapModel {
     /// Execute the chosen clap subcommand.
     ///
     /// Return whether a command was executed.
-    fn do_clap_subcommand(&mut self, arg_matches: &mut ArgMatches, stdout: &mut dyn Write) -> bool {
-        self.do_clap_agents_subcommand(arg_matches, stdout)
-            || self.do_clap_configurations_subcommand(arg_matches, stdout)
-            || self.do_clap_transitions_subcommand(arg_matches, stdout)
+    fn do_clap(&mut self, arg_matches: &mut ArgMatches, stdout: &mut dyn Write) -> bool {
+        self.do_clap_agents(arg_matches, stdout)
+            || self.do_clap_configurations(arg_matches, stdout)
+            || self.do_clap_transitions(arg_matches, stdout)
     }
 
     /// Execute the `agents` clap subcommand, if requested to.
     ///
     /// This doesn't compute the model.
-    fn do_clap_agents_subcommand(
-        &mut self,
-        arg_matches: &mut ArgMatches,
-        stdout: &mut dyn Write,
-    ) -> bool;
+    fn do_clap_agents(&mut self, arg_matches: &mut ArgMatches, stdout: &mut dyn Write) -> bool;
 
     /// Execute the `configurations` clap subcommand, if requested to.
     ///
     /// This computes the model.
-    fn do_clap_configurations_subcommand(
+    fn do_clap_configurations(
         &mut self,
         arg_matches: &mut ArgMatches,
         stdout: &mut dyn Write,
@@ -2585,11 +2596,32 @@ pub trait ClapModel {
     /// Execute the `transitions` clap subcommand, if requested to.
     ///
     /// This computes the model.
-    fn do_clap_transitions_subcommand(
-        &mut self,
-        arg_matches: &mut ArgMatches,
-        stdout: &mut dyn Write,
-    ) -> bool;
+    fn do_clap_transitions(&mut self, arg_matches: &mut ArgMatches, stdout: &mut dyn Write)
+        -> bool;
+}
+
+impl<
+        StateId: IndexLike,
+        MessageId: IndexLike,
+        InvalidId: IndexLike,
+        ConfigurationId: IndexLike,
+        Payload: KeyLike + Validated + Named,
+        const MAX_AGENTS: usize,
+        const MAX_MESSAGES: usize,
+    > Model<StateId, MessageId, InvalidId, ConfigurationId, Payload, MAX_AGENTS, MAX_MESSAGES>
+{
+    fn do_compute(&mut self, arg_matches: &mut ArgMatches) {
+        let threads = arg_matches.value_of("threads").unwrap();
+        self.threads = if threads == "PHYSICAL" {
+            Threads::Physical // NOT TESTED
+        } else if threads == "LOGICAL" {
+            Threads::Logical // NOT TESTED
+        } else {
+            Threads::Count(usize::from_str(threads).unwrap())
+        };
+        self.eprint_progress = arg_matches.is_present("progress");
+        self.compute();
+    }
 }
 
 impl<
@@ -2603,11 +2635,7 @@ impl<
     > ClapModel
     for Model<StateId, MessageId, InvalidId, ConfigurationId, Payload, MAX_AGENTS, MAX_MESSAGES>
 {
-    fn do_clap_agents_subcommand(
-        &mut self,
-        arg_matches: &mut ArgMatches,
-        stdout: &mut dyn Write,
-    ) -> bool {
+    fn do_clap_agents(&mut self, arg_matches: &mut ArgMatches, stdout: &mut dyn Write) -> bool {
         match arg_matches.subcommand_matches("agents") {
             Some(_) => {
                 self.agent_labels.iter().for_each(|agent_label| {
@@ -2619,14 +2647,14 @@ impl<
         }
     }
 
-    fn do_clap_configurations_subcommand(
+    fn do_clap_configurations(
         &mut self,
         arg_matches: &mut ArgMatches,
         stdout: &mut dyn Write,
     ) -> bool {
         match arg_matches.subcommand_matches("configurations") {
             Some(_) => {
-                self.compute();
+                self.do_compute(arg_matches);
 
                 (0..self.configurations.read().unwrap().value_by_id.len())
                     .map(ConfigurationId::from_usize)
@@ -2644,14 +2672,14 @@ impl<
         }
     }
 
-    fn do_clap_transitions_subcommand(
+    fn do_clap_transitions(
         &mut self,
         arg_matches: &mut ArgMatches,
         stdout: &mut dyn Write,
     ) -> bool {
         match arg_matches.subcommand_matches("transitions") {
             Some(_) => {
-                self.compute();
+                self.do_compute(arg_matches);
 
                 let configurations = self.configurations.read().unwrap();
                 self.outgoings.read().unwrap().iter().enumerate().for_each(
