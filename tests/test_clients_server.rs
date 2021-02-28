@@ -97,10 +97,7 @@ impl AgentState<ClientState, Payload> for ClientState {
     }
 
     fn max_in_flight_messages(&self) -> Option<usize> {
-        match self {
-            Self::Wait => Some(1),
-            Self::Idle => Some(0),
-        }
+        Some(1)
     }
 }
 
@@ -177,14 +174,19 @@ type TestModel = Model<
 
 #[test]
 fn test_model() {
-    let client_type =
-        AgentTypeData::<ClientState, <TestModel as MetaModel>::StateId, Payload>::new("C", true, 2);
-    let server_type = AgentTypeData::<ServerState, <TestModel as MetaModel>::StateId, Payload>::new(
-        "SRV", false, 1,
-    );
-    let types: Vec<<TestModel as MetaModel>::AgentTypeArc> =
-        vec![Arc::new(client_type), Arc::new(server_type)];
-    let mut model = TestModel::new(types, vec![]);
+    let client_type = Arc::new(AgentTypeData::<
+        ClientState,
+        <TestModel as MetaModel>::StateId,
+        Payload,
+    >::new("C", Instances::Count(2), None));
+    let server_type = Arc::new(AgentTypeData::<
+        ServerState,
+        <TestModel as MetaModel>::StateId,
+        Payload,
+    >::new(
+        "SRV", Instances::Singleton, Some(client_type.clone())
+    ));
+    let mut model = TestModel::new(server_type, vec![]);
     {
         let mut clients = CLIENTS.write().unwrap();
         clients.push(model.agent_index("C", Some(0)));

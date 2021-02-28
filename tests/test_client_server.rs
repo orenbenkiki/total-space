@@ -51,7 +51,7 @@ impl Default for ClientState {
     }
 }
 
-fn is_ping(payload: Option<Payload>) -> bool {
+fn is_maybe_ping(payload: Option<Payload>) -> bool {
     match payload {
         None => true,
         Some(Payload::Ping) => true,
@@ -65,7 +65,7 @@ impl AgentState<ClientState, Payload> for ClientState {
             Self::Wait => Reaction::Ignore,
             Self::Idle => Reaction::Do1Of2(
                 Action::ChangeAndSend1(Self::Wait, Emit::Unordered(Payload::Request, 1)),
-                Action::Send1(Emit::ImmediateReplacement(is_ping, Payload::Ping, 1)),
+                Action::Send1(Emit::ImmediateReplacement(is_maybe_ping, Payload::Ping, 1)),
             ),
         }
     }
@@ -131,10 +131,7 @@ impl AgentState<ServerState, Payload> for ServerState {
     }
 
     fn max_in_flight_messages(&self) -> Option<usize> {
-        match self {
-            Self::Listen => Some(1),
-            Self::Work => Some(0),
-        }
+        Some(1)
     }
 }
 
@@ -155,15 +152,20 @@ type TestModel = Model<
 
 #[test]
 fn test_model() {
-    let client_type = AgentTypeData::<ClientState, <TestModel as MetaModel>::StateId, Payload>::new(
-        "Client", false, 1,
-    );
-    let server_type = AgentTypeData::<ServerState, <TestModel as MetaModel>::StateId, Payload>::new(
-        "Server", false, 1,
-    );
-    let types: Vec<<TestModel as MetaModel>::AgentTypeArc> =
-        vec![Arc::new(client_type), Arc::new(server_type)];
-    let mut model = TestModel::new(types, vec![]);
+    let client_type = Arc::new(AgentTypeData::<
+        ClientState,
+        <TestModel as MetaModel>::StateId,
+        Payload,
+    >::new("Client", Instances::Singleton, None));
+    let server_type = Arc::new(AgentTypeData::<
+        ServerState,
+        <TestModel as MetaModel>::StateId,
+        Payload,
+    >::new(
+        "Server", Instances::Singleton, Some(client_type.clone())
+    ));
+
+    let mut model = TestModel::new(server_type, vec![]);
     model.eprint_progress = true;
     model.threads = Threads::Count(1);
 

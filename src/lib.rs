@@ -16,8 +16,6 @@
 
 //! Explore the total space of states of communicating finite state machines.
 
-// TODO break vs. take_while
-
 #![feature(trait_alias)]
 
 use clap::App;
@@ -354,36 +352,35 @@ pub enum Reaction<State, Payload> {
     ),
 }
 
+/// Specify the number of agent instances to use.
+pub enum Instances {
+    /// Always have just a single instance.
+    Singleton,
+
+    /// Use a specific number of instances.
+    Count(usize),
+}
+
 // END MAYBE TESTED
 
-/// A trait describing a set of agents of some type.
-pub trait AgentType<StateId, MessageId, Payload>: Name + Debug {
-    /// Whether this type supports multiple instances.
+/// A trait partially describing some agent instances of the same type.
+pub trait AgentInstances<StateId, Payload>: Name {
+    /// Return the previous agent type in the chain, if any.
+    fn prev_agent_type(&self) -> Option<Arc<dyn AgentType<StateId, Payload> + Send + Sync>>;
+
+    /// The index of the first agent of this type.
+    fn first_index(&self) -> usize;
+
+    /// The next index after the last agent of this type.
+    fn next_index(&self) -> usize;
+
+    /// Whether this type only has a single instance.
     ///
     /// If true, the count will always be 1.
-    fn is_indexed(&self) -> bool;
+    fn is_singleton(&self) -> bool;
 
     /// The number of agents of this type that will be used in the system.
     fn count(&self) -> usize;
-
-    /// Return the actions that may be taken by an agent instance with some state when receiving a
-    /// message.
-    fn receive_message(
-        &self,
-        instance: usize,
-        state_id: StateId,
-        payload: &Payload,
-    ) -> Reaction<StateId, Payload>;
-
-    /// Return the actions that may be taken by an agent with some state when time passes.
-    fn pass_time(&self, instance: usize, state_id: StateId) -> Reaction<StateId, Payload>;
-
-    /// Whether any agent in the state is deferring messages.
-    fn state_is_deferring(&self, state_id: StateId) -> bool;
-
-    /// The maximal number of messages sent by an agent which may be in-flight when it is in the
-    /// state.
-    fn state_max_in_flight_messages(&self, state_id: StateId) -> Option<usize>;
 
     /// Display the state.
     ///
@@ -400,27 +397,78 @@ pub trait AgentType<StateId, MessageId, Payload>: Name + Debug {
     fn state_name(&self, state_id: StateId) -> &'static str;
 }
 
+/// A trait fully describing some agent instances of the same type.
+pub trait AgentType<StateId, Payload>: AgentInstances<StateId, Payload> {
+    /// Return the actions that may be taken by an agent instance with some state when receiving a
+    /// message.
+    fn receive_message(
+        &self,
+        instance: usize,
+        state_ids: &[StateId],
+        payload: &Payload,
+    ) -> Reaction<StateId, Payload>;
+
+    /// Return the actions that may be taken by an agent with some state when time passes.
+    fn pass_time(&self, instance: usize, state_ids: &[StateId]) -> Reaction<StateId, Payload>;
+
+    /// Whether any agent in the state is deferring messages.
+    fn state_is_deferring(&self, instance: usize, state_ids: &[StateId]) -> bool;
+
+    /// The maximal number of messages sent by an agent which may be in-flight when it is in the
+    /// state.
+    fn state_max_in_flight_messages(&self, instance: usize, state_ids: &[StateId])
+        -> Option<usize>;
+}
+
+/// Allow access to state of parts.
+pub trait PartType<State, StateId> {
+    /// Access the part state by the state identifier.
+    fn part_state_by_id(&self, state_id: StateId) -> State;
+
+    /// The index of the first agent of this type.
+    fn part_first_index(&self) -> usize;
+
+    /// The number of agent instances of this type.
+    fn parts_count(&self) -> usize;
+}
+
 // BEGIN MAYBE TESTED
 
 /// The data we need to implement an agent type.
 ///
 /// This should be placed in a `Singleton` to allow the agent states to get services from it.
-#[derive(Debug)]
 pub struct AgentTypeData<State, StateId, Payload> {
     /// Memoization of the agent states.
     states: Arc<RwLock<Memoize<State, StateId>>>,
 
+    /// The index of the first agent of this type.
+    first_index: usize,
+
     /// The name of the agent type.
     name: &'static str,
 
-    /// Whether this type supports multiple instances.
-    is_indexed: bool,
+    /// Whether this type only has a single instance.
+    is_singleton: bool,
 
     /// The number of instances of this type we'll be using in the system.
     count: usize,
 
+    /// The previous agent type in the chain.
+    prev_agent_type: Option<Arc<dyn AgentType<StateId, Payload> + Send + Sync>>,
+
     /// Trick the compiler into thinking we have a field of type Payload.
     _payload: PhantomData<Payload>,
+}
+
+/// The data we need to implement an agent type.
+///
+/// This should be placed in a `Singleton` to allow the agent states to get services from it.
+pub struct ContainerTypeData<State, Part, StateId, Payload, const MAX_PARTS: usize> {
+    /// The basic agent type data.
+    agent_type_data: AgentTypeData<State, StateId, Payload>,
+
+    /// Access part states (for a container).
+    part_type: Arc<dyn PartType<Part, StateId> + Send + Sync>,
 }
 
 // END MAYBE TESTED
@@ -432,31 +480,84 @@ impl<
     > AgentTypeData<State, StateId, Payload>
 {
     /// Create new agent type data with the specified name and number of instances.
-    pub fn new(name: &'static str, is_indexed: bool, count: usize) -> Self {
-        assert!(count > 0);
-        assert!(
-            is_indexed || count == 1,
-            "specifying {} multiple instances for a non-indexed agent type {}",
-            count,
-            name
-        );
-        let states = Arc::new(RwLock::new(Memoize::new(true)));
+    pub fn new(
+        name: &'static str,
+        instances: Instances,
+        prev_agent_type: Option<Arc<dyn AgentType<StateId, Payload> + Send + Sync>>,
+    ) -> Self {
+        let (is_singleton, count) = match instances {
+            Instances::Singleton => (true, 1),
+            Instances::Count(amount) => {
+                assert!(
+                    amount > 0,
+                    "zero instances specified for agent type {}",
+                    name
+                );
+                (false, amount)
+            }
+        };
+
         let default_state: State = Default::default();
+        let states = Arc::new(RwLock::new(Memoize::new(true)));
         states
             .write()
             .unwrap()
             .store(default_state, Some(format!("{}", default_state)));
+
         AgentTypeData {
             name,
             count,
-            is_indexed,
+            is_singleton,
             states,
+            first_index: prev_agent_type
+                .clone()
+                .map_or(0, |agent_type| agent_type.next_index()),
+            prev_agent_type,
             _payload: PhantomData,
         }
     }
 }
 
-// TODO: Allow container agent to access state of part agent
+impl<
+        State: KeyLike + Validated + Named + Default,
+        Part: KeyLike + Validated + Named + Default,
+        StateId: IndexLike,
+        Payload: KeyLike + Validated + Named,
+        const MAX_PARTS: usize,
+    > ContainerTypeData<State, Part, StateId, Payload, MAX_PARTS>
+{
+    /// Create new agent type data with the specified name and number of instances.
+    pub fn new(
+        name: &'static str,
+        instances: Instances,
+        part_type: Arc<dyn PartType<Part, StateId> + Send + Sync>,
+        prev_type: Arc<dyn AgentType<StateId, Payload> + Send + Sync>,
+    ) -> Self {
+        ContainerTypeData {
+            agent_type_data: AgentTypeData::new(name, instances, Some(prev_type)),
+            part_type,
+        }
+    }
+}
+
+impl<
+        State: KeyLike + Validated + Named + Default,
+        StateId: IndexLike,
+        Payload: KeyLike + Validated + Named,
+    > PartType<State, StateId> for AgentTypeData<State, StateId, Payload>
+{
+    fn part_state_by_id(&self, state_id: StateId) -> State {
+        *self.states.read().unwrap().get(state_id)
+    }
+
+    fn part_first_index(&self) -> usize {
+        self.first_index
+    }
+
+    fn parts_count(&self) -> usize {
+        self.count
+    }
+}
 
 /// A trait for a single agent state.
 pub trait AgentState<
@@ -487,6 +588,41 @@ pub trait AgentState<
     }
 }
 
+/// A trait for a container agent state.
+pub trait ContainerState<
+    State: KeyLike + Validated + Named + Default,
+    Part: KeyLike + Validated + Named + Default,
+    Payload: KeyLike + Validated + Named,
+>
+{
+    /// Return the actions that may be taken by an agent instance with this state when receiving a
+    /// message.
+    fn receive_message(
+        &self,
+        instance: usize,
+        payload: &Payload,
+        parts: &[Part],
+    ) -> Reaction<State, Payload>;
+
+    /// Return the actions that may be taken by an agent with some state when time passes.
+    fn pass_time(&self, instance: usize, parts: &[Part]) -> Reaction<State, Payload>;
+
+    // BEGIN NOT TESTED
+
+    /// Whether any agent in this state is deferring messages.
+    fn is_deferring(&self, _parts: &[Part]) -> bool {
+        false
+    }
+
+    // END NOT TESTED
+
+    /// The maximal number of messages sent by this agent which may be in-flight when it is in this
+    /// state.
+    fn max_in_flight_messages(&self, _parts: &[Part]) -> Option<usize> {
+        None
+    }
+}
+
 pub trait Validated {
     /// If this object is invalid, return why.
     fn invalid(&self) -> Option<&'static str> {
@@ -495,7 +631,7 @@ pub trait Validated {
 }
 
 impl<
-        State: KeyLike + Validated + Named + Default + AgentState<State, Payload>,
+        State: KeyLike + Validated + Named,
         StateId: IndexLike,
         Payload: KeyLike + Validated + Named,
     > AgentTypeData<State, StateId, Payload>
@@ -568,67 +704,44 @@ impl<
     }
 }
 
-impl<
-        State: KeyLike + Validated + Named + Default + AgentState<State, Payload>,
-        StateId: IndexLike,
-        Payload: KeyLike + Validated + Named,
-    > Name for AgentTypeData<State, StateId, Payload>
-{
+impl<State, StateId, Payload> Name for AgentTypeData<State, StateId, Payload> {
     fn name(&self) -> &'static str {
         &self.name
     }
 }
 
-impl<
-        State: KeyLike + Validated + Named + Default + AgentState<State, Payload>,
-        StateId: IndexLike,
-        MessageId: IndexLike,
-        Payload: KeyLike + Validated + Named,
-    > AgentType<StateId, MessageId, Payload> for AgentTypeData<State, StateId, Payload>
+impl<State, Part, StateId, Payload, const MAX_PARTS: usize> Name
+    for ContainerTypeData<State, Part, StateId, Payload, MAX_PARTS>
 {
-    fn is_indexed(&self) -> bool {
-        self.is_indexed
+    fn name(&self) -> &'static str {
+        &self.agent_type_data.name()
+    }
+}
+
+impl<
+        State: KeyLike + Validated + Named,
+        StateId: IndexLike,
+        Payload: KeyLike + Validated + Named,
+    > AgentInstances<StateId, Payload> for AgentTypeData<State, StateId, Payload>
+{
+    fn prev_agent_type(&self) -> Option<Arc<dyn AgentType<StateId, Payload> + Send + Sync>> {
+        self.prev_agent_type.clone()
+    }
+
+    fn first_index(&self) -> usize {
+        self.first_index
+    }
+
+    fn next_index(&self) -> usize {
+        self.first_index + self.count
+    }
+
+    fn is_singleton(&self) -> bool {
+        self.is_singleton
     }
 
     fn count(&self) -> usize {
         self.count
-    }
-
-    fn receive_message(
-        &self,
-        instance: usize,
-        state_id: StateId,
-        payload: &Payload,
-    ) -> Reaction<StateId, Payload> {
-        let reaction = self
-            .states
-            .read()
-            .unwrap()
-            .get(state_id)
-            .receive_message(instance, payload);
-        self.translate_reaction(reaction)
-    }
-
-    fn pass_time(&self, instance: usize, state_id: StateId) -> Reaction<StateId, Payload> {
-        let reaction = self
-            .states
-            .read()
-            .unwrap()
-            .get(state_id)
-            .pass_time(instance);
-        self.translate_reaction(reaction)
-    }
-
-    fn state_is_deferring(&self, state_id: StateId) -> bool {
-        self.states.read().unwrap().get(state_id).is_deferring()
-    }
-
-    fn state_max_in_flight_messages(&self, state_id: StateId) -> Option<usize> {
-        self.states
-            .read()
-            .unwrap()
-            .get(state_id)
-            .max_in_flight_messages()
     }
 
     fn state_display(&self, state_id: StateId, callback: Box<dyn FnOnce(&str)>) {
@@ -640,6 +753,243 @@ impl<
         self.states.read().unwrap().get(state_id).name()
     }
     // END NOT TESTED
+}
+
+impl<
+        State: KeyLike + Validated + Named + Default + ContainerState<State, Part, Payload>,
+        Part: KeyLike + Validated + Named + Default + AgentState<Part, Payload>,
+        StateId: IndexLike,
+        Payload: KeyLike + Validated + Named,
+        const MAX_PARTS: usize,
+    > AgentInstances<StateId, Payload>
+    for ContainerTypeData<State, Part, StateId, Payload, MAX_PARTS>
+{
+    fn prev_agent_type(&self) -> Option<Arc<dyn AgentType<StateId, Payload> + Send + Sync>> {
+        self.agent_type_data.prev_agent_type.clone()
+    }
+
+    fn first_index(&self) -> usize {
+        self.agent_type_data.first_index()
+    }
+
+    fn next_index(&self) -> usize {
+        self.agent_type_data.next_index()
+    }
+
+    fn is_singleton(&self) -> bool {
+        self.agent_type_data.is_singleton()
+    }
+
+    fn count(&self) -> usize {
+        self.agent_type_data.count()
+    }
+
+    fn state_display(&self, state_id: StateId, callback: Box<dyn FnOnce(&str)>) {
+        self.agent_type_data.state_display(state_id, callback)
+    }
+
+    // BEGIN NOT TESTED
+    fn state_name(&self, state_id: StateId) -> &'static str {
+        self.agent_type_data.state_name(state_id)
+    }
+    // END NOT TESTED
+}
+
+impl<
+        State: KeyLike + Validated + Named + Default + AgentState<State, Payload>,
+        StateId: IndexLike,
+        Payload: KeyLike + Validated + Named,
+    > AgentType<StateId, Payload> for AgentTypeData<State, StateId, Payload>
+{
+    fn receive_message(
+        &self,
+        instance: usize,
+        state_ids: &[StateId],
+        payload: &Payload,
+    ) -> Reaction<StateId, Payload> {
+        debug_assert!(
+            instance < self.count,
+            "instance: {} count: {}",
+            instance,
+            self.count() // NOT TESTED
+        );
+        let reaction = self
+            .states
+            .read()
+            .unwrap()
+            .get(state_ids[self.first_index + instance])
+            .receive_message(instance, payload);
+        self.translate_reaction(reaction)
+    }
+
+    fn pass_time(&self, instance: usize, state_ids: &[StateId]) -> Reaction<StateId, Payload> {
+        debug_assert!(
+            instance < self.count,
+            "instance: {} count: {}",
+            instance,
+            self.count() // NOT TESTED
+        );
+        let reaction = self
+            .states
+            .read()
+            .unwrap()
+            .get(state_ids[self.first_index + instance])
+            .pass_time(instance);
+        self.translate_reaction(reaction)
+    }
+
+    fn state_is_deferring(&self, instance: usize, state_ids: &[StateId]) -> bool {
+        debug_assert!(
+            instance < self.count,
+            "instance: {} count: {}",
+            instance,
+            self.count() // NOT TESTED
+        );
+        self.states
+            .read()
+            .unwrap()
+            .get(state_ids[self.first_index + instance])
+            .is_deferring()
+    }
+
+    fn state_max_in_flight_messages(
+        &self,
+        instance: usize,
+        state_ids: &[StateId],
+    ) -> Option<usize> {
+        debug_assert!(
+            instance < self.count,
+            "instance: {} count: {}",
+            instance,
+            self.count() // NOT TESTED
+        );
+        self.states
+            .read()
+            .unwrap()
+            .get(state_ids[self.first_index + instance])
+            .max_in_flight_messages()
+    }
+}
+
+impl<
+        State: KeyLike + Validated + Named + Default + ContainerState<State, Part, Payload>,
+        Part: KeyLike + Validated + Named + Default + AgentState<Part, Payload>,
+        StateId: IndexLike,
+        Payload: KeyLike + Validated + Named,
+        const MAX_PARTS: usize,
+    > ContainerTypeData<State, Part, StateId, Payload, MAX_PARTS>
+{
+    fn collect_parts(&self, state_ids: &[StateId], parts: &mut [Part; MAX_PARTS]) {
+        let part_first_index = self.part_type.part_first_index();
+        (0..self.part_type.parts_count()).for_each(|part_instance| {
+            let state_id = state_ids[part_first_index + part_instance];
+            parts[part_instance] = self.part_type.part_state_by_id(state_id);
+        });
+    }
+}
+
+impl<
+        State: KeyLike + Validated + Named + Default + ContainerState<State, Part, Payload>,
+        Part: KeyLike + Validated + Named + Default + AgentState<Part, Payload>,
+        StateId: IndexLike,
+        Payload: KeyLike + Validated + Named,
+        const MAX_PARTS: usize,
+    > AgentType<StateId, Payload> for ContainerTypeData<State, Part, StateId, Payload, MAX_PARTS>
+{
+    fn receive_message(
+        &self,
+        instance: usize,
+        state_ids: &[StateId],
+        payload: &Payload,
+    ) -> Reaction<StateId, Payload> {
+        debug_assert!(
+            instance < self.agent_type_data.count,
+            "instance: {} count: {}",
+            instance,
+            self.count() // NOT TESTED
+        );
+
+        let mut parts_buffer = [Part::default(); MAX_PARTS];
+        self.collect_parts(state_ids, &mut parts_buffer);
+        let parts = &parts_buffer[0..self.part_type.parts_count()];
+
+        let reaction = self
+            .agent_type_data
+            .states
+            .read()
+            .unwrap()
+            .get(state_ids[self.agent_type_data.first_index + instance])
+            .receive_message(instance, payload, parts);
+        self.agent_type_data.translate_reaction(reaction)
+    }
+
+    fn pass_time(&self, instance: usize, state_ids: &[StateId]) -> Reaction<StateId, Payload> {
+        debug_assert!(
+            instance < self.agent_type_data.count,
+            "instance: {} count: {}",
+            instance,
+            self.count() // NOT TESTED
+        );
+
+        let mut parts_buffer = [Part::default(); MAX_PARTS];
+        self.collect_parts(state_ids, &mut parts_buffer);
+        let parts = &parts_buffer[0..self.part_type.parts_count()];
+
+        let reaction = self
+            .agent_type_data
+            .states
+            .read()
+            .unwrap()
+            .get(state_ids[self.agent_type_data.first_index + instance])
+            .pass_time(instance, parts);
+        self.agent_type_data.translate_reaction(reaction)
+    }
+
+    // BEGIN NOT TESTED
+    fn state_is_deferring(&self, instance: usize, state_ids: &[StateId]) -> bool {
+        debug_assert!(
+            instance < self.agent_type_data.count,
+            "instance: {} count: {}",
+            instance,
+            self.count()
+        );
+
+        let mut parts_buffer = [Part::default(); MAX_PARTS];
+        self.collect_parts(state_ids, &mut parts_buffer);
+        let parts = &parts_buffer[0..self.part_type.parts_count()];
+
+        self.agent_type_data
+            .states
+            .read()
+            .unwrap()
+            .get(state_ids[self.agent_type_data.first_index + instance])
+            .is_deferring(parts)
+    }
+    // END NOT TESTED
+
+    fn state_max_in_flight_messages(
+        &self,
+        instance: usize,
+        state_ids: &[StateId],
+    ) -> Option<usize> {
+        debug_assert!(
+            instance < self.agent_type_data.count,
+            "instance: {} count: {}",
+            instance,
+            self.count() // NOT TESTED
+        );
+
+        let mut parts_buffer = [Part::default(); MAX_PARTS];
+        self.collect_parts(state_ids, &mut parts_buffer);
+        let parts = &parts_buffer[0..self.part_type.parts_count()];
+
+        self.agent_type_data
+            .states
+            .read()
+            .unwrap()
+            .get(state_ids[self.agent_type_data.first_index + instance])
+            .max_in_flight_messages(parts)
+    }
 }
 
 // BEGIN MAYBE TESTED
@@ -942,17 +1292,14 @@ pub struct Model<
     const MAX_AGENTS: usize,
     const MAX_MESSAGES: usize,
 > {
-    /// The agent types that will be used in the model.
-    pub types: Vec<<Self as MetaModel>::AgentTypeArc>,
-
     /// The type of each agent.
     pub agent_types: Vec<<Self as MetaModel>::AgentTypeArc>,
 
     /// The label of each agent.
     pub agent_labels: Vec<Arc<String>>,
 
-    /// The first instance of the same type of each agent.
-    pub first_instances: Vec<usize>,
+    /// The first index of the same type of each agent.
+    pub first_indices: Vec<usize>,
 
     /// Validation functions for the configuration.
     pub validators: Vec<<Self as MetaModel>::Validator>,
@@ -1052,7 +1399,7 @@ pub trait MetaModel {
 // BEGIN MAYBE TESTED
 
 /// The context for processing event handling by an agent.
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct Context<
     StateId: IndexLike,
     MessageId: IndexLike,
@@ -1073,7 +1420,7 @@ pub struct Context<
     agent_index: usize,
 
     /// The type of the agent that reacted to the event.
-    agent_type: Arc<dyn AgentType<StateId, MessageId, Payload> + Send + Sync>,
+    agent_type: Arc<dyn AgentType<StateId, Payload> + Send + Sync>,
 
     /// The index of the source agent in its type.
     agent_instance: usize,
@@ -1085,7 +1432,7 @@ pub struct Context<
     incoming: Option<Incoming<ConfigurationId>>,
 
     /// The configuration when delivering the event.
-    from_configuration_id: ConfigurationId,
+    from_configuration: Configuration<StateId, MessageId, InvalidId, MAX_AGENTS, MAX_MESSAGES>,
 
     /// Incrementally updated to become the target configuration.
     to_configuration: Configuration<StateId, MessageId, InvalidId, MAX_AGENTS, MAX_MESSAGES>,
@@ -1112,7 +1459,7 @@ impl<
     const MAX_AGENTS: usize = MAX_AGENTS;
     const MAX_MESSAGES: usize = MAX_MESSAGES;
 
-    type AgentTypeArc = Arc<dyn AgentType<StateId, MessageId, Payload> + Send + Sync>;
+    type AgentTypeArc = Arc<dyn AgentType<StateId, Payload> + Send + Sync>;
     type Message = Message<Payload>;
     type Reaction = Reaction<StateId, Payload>;
     type Action = Action<StateId, Payload>;
@@ -1143,7 +1490,7 @@ impl<
     /// This allows querying the model for the `agent_index` of all the agents to use the results as
     /// a target for messages.
     pub fn new(
-        types: Vec<<Self as MetaModel>::AgentTypeArc>,
+        last_agent_type: Arc<dyn AgentType<StateId, Payload> + Send + Sync>,
         validators: Vec<<Self as MetaModel>::Validator>,
     ) -> Self {
         assert!(
@@ -1154,35 +1501,20 @@ impl<
         );
 
         let mut agent_types: Vec<<Self as MetaModel>::AgentTypeArc> = vec![];
-        let mut first_instances: Vec<usize> = vec![];
+        let mut first_indices: Vec<usize> = vec![];
         let mut agent_labels: Vec<Arc<String>> = vec![];
 
-        types.iter().for_each(|agent_type| {
-            let count = agent_type.count();
-            assert!(
-                count > 0,
-                "zero instances requested for the type {}",
-                agent_type.name() // NOT TESTED
-            );
-            let first_instance = agent_types.len();
-            for instance in 0..count {
-                first_instances.push(first_instance);
-                agent_types.push(agent_type.clone());
-                let agent_label = if agent_type.is_indexed() {
-                    format!("{}({})", agent_type.name(), instance)
-                } else {
-                    debug_assert!(instance == 0);
-                    agent_type.name().to_string()
-                };
-                agent_labels.push(Arc::new(agent_label));
-            }
-        });
+        Self::collect_agent_types(
+            last_agent_type,
+            &mut agent_types,
+            &mut first_indices,
+            &mut agent_labels,
+        );
 
         Model {
-            types,
             agent_types,
             agent_labels,
-            first_instances,
+            first_indices,
             validators,
             configurations: RwLock::new(Memoize::new(false)),
             messages: Arc::new(RwLock::new(Memoize::new(true))),
@@ -1194,6 +1526,44 @@ impl<
             max_configuration_string_size: RwLock::new(0),
             eprint_progress: false,
             threads: Threads::Count(1),
+        }
+    }
+
+    fn collect_agent_types(
+        last_agent_type: Arc<dyn AgentType<StateId, Payload> + Send + Sync>,
+        mut agent_types: &mut Vec<<Self as MetaModel>::AgentTypeArc>,
+        mut first_indices: &mut Vec<usize>,
+        mut agent_labels: &mut Vec<Arc<String>>,
+    ) {
+        if let Some(prev_agent_type) = last_agent_type.prev_agent_type() {
+            Self::collect_agent_types(
+                prev_agent_type,
+                &mut agent_types,
+                &mut first_indices,
+                &mut agent_labels,
+            );
+        }
+
+        let count = last_agent_type.count();
+        assert!(
+            count > 0,
+            "zero instances requested for the type {}",
+            last_agent_type.name() // NOT TESTED
+        );
+
+        let first_index = first_indices.len();
+        assert!(first_index == last_agent_type.first_index());
+
+        for instance in 0..count {
+            first_indices.push(first_index);
+            agent_types.push(last_agent_type.clone());
+            let agent_label = if last_agent_type.is_singleton() {
+                debug_assert!(instance == 0);
+                last_agent_type.name().to_string()
+            } else {
+                format!("{}({})", last_agent_type.name(), instance)
+            };
+            agent_labels.push(Arc::new(agent_label));
         }
     }
 
@@ -1217,7 +1587,7 @@ impl<
             agent_instance: usize::max_value(),
             agent_from_state_id: StateId::invalid(),
             incoming: None,
-            from_configuration_id: ConfigurationId::from_usize(0),
+            from_configuration: initial_configuration,
             to_configuration: initial_configuration,
         };
 
@@ -1239,6 +1609,14 @@ impl<
                     "reached the configuration: {}",
                     self.display_configuration(&context.to_configuration)
                 );
+                /*
+                eprintln!(
+                    "FROM: {}",
+                    self.display_configuration(&context.from_configuration)
+                );
+                eprintln!("BY: {}", self.event_label(context.delivered_message_id));
+                eprintln!();
+                */
             }
         } else {
             if let Some(transition) = context.incoming {
@@ -1291,7 +1669,14 @@ impl<
         let agent_from_state_id = from_configuration.state_ids[agent_index];
         let agent_type = self.agent_types[agent_index].clone();
         let agent_instance = self.instance(agent_index);
-        let reaction = agent_type.pass_time(agent_instance, agent_from_state_id);
+        let reaction = agent_type.pass_time(agent_instance, &from_configuration.state_ids);
+
+        /*
+        eprintln!("FROM: {}", self.display_configuration(&from_configuration));
+        eprintln!("BY: {}", self.event_label(None));
+        eprintln!("REACTION: {:?}", reaction);
+        eprintln!();
+        */
 
         if reaction == Reaction::Ignore {
             return;
@@ -1310,7 +1695,7 @@ impl<
             agent_instance,
             agent_from_state_id,
             incoming,
-            from_configuration_id,
+            from_configuration,
             to_configuration: from_configuration,
         };
         self.process_reaction(context, reaction);
@@ -1345,7 +1730,15 @@ impl<
         let target_instance = self.instance(target_index);
         let target_from_state_id = from_configuration.state_ids[target_index];
         let target_type = self.agent_types[target_index].clone();
-        let reaction = target_type.receive_message(target_index, target_from_state_id, &payload);
+        let reaction =
+            target_type.receive_message(target_instance, &from_configuration.state_ids, &payload);
+
+        /*
+        eprintln!("FROM: {}", self.display_configuration(&from_configuration));
+        eprintln!("BY: {}", self.event_label(Some(message_id)));
+        eprintln!("REACTION: {:?}", reaction);
+        eprintln!();
+        */
 
         let incoming = Some(Incoming {
             from: from_configuration_id,
@@ -1363,7 +1756,7 @@ impl<
             agent_instance: target_instance,
             agent_from_state_id: target_from_state_id,
             incoming,
-            from_configuration_id,
+            from_configuration,
             to_configuration,
         };
         self.process_reaction(context, reaction);
@@ -1769,35 +2162,13 @@ impl<
 
     // BEGIN NOT TESTED
     fn unexpected_message(&self, context: <Self as MetaModel>::Context) {
-        match context.delivered_message_id {
-            None => {
-                let agent_label = self.agent_labels[context.agent_index].clone();
-                let event_label = self.event_label(None);
-                context.agent_type.state_display(
-                    context.agent_from_state_id,
-                    Box::new(move |from_state| {
-                        panic!(
-                            "the agent {} does not expect the {} while in the state {}",
-                            agent_label, event_label, from_state
-                        );
-                    }),
-                );
-            }
-
-            Some(delivered_message_id) => {
-                let agent_label = self.agent_labels[context.agent_index].clone();
-                let event_label = self.event_label(Some(delivered_message_id));
-                context.agent_type.state_display(
-                    context.agent_from_state_id,
-                    Box::new(move |from_state| {
-                        panic!(
-                            "the agent {} does not expect the {} while in the state {}",
-                            agent_label, event_label, from_state
-                        );
-                    }),
-                );
-            }
-        }
+        let event_label = self.event_label(context.delivered_message_id);
+        let agent_label = self.agent_labels[context.agent_index].clone();
+        let from_configuration = self.display_configuration(&context.from_configuration);
+        panic!(
+            "the agent {} does not expect the {} while in the configuration {}",
+            agent_label, event_label, from_configuration
+        );
     }
     // END NOT TESTED
 
@@ -1821,10 +2192,10 @@ impl<
             }
 
             Some(delivered_message_id) => {
-                if !context
-                    .agent_type
-                    .state_is_deferring(context.agent_from_state_id)
-                {
+                if !context.agent_type.state_is_deferring(
+                    context.agent_instance,
+                    &context.from_configuration.state_ids,
+                ) {
                     // BEGIN NOT TESTED
                     let agent_label = self.agent_labels[context.agent_index].clone();
                     let event_label = self.event_label(Some(delivered_message_id));
@@ -1860,26 +2231,25 @@ impl<
         }
 
         if context.agent_index != usize::max_value() {
-            let agent_state_id = context.to_configuration.state_ids[context.agent_index];
-            if let Some(max_in_flight_messages) = context
-                .agent_type
-                .state_max_in_flight_messages(agent_state_id)
-            {
-                if context.to_configuration.message_counts[context.agent_index].to_usize()
-                    > max_in_flight_messages
-                {
+            if let Some(max_in_flight_messages) = context.agent_type.state_max_in_flight_messages(
+                context.agent_instance,
+                &context.from_configuration.state_ids,
+            ) {
+                let in_flight_messages =
+                    context.to_configuration.message_counts[context.agent_index].to_usize();
+                if in_flight_messages > max_in_flight_messages {
                     // BEGIN NOT TESTED
                     let agent_label = self.agent_labels[context.agent_index].clone();
                     let event_label = self.event_label(context.delivered_message_id);
                     let to_configuration = self.display_configuration(&context.to_configuration);
                     let from_configuration =
-                        self.display_configuration_id(context.from_configuration_id);
+                        self.display_configuration(&context.from_configuration);
 
                     panic!(
-                        "the agent {} sends too many messages when reacting to the {} by moving\n\
+                        "the agent {} sends too more messages {} then allowed {} when reacting to the {} by moving\n\
                         from the configuration {}\n\
                         into the configuration {}",
-                        agent_label, event_label, from_configuration, to_configuration
+                        agent_label, in_flight_messages, max_in_flight_messages, event_label, from_configuration, to_configuration
                     );
                     // END NOT TESTED
                 }
@@ -1995,34 +2365,31 @@ impl<
     ///
     /// If more than one agent of this type exist, also specify its index within its type.
     pub fn agent_index(&self, name: &'static str, instance: Option<usize>) -> usize {
-        let mut agent_index: usize = 0;
-        for agent_type in self.types.iter() {
-            let count = agent_type.count();
+        for (agent_index, agent_type) in self.agent_types.iter().enumerate() {
             if agent_type.name() != name {
-                agent_index += count;
+                continue;
+            }
+            if let Some(lookup_instance) = instance {
+                assert!(lookup_instance < agent_type.count(),
+                        "out of bounds instance {} specified when locating an agent of type {} which has {} instances",
+                        lookup_instance, name, agent_type.count()); // NOT TESTED
+                return self.first_indices[agent_index] + lookup_instance;
             } else {
-                match instance {
-                    None => {
-                        assert!(count == 1,
-                                "no instance index specified when locating an agent of type {} which has {} instances",
-                                name, count);
-                    }
-                    Some(index_in_type) => {
-                        assert!(index_in_type < count,
-                                "too large instance index {} specified when locating an agent of type {} which has {} instances",
-                                index_in_type, name, count);
-                        agent_index += index_in_type;
-                    }
-                }
-                return agent_index;
+                assert!(
+                    agent_type.is_singleton(),
+                    "no instance specified when locating a singleton agent of type {}",
+                    name
+                );
+                return self.first_indices[agent_index];
             }
         }
+
         panic!("looking for an agent of an unknown type {}", name); // NOT TESTED
     }
 
     /// Return the index of the agent instance within its type.
     pub fn instance(&self, agent_index: usize) -> usize {
-        agent_index - self.first_instances[agent_index]
+        agent_index - self.first_indices[agent_index]
     }
 
     /// Return whether all the reachable configurations are valid.
