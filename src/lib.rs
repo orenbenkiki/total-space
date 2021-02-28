@@ -2390,7 +2390,6 @@ impl<
         self.invalids.read().unwrap().usize() == 0
     }
 
-    // BEGIN NOT TESTED
     fn event_label(&self, message_id: Option<MessageId>) -> String {
         let messages = self.messages.read().unwrap();
         match message_id {
@@ -2399,7 +2398,6 @@ impl<
             Some(message_id) => "message ".to_string() + messages.display(message_id),
         }
     }
-    // END NOT TESTED
 
     /// Display a message.
     pub fn display_message(&self, message: &<Self as MetaModel>::Message) -> String {
@@ -2552,6 +2550,7 @@ pub fn add_clap_subcommands<'a, 'b>(app: App<'a, 'b>) -> App<'a, 'b> {
         .subcommand(
             SubCommand::with_name("configurations").about("list the configurations of the model"),
         )
+        .subcommand(SubCommand::with_name("transitions").about("list the transitions of the model"))
 }
 
 /// Execute operations on a model using clap commands.
@@ -2562,6 +2561,7 @@ pub trait ClapModel {
     fn do_clap_subcommand(&mut self, arg_matches: &mut ArgMatches, stdout: &mut dyn Write) -> bool {
         self.do_clap_agents_subcommand(arg_matches, stdout)
             || self.do_clap_configurations_subcommand(arg_matches, stdout)
+            || self.do_clap_transitions_subcommand(arg_matches, stdout)
     }
 
     /// Execute the `agents` clap subcommand, if requested to.
@@ -2577,6 +2577,15 @@ pub trait ClapModel {
     ///
     /// This computes the model.
     fn do_clap_configurations_subcommand(
+        &mut self,
+        arg_matches: &mut ArgMatches,
+        stdout: &mut dyn Write,
+    ) -> bool;
+
+    /// Execute the `transitions` clap subcommand, if requested to.
+    ///
+    /// This computes the model.
+    fn do_clap_transitions_subcommand(
         &mut self,
         arg_matches: &mut ArgMatches,
         stdout: &mut dyn Write,
@@ -2618,6 +2627,7 @@ impl<
         match arg_matches.subcommand_matches("configurations") {
             Some(_) => {
                 self.compute();
+
                 (0..self.configurations.read().unwrap().value_by_id.len())
                     .map(ConfigurationId::from_usize)
                     .for_each(|configuration_id| {
@@ -2628,6 +2638,55 @@ impl<
                         )
                         .unwrap();
                     });
+                true
+            }
+            None => false,
+        }
+    }
+
+    fn do_clap_transitions_subcommand(
+        &mut self,
+        arg_matches: &mut ArgMatches,
+        stdout: &mut dyn Write,
+    ) -> bool {
+        match arg_matches.subcommand_matches("transitions") {
+            Some(_) => {
+                self.compute();
+
+                let configurations = self.configurations.read().unwrap();
+                self.outgoings.read().unwrap().iter().enumerate().for_each(
+                    |(from_configuration_id, outgoings)| {
+                        let from_configuration_id =
+                            ConfigurationId::from_usize(from_configuration_id);
+                        let from_configuration = configurations.get(from_configuration_id);
+                        writeln!(
+                            stdout,
+                            "FROM {}",
+                            self.display_configuration(&from_configuration)
+                        )
+                        .unwrap();
+
+                        outgoings.read().unwrap().iter().for_each(|outgoing| {
+                            let event_label =
+                                if outgoing.message_index == ConfigurationId::invalid() {
+                                    self.event_label(None)
+                                } else {
+                                    self.event_label(Some(
+                                        from_configuration.message_ids
+                                            [outgoing.message_index.to_usize()],
+                                    ))
+                                };
+
+                            writeln!(
+                                stdout,
+                                "- BY {}\n  TO {}",
+                                event_label,
+                                self.display_configuration_id(outgoing.to)
+                            )
+                            .unwrap();
+                        });
+                    },
+                );
                 true
             }
             None => false, // NOT TESTED

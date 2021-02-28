@@ -199,4 +199,53 @@ fn test_model() {
             "
         );
     }
+
+    {
+        let app = add_clap_subcommands(App::new("test_client_server_model"));
+        let mut arg_matches = app.get_matches_from(vec!["test", "transitions"].iter());
+        let mut stdout_bytes = Vec::new();
+        assert!(model.do_clap_subcommand(&mut arg_matches, &mut stdout_bytes));
+        let stdout = str::from_utf8(&stdout_bytes).unwrap();
+        assert_eq!(
+            stdout,
+            "FROM Client:Idle & Server:Listen\n\
+            - BY time event\n  \
+              TO Client:Wait1 & Server:Listen | Client -> @0 Request -> Server\n\
+            FROM Client:Wait1 & Server:Listen | Client -> @0 Request -> Server\n\
+            - BY time event\n  \
+              TO Client:Wait2 & Server:Listen | Client -> @0 Request -> Server & Client -> @1 Request -> Server\n\
+            - BY message Client -> @0 Request -> Server\n  \
+              TO Client:Wait1 & Server:Work\n\
+            FROM Client:Wait2 & Server:Listen | Client -> @0 Request -> Server & Client -> @1 Request -> Server\n\
+            - BY message Client -> @0 Request -> Server\n  \
+              TO Client:Wait2 & Server:Work | Client -> @0 Request -> Server\n\
+            FROM Client:Wait2 & Server:Work | Client -> @0 Request -> Server\n\
+            - BY time event\n  \
+              TO Client:Wait2 & Server:Listen | Client -> @0 Request -> Server & Server -> @0 Response -> Client\n\
+            FROM Client:Wait2 & Server:Listen | Client -> @0 Request -> Server & Server -> @0 Response -> Client\n\
+            - BY message Client -> @0 Request -> Server\n  \
+              TO Client:Wait2 & Server:Work | Server -> @0 Response -> Client\n\
+            - BY message Server -> @0 Response -> Client\n  \
+              TO Client:Wait1 & Server:Listen | Client -> @0 Request -> Server\n\
+            FROM Client:Wait2 & Server:Work | Server -> @0 Response -> Client\n\
+            - BY time event\n  \
+              TO Client:Wait2 & Server:Listen | Server -> @0 Response -> Client & Server -> @1 Response -> Client\n\
+            - BY message Server -> @0 Response -> Client\n  \
+              TO Client:Wait1 & Server:Work\n\
+            FROM Client:Wait2 & Server:Listen | Server -> @0 Response -> Client & Server -> @1 Response -> Client\n\
+            - BY message Server -> @0 Response -> Client\n  \
+              TO Client:Wait1 & Server:Listen | Server -> @0 Response -> Client\n\
+            FROM Client:Wait1 & Server:Listen | Server -> @0 Response -> Client\n\
+            - BY time event\n  \
+              TO Client:Wait2 & Server:Listen | Client -> @0 Request -> Server & Server -> @0 Response -> Client\n\
+            - BY message Server -> @0 Response -> Client\n  \
+              TO Client:Idle & Server:Listen\n\
+            FROM Client:Wait1 & Server:Work\n\
+            - BY time event\n  \
+              TO Client:Wait2 & Server:Work | Client -> @0 Request -> Server\n\
+            - BY time event\n  \
+              TO Client:Wait1 & Server:Listen | Server -> @0 Response -> Client\n\
+            "
+        );
+    }
 }

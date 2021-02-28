@@ -203,4 +203,50 @@ fn test_model() {
             "
         );
     }
+
+    {
+        let app = add_clap_subcommands(App::new("test_client_server_model"));
+        let mut arg_matches = app.get_matches_from(vec!["test", "transitions"].iter());
+        let mut stdout_bytes = Vec::new();
+        assert!(model.do_clap_subcommand(&mut arg_matches, &mut stdout_bytes));
+        let stdout = str::from_utf8(&stdout_bytes).unwrap();
+        assert_eq!(
+            stdout,
+            "FROM Client:Idle & Server:Listen\n\
+            - BY time event\n  \
+              TO Client:Wait & Server:Listen | Client -> Request -> Server\n\
+            - BY time event\n  \
+              TO Client:Idle & Server:Listen | Client -> * Ping -> Server\n\
+            FROM Client:Wait & Server:Listen | Client -> Request -> Server\n\
+            - BY message Client -> Request -> Server\n  \
+              TO Client:Wait & Server:Work\n\
+            FROM Client:Wait & Server:Work\n\
+            - BY time event\n  \
+              TO Client:Wait & Server:Listen | Server -> Response -> Client\n\
+            FROM Client:Wait & Server:Listen | Server -> Response -> Client\n\
+            - BY message Server -> Response -> Client\n  \
+              TO Client:Idle & Server:Listen\n\
+            FROM Client:Idle & Server:Listen | Client -> * Ping -> Server\n\
+            - BY time event\n  \
+              TO Client:Wait & Server:Listen | Client -> Request -> Server & Client -> * Ping -> Server\n\
+            - BY time event\n  \
+              TO Client:Idle & Server:Listen | Client -> * Ping => Ping -> Server\n\
+            - BY message Client -> * Ping -> Server\n  \
+              TO Client:Idle & Server:Listen\n\
+            FROM Client:Wait & Server:Listen | Client -> Request -> Server & Client -> * Ping -> Server\n\
+            - BY message Client -> * Ping -> Server\n  \
+              TO Client:Wait & Server:Listen | Client -> Request -> Server\n\
+            FROM Client:Idle & Server:Listen | Client -> * Ping => Ping -> Server\n\
+            - BY time event\n  \
+              TO Client:Wait & Server:Listen | Client -> Request -> Server & Client -> * Ping => Ping -> Server\n\
+            - BY time event\n  \
+              TO Client:Idle & Server:Listen | Client -> * Ping => Ping -> Server\n\
+            - BY message Client -> * Ping => Ping -> Server\n  \
+              TO Client:Idle & Server:Listen\n\
+            FROM Client:Wait & Server:Listen | Client -> Request -> Server & Client -> * Ping => Ping -> Server\n\
+            - BY message Client -> * Ping => Ping -> Server\n  \
+              TO Client:Wait & Server:Listen | Client -> Request -> Server\n\
+            "
+        );
+    }
 }

@@ -93,7 +93,7 @@ impl_name_for_into_static_str! {ManagerState}
 impl_display_by_patched_debug! {ManagerState}
 impl PatchDebug for ManagerState {
     fn patch_debug(string: String) -> String {
-        string.replace("Idle", "IDL").replace("Wait", "WAT")
+        string.replace("Fixed", "")
     }
 }
 
@@ -307,41 +307,41 @@ fn test_model() {
         let stdout = str::from_utf8(&stdout_bytes).unwrap();
         assert_eq!(
             stdout,
-            "C(0):IDL & C(1):IDL & MGR:Fixed & SRV:LST\n\
-            C(0):WAT & C(1):IDL & MGR:Fixed & SRV:LST | C(0) -> REQ(C=0) -> SRV\n\
-            C(0):WAT & C(1):WAT & MGR:Fixed & SRV:LST | C(0) -> REQ(C=0) -> SRV & C(1) -> REQ(C=1) -> SRV\n\
-            C(0):WAT & C(1):WAT & MGR:Fixed & SRV:WRK(C=0) | C(1) -> REQ(C=1) -> SRV\n\
-            C(0):WAT & C(1):WAT & MGR:Fixed & SRV:LST | C(1) -> REQ(C=1) -> SRV & SRV -> RSP -> C(0)\n\
-            C(0):WAT & C(1):WAT & MGR:Fixed & SRV:WRK(C=1) | SRV -> RSP -> C(0)\n\
-            C(0):WAT & C(1):WAT & MGR:Fixed & SRV:LST | SRV -> RSP -> C(0) & SRV -> RSP -> C(1)\n\
-            C(0):IDL & C(1):WAT & MGR:Fixed & SRV:LST | SRV -> RSP -> C(1)\n\
-            C(0):WAT & C(1):WAT & MGR:Fixed & SRV:LST | C(0) -> REQ(C=0) -> SRV & SRV -> RSP -> C(1)\n\
-            C(0):WAT & C(1):WAT & MGR:Fixed & SRV:WRK(C=0) | SRV -> RSP -> C(1)\n\
-            C(0):WAT & C(1):IDL & MGR:Fixed & SRV:WRK(C=0)\n\
-            C(0):WAT & C(1):CHK & MGR:Fixed & SRV:WRK(C=0) | C(1) -> CHK(C=1) -> MGR\n\
-            C(0):WAT & C(1):CHK & MGR:Fixed & SRV:LST | SRV -> RSP -> C(0) & C(1) -> CHK(C=1) -> MGR\n\
-            C(0):IDL & C(1):CHK & MGR:Fixed & SRV:LST | C(1) -> CHK(C=1) -> MGR\n\
-            C(0):WAT & C(1):CHK & MGR:Fixed & SRV:LST | C(0) -> REQ(C=0) -> SRV & C(1) -> CHK(C=1) -> MGR\n\
-            C(0):WAT & C(1):CHK & MGR:Fixed & SRV:LST | C(0) -> REQ(C=0) -> SRV & MGR -> CNF -> C(1)\n\
-            C(0):WAT & C(1):CHK & MGR:Fixed & SRV:WRK(C=0) | MGR -> CNF -> C(1)\n\
-            C(0):WAT & C(1):CHK & MGR:Fixed & SRV:LST | SRV -> RSP -> C(0) & MGR -> CNF -> C(1)\n\
-            C(0):IDL & C(1):CHK & MGR:Fixed & SRV:LST | MGR -> CNF -> C(1)\n\
-            C(0):CHK & C(1):CHK & MGR:Fixed & SRV:LST | MGR -> CNF -> C(1) & C(0) -> CHK(C=0) -> MGR\n\
-            C(0):CHK & C(1):IDL & MGR:Fixed & SRV:LST | C(0) -> CHK(C=0) -> MGR\n\
-            C(0):CHK & C(1):WAT & MGR:Fixed & SRV:LST | C(1) -> REQ(C=1) -> SRV & C(0) -> CHK(C=0) -> MGR\n\
-            C(0):CHK & C(1):WAT & MGR:Fixed & SRV:WRK(C=1) | C(0) -> CHK(C=0) -> MGR\n\
-            C(0):CHK & C(1):WAT & MGR:Fixed & SRV:LST | SRV -> RSP -> C(1) & C(0) -> CHK(C=0) -> MGR\n\
-            C(0):CHK & C(1):WAT & MGR:Fixed & SRV:LST | SRV -> RSP -> C(1) & MGR -> CNF -> C(0)\n\
-            C(0):CHK & C(1):IDL & MGR:Fixed & SRV:LST | MGR -> CNF -> C(0)\n\
-            C(0):CHK & C(1):WAT & MGR:Fixed & SRV:LST | C(1) -> REQ(C=1) -> SRV & MGR -> CNF -> C(0)\n\
-            C(0):CHK & C(1):WAT & MGR:Fixed & SRV:WRK(C=1) | MGR -> CNF -> C(0)\n\
-            C(0):IDL & C(1):WAT & MGR:Fixed & SRV:WRK(C=1)\n\
-            C(0):WAT & C(1):WAT & MGR:Fixed & SRV:WRK(C=1) | C(0) -> REQ(C=0) -> SRV\n\
-            C(0):IDL & C(1):WAT & MGR:Fixed & SRV:LST | C(1) -> REQ(C=1) -> SRV\n\
-            C(0):CHK & C(1):CHK & MGR:Fixed & SRV:LST | C(1) -> CHK(C=1) -> MGR & MGR -> CNF -> C(0)\n\
-            C(0):CHK & C(1):CHK & MGR:Fixed & SRV:LST | MGR -> CNF -> C(1) & MGR -> CNF -> C(0)\n\
-            C(0):CHK & C(1):CHK & MGR:Fixed & SRV:LST | C(1) -> CHK(C=1) -> MGR & C(0) -> CHK(C=0) -> MGR\n\
-            C(0):WAT & C(1):IDL & MGR:Fixed & SRV:LST | SRV -> RSP -> C(0)\n\
+            "C(0):IDL & C(1):IDL & MGR: & SRV:LST\n\
+            C(0):WAT & C(1):IDL & MGR: & SRV:LST | C(0) -> REQ(C=0) -> SRV\n\
+            C(0):WAT & C(1):WAT & MGR: & SRV:LST | C(0) -> REQ(C=0) -> SRV & C(1) -> REQ(C=1) -> SRV\n\
+            C(0):WAT & C(1):WAT & MGR: & SRV:WRK(C=0) | C(1) -> REQ(C=1) -> SRV\n\
+            C(0):WAT & C(1):WAT & MGR: & SRV:LST | C(1) -> REQ(C=1) -> SRV & SRV -> RSP -> C(0)\n\
+            C(0):WAT & C(1):WAT & MGR: & SRV:WRK(C=1) | SRV -> RSP -> C(0)\n\
+            C(0):WAT & C(1):WAT & MGR: & SRV:LST | SRV -> RSP -> C(0) & SRV -> RSP -> C(1)\n\
+            C(0):IDL & C(1):WAT & MGR: & SRV:LST | SRV -> RSP -> C(1)\n\
+            C(0):WAT & C(1):WAT & MGR: & SRV:LST | C(0) -> REQ(C=0) -> SRV & SRV -> RSP -> C(1)\n\
+            C(0):WAT & C(1):WAT & MGR: & SRV:WRK(C=0) | SRV -> RSP -> C(1)\n\
+            C(0):WAT & C(1):IDL & MGR: & SRV:WRK(C=0)\n\
+            C(0):WAT & C(1):CHK & MGR: & SRV:WRK(C=0) | C(1) -> CHK(C=1) -> MGR\n\
+            C(0):WAT & C(1):CHK & MGR: & SRV:LST | SRV -> RSP -> C(0) & C(1) -> CHK(C=1) -> MGR\n\
+            C(0):IDL & C(1):CHK & MGR: & SRV:LST | C(1) -> CHK(C=1) -> MGR\n\
+            C(0):WAT & C(1):CHK & MGR: & SRV:LST | C(0) -> REQ(C=0) -> SRV & C(1) -> CHK(C=1) -> MGR\n\
+            C(0):WAT & C(1):CHK & MGR: & SRV:LST | C(0) -> REQ(C=0) -> SRV & MGR -> CNF -> C(1)\n\
+            C(0):WAT & C(1):CHK & MGR: & SRV:WRK(C=0) | MGR -> CNF -> C(1)\n\
+            C(0):WAT & C(1):CHK & MGR: & SRV:LST | SRV -> RSP -> C(0) & MGR -> CNF -> C(1)\n\
+            C(0):IDL & C(1):CHK & MGR: & SRV:LST | MGR -> CNF -> C(1)\n\
+            C(0):CHK & C(1):CHK & MGR: & SRV:LST | MGR -> CNF -> C(1) & C(0) -> CHK(C=0) -> MGR\n\
+            C(0):CHK & C(1):IDL & MGR: & SRV:LST | C(0) -> CHK(C=0) -> MGR\n\
+            C(0):CHK & C(1):WAT & MGR: & SRV:LST | C(1) -> REQ(C=1) -> SRV & C(0) -> CHK(C=0) -> MGR\n\
+            C(0):CHK & C(1):WAT & MGR: & SRV:WRK(C=1) | C(0) -> CHK(C=0) -> MGR\n\
+            C(0):CHK & C(1):WAT & MGR: & SRV:LST | SRV -> RSP -> C(1) & C(0) -> CHK(C=0) -> MGR\n\
+            C(0):CHK & C(1):WAT & MGR: & SRV:LST | SRV -> RSP -> C(1) & MGR -> CNF -> C(0)\n\
+            C(0):CHK & C(1):IDL & MGR: & SRV:LST | MGR -> CNF -> C(0)\n\
+            C(0):CHK & C(1):WAT & MGR: & SRV:LST | C(1) -> REQ(C=1) -> SRV & MGR -> CNF -> C(0)\n\
+            C(0):CHK & C(1):WAT & MGR: & SRV:WRK(C=1) | MGR -> CNF -> C(0)\n\
+            C(0):IDL & C(1):WAT & MGR: & SRV:WRK(C=1)\n\
+            C(0):WAT & C(1):WAT & MGR: & SRV:WRK(C=1) | C(0) -> REQ(C=0) -> SRV\n\
+            C(0):IDL & C(1):WAT & MGR: & SRV:LST | C(1) -> REQ(C=1) -> SRV\n\
+            C(0):CHK & C(1):CHK & MGR: & SRV:LST | C(1) -> CHK(C=1) -> MGR & MGR -> CNF -> C(0)\n\
+            C(0):CHK & C(1):CHK & MGR: & SRV:LST | MGR -> CNF -> C(1) & MGR -> CNF -> C(0)\n\
+            C(0):CHK & C(1):CHK & MGR: & SRV:LST | C(1) -> CHK(C=1) -> MGR & C(0) -> CHK(C=0) -> MGR\n\
+            C(0):WAT & C(1):IDL & MGR: & SRV:LST | SRV -> RSP -> C(0)\n\
             "
         );
     }
