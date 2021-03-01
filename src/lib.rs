@@ -1320,6 +1320,9 @@ pub struct Model<
     /// Memoization of the in-flight messages.
     pub messages: Arc<RwLock<Memoize<Message<Payload>, MessageId>>>,
 
+    /// Map ordered message identifiers to their earlier order.
+    pub decr_order_messages: Arc<RwLock<HashMap<MessageId, MessageId>>>,
+
     /// Memoization of the invalid conditions.
     pub invalids: RwLock<Memoize<<Self as MetaModel>::Invalid, InvalidId>>,
 
@@ -1528,6 +1531,7 @@ impl<
             validators,
             configurations: RwLock::new(Memoize::new(false)),
             messages: Arc::new(RwLock::new(Memoize::new(true))),
+            decr_order_messages: Arc::new(RwLock::new(HashMap::new())),
             invalids: RwLock::new(Memoize::new(true)),
             outgoings: RwLock::new(Vec::new()),
             incomings: RwLock::new(Vec::new()),
@@ -1895,18 +1899,13 @@ impl<
             }
 
             Emit::Ordered(payload, target_index) => {
-                let order = self.count_ordered(
+                let message = self.ordered_message(
                     &context.to_configuration,
                     context.agent_index,
                     target_index,
-                );
-                let message = Message {
-                    order: MessageOrder::Ordered(MessageIndex::from_usize(order)),
-                    source_index: context.agent_index,
-                    target_index,
                     payload,
-                    replaced: None,
-                };
+                    None,
+                );
                 self.emit_message(context, message);
             }
 
@@ -1937,41 +1936,87 @@ impl<
 
             Emit::OrderedReplacement(callback, payload, target_index) => {
                 let replaced = self.replace_message(&mut context, callback, &payload, target_index);
-                let order = self.count_ordered(
+                let message = self.ordered_message(
                     &context.to_configuration,
                     context.agent_index,
                     target_index,
-                ) + 1;
-                let message = Message {
-                    order: MessageOrder::Ordered(MessageIndex::from_usize(order)),
-                    source_index: context.agent_index,
-                    target_index,
                     payload,
                     replaced,
-                };
+                );
                 self.emit_message(context, message);
             } // END NOT TESTED
         }
     }
 
-    fn count_ordered(
+    fn ordered_message(
         &self,
-        configuration: &<Self as MetaModel>::Configuration,
+        to_configuration: &<Self as MetaModel>::Configuration,
         source_index: usize,
         target_index: usize,
-    ) -> usize {
-        let messages = self.messages.read().unwrap();
-        configuration
-            .message_ids
-            .iter()
-            .take_while(|message_id| message_id.is_valid())
-            .map(|message_id| messages.get(*message_id))
-            .filter(|message| {
-                message.source_index == source_index
-                    && message.target_index == target_index
-                    && matches!(message.order, MessageOrder::Ordered(_))
-            })
-            .fold(0, |count, _message| count + 1)
+        payload: Payload,
+        replaced: Option<Payload>,
+    ) -> <Self as MetaModel>::Message {
+        let mut order = {
+            let messages = self.messages.read().unwrap();
+            to_configuration
+                .message_ids
+                .iter()
+                .take_while(|message_id| message_id.is_valid())
+                .map(|message_id| messages.get(*message_id))
+                .filter(|message| {
+                    message.source_index == source_index
+                        && message.target_index == target_index
+                        && matches!(message.order, MessageOrder::Ordered(_))
+                })
+                .fold(0, |count, _message| count + 1)
+        };
+
+        let message = Message {
+            order: MessageOrder::Ordered(MessageIndex::from_usize(order)),
+            source_index,
+            target_index,
+            payload,
+            replaced,
+        };
+
+        let mut message_id = MessageId::invalid();
+        let mut next_message = message;
+        loop {
+            if let Some(next_message_id) = self.messages.read().unwrap().lookup(&next_message) {
+                if message_id.is_valid() {
+                    self.decr_order_messages
+                        .write()
+                        .unwrap()
+                        .insert(message_id, *next_message_id);
+                }
+                return message;
+            }
+
+            let stored = self
+                .messages
+                .write()
+                .unwrap()
+                .store(message, Some(self.display_message(&next_message)));
+
+            if message_id.is_valid() {
+                // BEGIN NOT TESTED
+                self.decr_order_messages
+                    .write()
+                    .unwrap()
+                    .insert(message_id, stored.id);
+                // END NOT TESTED
+            }
+
+            if !stored.is_new || order == 0 {
+                break;
+            }
+
+            order -= 1;
+            next_message.order = MessageOrder::Ordered(MessageIndex::from_usize(order));
+            message_id = stored.id;
+        }
+
+        message
     }
 
     fn replace_message(
@@ -2086,7 +2131,7 @@ impl<
         configuration.remove_message(source, message_index);
 
         if let Some(removed_message_order) = removed_order {
-            let mut messages = self.messages.write().unwrap();
+            let messages = self.messages.read().unwrap();
             let mut did_modify = false;
             for message_index in 0..MAX_MESSAGES {
                 let message_id = configuration.message_ids[message_index];
@@ -2105,21 +2150,10 @@ impl<
                     continue;
                 }
 
-                if let MessageOrder::Ordered(mut message_order) = message.order {
+                if let MessageOrder::Ordered(message_order) = message.order {
                     if message_order > removed_message_order {
-                        let mut new_message = *message;
-                        message_order.decr();
-                        new_message.order = MessageOrder::Ordered(message_order);
                         configuration.message_ids[message_index] =
-                            if let Some(new_message_id) = messages.lookup(&new_message) {
-                                *new_message_id
-                            } else {
-                                // BEGIN NOT TESTED
-                                messages
-                                    .store(new_message, Some(self.display_message(&new_message)))
-                                    .id
-                                // END NOT TESTED
-                            };
+                            self.decr_order_messages.read().unwrap()[&message_id];
                         did_modify = true;
                     }
                 }
