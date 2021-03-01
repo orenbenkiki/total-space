@@ -40,6 +40,14 @@ use std::str::FromStr;
 use std::sync::Arc;
 use std::sync::RwLock;
 
+/*
+use std::thread::current as current_thread;
+
+macro_rules! current_thread_name {
+    () => { current_thread().name().unwrap_or("main") }
+}
+*/
+
 /// A trait for anything we use as a key in a HashMap.
 pub trait KeyLike = Eq + Hash + Copy + Debug + Sized + Send + Sync;
 
@@ -1431,7 +1439,7 @@ pub struct Context<
     agent_from_state_id: StateId,
 
     /// The incoming transition into the new configuration to be generated.
-    incoming: Option<Incoming<ConfigurationId>>,
+    incoming: Incoming<ConfigurationId>,
 
     /// The configuration when delivering the event.
     from_configuration: Configuration<StateId, MessageId, InvalidId, MAX_AGENTS, MAX_MESSAGES>,
@@ -1569,9 +1577,11 @@ impl<
         }
     }
 
-    /// Compute all the configurations of the model.
+    /// Compute all the configurations of the model, if needed.
     pub fn compute(&self) {
-        let dummy_type = self.agent_types[0].clone();
+        if self.incomings.read().unwrap().len() > 0 {
+            return;
+        }
 
         let initial_configuration = Configuration {
             state_ids: [StateId::from_usize(0); MAX_AGENTS],
@@ -1580,61 +1590,52 @@ impl<
             invalid_id: InvalidId::invalid(),
             immediate_index: MessageIndex::invalid(),
         };
-
-        let context = Context {
-            delivered_message_id: None,
-            is_immediate: false,
-            agent_index: usize::max_value(),
-            agent_type: dummy_type,
-            agent_instance: usize::max_value(),
-            agent_from_state_id: StateId::invalid(),
-            incoming: None,
-            from_configuration: initial_configuration,
-            to_configuration: initial_configuration,
-        };
+        let stored = self.fully_store_configuration(initial_configuration);
 
         ThreadPoolBuilder::new()
             .num_threads(self.threads.count())
             .build()
             .unwrap()
-            .install(|| self.reach_configuration(context));
+            .install(|| self.explore_configuration(stored.id));
     }
 
     fn reach_configuration(&self, mut context: <Self as MetaModel>::Context) {
         self.validate_configuration(&mut context);
 
-        let stored = self.fully_store_configuration(context.to_configuration, context.incoming);
-        let configuration_id = stored.id;
+        let stored = self.fully_store_configuration(context.to_configuration);
+
+        let to_configuration_id = stored.id;
+        self.incomings.read().unwrap()[to_configuration_id.to_usize()]
+            .write()
+            .unwrap()
+            .push(context.incoming);
+
+        let from_configuration_id = context.incoming.from;
+        let outgoing = Outgoing {
+            to: to_configuration_id,
+            message_index: context.incoming.message_index,
+        };
+
+        self.outgoings.read().unwrap()[from_configuration_id.to_usize()]
+            .write()
+            .unwrap()
+            .push(outgoing);
+
         if stored.is_new {
-            if self.eprint_progress {
-                eprintln!(
-                    "REACH {}",
-                    self.display_configuration(&context.to_configuration)
-                );
-                /*
-                eprintln!(
-                    "FROM {}",
-                    self.display_configuration(&context.from_configuration)
-                );
-                eprintln!("BY {}", self.event_label(context.delivered_message_id));
-                eprintln!();
-                */
-            }
-        } else {
-            if let Some(transition) = context.incoming {
-                self.incomings.read().unwrap()[configuration_id.to_usize()]
-                    .write()
-                    .unwrap()
-                    .push(transition);
-            }
-            return;
+            self.explore_configuration(stored.id);
+        }
+    }
+
+    fn explore_configuration(&self, configuration_id: ConfigurationId) {
+        let configuration = *self.configurations.read().unwrap().get(configuration_id);
+        if self.eprint_progress {
+            eprintln!("REACH {}", self.display_configuration(&configuration));
         }
 
-        let messages_count = if context.to_configuration.has_immediate() {
+        let messages_count = if configuration.has_immediate() {
             1
         } else {
-            context
-                .to_configuration
+            configuration
                 .message_ids
                 .iter()
                 .position(|&message_id| !message_id.is_valid())
@@ -1644,18 +1645,18 @@ impl<
 
         (0..events_count).into_par_iter().for_each(|event_index| {
             if event_index < self.agents_count() {
-                self.deliver_time_event(configuration_id, context.to_configuration, event_index);
-            } else if context.to_configuration.has_immediate() {
+                self.deliver_time_event(configuration_id, configuration, event_index);
+            } else if configuration.has_immediate() {
                 debug_assert!(event_index == self.agents_count());
                 self.deliver_message_event(
                     configuration_id,
-                    context.to_configuration,
-                    context.to_configuration.immediate_index.to_usize(),
+                    configuration,
+                    configuration.immediate_index.to_usize(),
                 );
             } else {
                 self.deliver_message_event(
                     configuration_id,
-                    context.to_configuration,
+                    configuration,
                     event_index - self.agents_count(),
                 );
             }
@@ -1674,20 +1675,19 @@ impl<
         let reaction = agent_type.pass_time(agent_instance, &from_configuration.state_ids);
 
         /*
-        eprintln!("FROM: {}", self.display_configuration(&from_configuration));
-        eprintln!("BY: {}", self.event_label(None));
-        eprintln!("REACTION: {:?}", reaction);
-        eprintln!();
+        eprintln!("{} - FROM: {}", current_thread_name!(), self.display_configuration(&from_configuration));
+        eprintln!("{} - BY: {}", current_thread_name!(), self.event_label(None));
+        eprintln!("{} - REACTION: {:?}", current_thread_name!(), reaction);
         */
 
         if reaction == Reaction::Ignore {
             return;
         }
 
-        let incoming = Some(Incoming {
+        let incoming = Incoming {
             from: from_configuration_id,
             message_index: ConfigurationId::invalid(),
-        });
+        };
 
         let context = Context {
             delivered_message_id: None,
@@ -1734,16 +1734,15 @@ impl<
             target_type.receive_message(target_instance, &from_configuration.state_ids, &payload);
 
         /*
-        eprintln!("FROM: {}", self.display_configuration(&from_configuration));
-        eprintln!("BY: {}", self.event_label(Some(message_id)));
-        eprintln!("REACTION: {:?}", reaction);
-        eprintln!();
+        eprintln!("{} - FROM: {}", current_thread_name!(), self.display_configuration(&from_configuration));
+        eprintln!("{} - BY: {}", current_thread_name!(), self.event_label(Some(message_id)));
+        eprintln!("{} - REACTION: {:?}", current_thread_name!(), reaction);
         */
 
-        let incoming = Some(Incoming {
+        let incoming = Incoming {
             from: from_configuration_id,
             message_index: ConfigurationId::from_usize(message_index),
-        });
+        };
 
         let mut to_configuration = from_configuration;
         self.remove_message(&mut to_configuration, source_index, message_index);
@@ -2168,7 +2167,7 @@ impl<
     // END NOT TESTED
 
     fn is_ignoring_message(&self, context: <Self as MetaModel>::Context) {
-        if context.incoming.unwrap().message_index.is_valid() {
+        if context.incoming.message_index.is_valid() {
             self.reach_configuration(context);
         }
     }
@@ -2305,49 +2304,18 @@ impl<
     fn fully_store_configuration(
         &self,
         configuration: <Self as MetaModel>::Configuration,
-        incoming: Option<<Self as MetaModel>::Incoming>,
     ) -> Stored<ConfigurationId> {
         let stored = self.store_configuration(configuration);
-
-        let is_new = stored.is_new;
-        let to_configuration_id = stored.id;
-        if is_new || incoming.is_some() {
-            {
-                let mut incoming_vector = self.incomings.write().unwrap();
-
-                if is_new {
-                    incoming_vector.push(RwLock::new(Vec::new()));
-                }
-
-                if let Some(transition) = incoming {
-                    incoming_vector[to_configuration_id.to_usize()]
-                        .write()
-                        .unwrap()
-                        .push(transition);
-                }
-            }
-
-            {
-                let mut outgoing_vector = self.outgoings.write().unwrap();
-
-                if is_new {
-                    outgoing_vector.push(RwLock::new(Vec::new()));
-                }
-
-                if let Some(transition) = incoming {
-                    let from_configuration_id = transition.from;
-                    let outgoing = Outgoing {
-                        to: to_configuration_id,
-                        message_index: transition.message_index,
-                    };
-                    outgoing_vector[from_configuration_id.to_usize()]
-                        .write()
-                        .unwrap()
-                        .push(outgoing);
-                }
-            }
+        if stored.is_new {
+            self.incomings
+                .write()
+                .unwrap()
+                .push(RwLock::new(Vec::new()));
+            self.outgoings
+                .write()
+                .unwrap()
+                .push(RwLock::new(Vec::new()));
         }
-
         stored
     }
 
