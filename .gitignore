@@ -6,3 +6,4 @@ Makefile.scmf.toml
 **/*.rs.bk
 .*.sw*
 /target/
+tags

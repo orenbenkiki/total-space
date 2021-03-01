@@ -26,6 +26,8 @@ use hashbrown::HashMap;
 use num_traits::FromPrimitive;
 use num_traits::ToPrimitive;
 use rayon::prelude::*;
+use rayon::scope;
+use rayon::Scope as ParallelScope;
 use rayon::ThreadPoolBuilder;
 use std::cell::RefCell;
 use std::collections::VecDeque;
@@ -1676,14 +1678,20 @@ impl<
             .num_threads(self.threads.count())
             .build()
             .unwrap()
-            .install(|| self.explore_configuration(stored.id));
+            .install(|| {
+                scope(|parallel_scope| self.explore_configuration(parallel_scope, stored.id));
+            });
 
         if self.ensure_init_is_reachable {
             self.assert_init_is_reachable();
         }
     }
 
-    fn reach_configuration(&self, mut context: <Self as MetaModel>::Context) {
+    fn reach_configuration(
+        &self,
+        parallel_scope: &ParallelScope,
+        mut context: <Self as MetaModel>::Context,
+    ) {
         self.validate_configuration(&mut context);
 
         if !self.allow_invalid_configurations && context.to_configuration.invalid_id.is_valid() {
@@ -1721,11 +1729,15 @@ impl<
             .push(outgoing);
 
         if stored.is_new {
-            self.explore_configuration(stored.id);
+            self.explore_configuration(parallel_scope, stored.id);
         }
     }
 
-    fn explore_configuration(&self, configuration_id: ConfigurationId) {
+    fn explore_configuration(
+        &self,
+        parallel_scope: &ParallelScope,
+        configuration_id: ConfigurationId,
+    ) {
         let configuration = *self.configurations.read().unwrap().get(configuration_id);
         if self.eprint_progress {
             eprintln!("REACH {}", self.display_configuration(&configuration));
@@ -1744,16 +1756,23 @@ impl<
 
         (0..events_count).into_par_iter().for_each(|event_index| {
             if event_index < self.agents_count() {
-                self.deliver_time_event(configuration_id, configuration, event_index);
+                self.deliver_time_event(
+                    parallel_scope,
+                    configuration_id,
+                    configuration,
+                    event_index,
+                );
             } else if configuration.has_immediate() {
                 debug_assert!(event_index == self.agents_count());
                 self.deliver_message_event(
+                    parallel_scope,
                     configuration_id,
                     configuration,
                     configuration.immediate_index.to_usize(),
                 );
             } else {
                 self.deliver_message_event(
+                    parallel_scope,
                     configuration_id,
                     configuration,
                     event_index - self.agents_count(),
@@ -1764,6 +1783,7 @@ impl<
 
     fn deliver_time_event(
         &self,
+        parallel_scope: &ParallelScope,
         from_configuration_id: ConfigurationId,
         from_configuration: <Self as MetaModel>::Configuration,
         agent_index: usize,
@@ -1799,11 +1819,12 @@ impl<
             from_configuration,
             to_configuration: from_configuration,
         };
-        self.process_reaction(context, reaction);
+        self.process_reaction(parallel_scope, context, reaction);
     }
 
     fn deliver_message_event(
         &self,
+        parallel_scope: &ParallelScope,
         from_configuration_id: ConfigurationId,
         from_configuration: <Self as MetaModel>::Configuration,
         message_index: usize,
@@ -1857,62 +1878,64 @@ impl<
             from_configuration,
             to_configuration,
         };
-        self.process_reaction(context, reaction);
+        self.process_reaction(parallel_scope, context, reaction);
     }
 
     fn process_reaction(
         &self,
+        parallel_scope: &ParallelScope,
         context: <Self as MetaModel>::Context,
         reaction: <Self as MetaModel>::Reaction,
     ) {
         match reaction {
             Reaction::Unexpected => self.unexpected_message(context), // MAYBE TESTED
             Reaction::Defer => self.is_deferring_message(context),
-            Reaction::Ignore => self.is_ignoring_message(context),
-            Reaction::Do1(action1) => self.perform_action(context, action1),
+            Reaction::Ignore => self.is_ignoring_message(parallel_scope, context),
+            Reaction::Do1(action1) => self.perform_action(parallel_scope, context, action1),
 
             Reaction::Do1Of2(action1, action2) => {
-                self.perform_action(context.clone(), action1);
-                self.perform_action(context, action2);
+                self.perform_action(parallel_scope, context.clone(), action1);
+                self.perform_action(parallel_scope, context, action2);
             }
 
             // BEGIN NOT TESTED
             Reaction::Do1Of3(action1, action2, action3) => {
-                self.perform_action(context.clone(), action1);
-                self.perform_action(context.clone(), action2);
-                self.perform_action(context, action3);
+                self.perform_action(parallel_scope, context.clone(), action1);
+                self.perform_action(parallel_scope, context.clone(), action2);
+                self.perform_action(parallel_scope, context, action3);
             }
 
             Reaction::Do1Of4(action1, action2, action3, action4) => {
-                self.perform_action(context.clone(), action1);
-                self.perform_action(context.clone(), action2);
-                self.perform_action(context.clone(), action3);
-                self.perform_action(context, action4);
+                self.perform_action(parallel_scope, context.clone(), action1);
+                self.perform_action(parallel_scope, context.clone(), action2);
+                self.perform_action(parallel_scope, context.clone(), action3);
+                self.perform_action(parallel_scope, context, action4);
             } // END NOT TESTED
         }
     }
 
     fn perform_action(
         &self,
+        parallel_scope: &ParallelScope,
         mut context: <Self as MetaModel>::Context,
         action: <Self as MetaModel>::Action,
     ) {
         match action {
             Action::Defer => self.is_deferring_message(context),
-            Action::Ignore => self.is_ignoring_message(context), // NOT TESTED
+            Action::Ignore => self.is_ignoring_message(parallel_scope, context), // NOT TESTED
 
             Action::Change(target_to_state_id) => {
                 context
                     .to_configuration
                     .change_state(context.agent_index, target_to_state_id);
-                self.reach_configuration(context);
+                self.reach_configuration(parallel_scope, context);
             }
-            Action::Send1(emit1) => self.emit_transition(context, emit1),
+            Action::Send1(emit1) => self.emit_transition(parallel_scope, context, emit1),
             Action::ChangeAndSend1(target_to_state_id, emit1) => {
                 context
                     .to_configuration
                     .change_state(context.agent_index, target_to_state_id);
-                self.emit_transition(context, emit1);
+                self.emit_transition(parallel_scope, context, emit1);
             }
 
             // BEGIN NOT TESTED
@@ -1920,51 +1943,52 @@ impl<
                 context
                     .to_configuration
                     .change_state(context.agent_index, target_to_state_id);
-                self.emit_transition(context.clone(), emit1);
-                self.emit_transition(context, emit2);
+                self.emit_transition(parallel_scope, context.clone(), emit1);
+                self.emit_transition(parallel_scope, context, emit2);
             }
 
             Action::Send2(emit1, emit2) => {
-                self.emit_transition(context.clone(), emit1);
-                self.emit_transition(context, emit2);
+                self.emit_transition(parallel_scope, context.clone(), emit1);
+                self.emit_transition(parallel_scope, context, emit2);
             }
 
             Action::ChangeAndSend3(target_to_state_id, emit1, emit2, emit3) => {
                 context
                     .to_configuration
                     .change_state(context.agent_index, target_to_state_id);
-                self.emit_transition(context.clone(), emit1);
-                self.emit_transition(context.clone(), emit2);
-                self.emit_transition(context, emit3);
+                self.emit_transition(parallel_scope, context.clone(), emit1);
+                self.emit_transition(parallel_scope, context.clone(), emit2);
+                self.emit_transition(parallel_scope, context, emit3);
             }
 
             Action::Send3(emit1, emit2, emit3) => {
-                self.emit_transition(context.clone(), emit1);
-                self.emit_transition(context.clone(), emit2);
-                self.emit_transition(context, emit3);
+                self.emit_transition(parallel_scope, context.clone(), emit1);
+                self.emit_transition(parallel_scope, context.clone(), emit2);
+                self.emit_transition(parallel_scope, context, emit3);
             }
 
             Action::ChangeAndSend4(target_to_state_id, emit1, emit2, emit3, emit4) => {
                 context
                     .to_configuration
                     .change_state(context.agent_index, target_to_state_id);
-                self.emit_transition(context.clone(), emit1);
-                self.emit_transition(context.clone(), emit2);
-                self.emit_transition(context.clone(), emit3);
-                self.emit_transition(context, emit4);
+                self.emit_transition(parallel_scope, context.clone(), emit1);
+                self.emit_transition(parallel_scope, context.clone(), emit2);
+                self.emit_transition(parallel_scope, context.clone(), emit3);
+                self.emit_transition(parallel_scope, context, emit4);
             }
 
             Action::Send4(emit1, emit2, emit3, emit4) => {
-                self.emit_transition(context.clone(), emit1);
-                self.emit_transition(context.clone(), emit2);
-                self.emit_transition(context.clone(), emit3);
-                self.emit_transition(context, emit4);
+                self.emit_transition(parallel_scope, context.clone(), emit1);
+                self.emit_transition(parallel_scope, context.clone(), emit2);
+                self.emit_transition(parallel_scope, context.clone(), emit3);
+                self.emit_transition(parallel_scope, context, emit4);
             } // END NOT TESTED
         }
     }
 
     fn emit_transition(
         &self,
+        parallel_scope: &ParallelScope,
         mut context: <Self as MetaModel>::Context,
         emit: <Self as MetaModel>::Emit,
     ) {
@@ -1978,7 +2002,7 @@ impl<
                     payload,
                     replaced: None,
                 };
-                self.emit_message(context, message);
+                self.emit_message(parallel_scope, context, message);
                 // END NOT TESTED
             }
 
@@ -1990,7 +2014,7 @@ impl<
                     payload,
                     replaced: None,
                 };
-                self.emit_message(context, message);
+                self.emit_message(parallel_scope, context, message);
             }
 
             Emit::Ordered(payload, target_index) => {
@@ -2001,7 +2025,7 @@ impl<
                     payload,
                     None,
                 );
-                self.emit_message(context, message);
+                self.emit_message(parallel_scope, context, message);
             }
 
             Emit::ImmediateReplacement(callback, payload, target_index) => {
@@ -2013,7 +2037,7 @@ impl<
                     payload,
                     replaced,
                 };
-                self.emit_message(context, message);
+                self.emit_message(parallel_scope, context, message);
             }
 
             // BEGIN NOT TESTED
@@ -2026,7 +2050,7 @@ impl<
                     payload,
                     replaced,
                 };
-                self.emit_message(context, message);
+                self.emit_message(parallel_scope, context, message);
             }
 
             Emit::OrderedReplacement(callback, payload, target_index) => {
@@ -2038,7 +2062,7 @@ impl<
                     payload,
                     replaced,
                 );
-                self.emit_message(context, message);
+                self.emit_message(parallel_scope, context, message);
             } // END NOT TESTED
         }
     }
@@ -2263,6 +2287,7 @@ impl<
 
     fn emit_message(
         &self,
+        parallel_scope: &ParallelScope,
         mut context: <Self as MetaModel>::Context,
         message: <Self as MetaModel>::Message,
     ) {
@@ -2280,7 +2305,7 @@ impl<
         context
             .to_configuration
             .add_message(context.agent_index, message_id, is_immediate);
-        self.reach_configuration(context);
+        self.reach_configuration(parallel_scope, context);
     }
 
     // BEGIN NOT TESTED
@@ -2295,9 +2320,13 @@ impl<
     }
     // END NOT TESTED
 
-    fn is_ignoring_message(&self, context: <Self as MetaModel>::Context) {
+    fn is_ignoring_message(
+        &self,
+        parallel_scope: &ParallelScope,
+        context: <Self as MetaModel>::Context,
+    ) {
         if context.incoming.message_index.is_valid() {
-            self.reach_configuration(context);
+            self.reach_configuration(parallel_scope, context);
         }
     }
 
