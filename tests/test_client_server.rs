@@ -168,23 +168,28 @@ fn test_model() -> TestModel {
 }
 
 #[test]
-fn test_agents() {
+fn test_conditions() {
     let mut model = test_model();
     let app = add_clap(App::new("test_agents"));
     let arg_matches = app.get_matches_from(vec!["test", "conditions"].iter());
     let mut stdout_bytes = Vec::new();
-    assert!(model.do_clap(&arg_matches, &mut stdout_bytes));
+    model.do_clap(&arg_matches, &mut stdout_bytes);
     let stdout = str::from_utf8(&stdout_bytes).unwrap();
-    assert_eq!(stdout, "init: matches the initial configuration\n");
+    assert_eq!(
+        stdout,
+        "INIT: matches the initial configuration\n\
+        VALID: matches any valid configuration (is typically negated)\n\
+        "
+    );
 }
 
 #[test]
-fn test_conditions() {
+fn test_agents() {
     let mut model = test_model();
     let app = add_clap(App::new("test_conditions"));
     let arg_matches = app.get_matches_from(vec!["test", "agents"].iter());
     let mut stdout_bytes = Vec::new();
-    assert!(model.do_clap(&arg_matches, &mut stdout_bytes));
+    model.do_clap(&arg_matches, &mut stdout_bytes);
     let stdout = str::from_utf8(&stdout_bytes).unwrap();
     assert_eq!(
         stdout,
@@ -202,7 +207,7 @@ fn test_configurations() {
     let arg_matches =
         app.get_matches_from(vec!["test", "-r", "-p", "-t", "1", "configurations"].iter());
     let mut stdout_bytes = Vec::new();
-    assert!(model.do_clap(&arg_matches, &mut stdout_bytes));
+    model.do_clap(&arg_matches, &mut stdout_bytes);
     let stdout = str::from_utf8(&stdout_bytes).unwrap();
     assert_eq!(
             stdout,
@@ -225,7 +230,7 @@ fn test_transitions() {
     let arg_matches =
         app.get_matches_from(vec!["test", "-r", "-p", "-t", "1", "transitions"].iter());
     let mut stdout_bytes = Vec::new();
-    assert!(model.do_clap(&arg_matches, &mut stdout_bytes));
+    model.do_clap(&arg_matches, &mut stdout_bytes);
     let stdout = str::from_utf8(&stdout_bytes).unwrap();
     assert_eq!(
             stdout,
@@ -265,4 +270,24 @@ fn test_transitions() {
               TO Client:Wait & Server:Listen | Client -> Request -> Server\n\
             "
         );
+}
+
+#[test]
+fn test_path() {
+    let mut model = test_model();
+    let app = add_clap(App::new("test_path"));
+    let arg_matches =
+        app.get_matches_from(vec!["test", "-r", "-p", "-t", "1", "path", "INIT", "INIT"].iter());
+    let mut stdout_bytes = Vec::new();
+    model.do_clap(&arg_matches, &mut stdout_bytes);
+    let stdout = str::from_utf8(&stdout_bytes).unwrap();
+    assert_eq!(
+        stdout,
+        "INIT Client:Idle & Server:Listen\n\
+        BY time event\n\
+        TO Client:Idle & Server:Listen | Client -> * Ping -> Server\n\
+        BY message Client -> * Ping -> Server\n\
+        INIT Client:Idle & Server:Listen\n\
+        "
+    );
 }

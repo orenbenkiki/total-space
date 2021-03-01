@@ -41,7 +41,9 @@ of this crate.
 * Document how to create a model.
 * Creating a model requires a lot of boiler plate code, which could be automated by macros.
 * Some macros should be converted to procedural derive macros.
-* Generating diagrams is not implemented yet.
+* Generate sequence diagrams.
+* Generate states diagrams.
+* Arrange the code.
 
 ## License
 

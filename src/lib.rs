@@ -28,6 +28,7 @@ use num_traits::ToPrimitive;
 use rayon::prelude::*;
 use rayon::ThreadPoolBuilder;
 use std::cell::RefCell;
+use std::collections::VecDeque;
 use std::fmt::Debug;
 use std::fmt::Display;
 use std::fmt::Formatter;
@@ -1501,12 +1502,41 @@ impl<
     type Condition = fn(&Self, ConfigurationId) -> bool;
 }
 
-// BEGIN NOT TESTED
 fn is_init<Model, ConfigurationId: IndexLike>(
     _model: &Model,
     configuration_id: ConfigurationId,
 ) -> bool {
     configuration_id.to_usize() == 0
+}
+
+// BEGIN NOT TESTED
+fn is_valid<
+    StateId: IndexLike,
+    MessageId: IndexLike,
+    InvalidId: IndexLike,
+    ConfigurationId: IndexLike,
+    Payload: KeyLike + Validated + Named,
+    const MAX_AGENTS: usize,
+    const MAX_MESSAGES: usize,
+>(
+    model: &Model<
+        StateId,
+        MessageId,
+        InvalidId,
+        ConfigurationId,
+        Payload,
+        MAX_AGENTS,
+        MAX_MESSAGES,
+    >,
+    configuration_id: ConfigurationId,
+) -> bool {
+    !model
+        .configurations
+        .read()
+        .unwrap()
+        .get(configuration_id)
+        .invalid_id
+        .is_valid()
 }
 // END NOT TESTED
 
@@ -1538,12 +1568,6 @@ impl<
         let mut agent_types: Vec<<Self as MetaModel>::AgentTypeArc> = vec![];
         let mut first_indices: Vec<usize> = vec![];
         let mut agent_labels: Vec<Arc<String>> = vec![];
-        let conditions = RwLock::new(HashMap::new());
-        let condition: <Self as MetaModel>::Condition = is_init;
-        conditions
-            .write()
-            .unwrap()
-            .insert("init", (condition, "matches the initial configuration"));
 
         Self::collect_agent_types(
             last_agent_type,
@@ -1552,7 +1576,7 @@ impl<
             &mut agent_labels,
         );
 
-        Model {
+        let model = Model {
             agent_types,
             agent_labels,
             first_indices,
@@ -1570,8 +1594,29 @@ impl<
             ensure_init_is_reachable: false,
             allow_invalid_configurations: false,
             threads: Threads::Physical,
-            conditions,
-        }
+            conditions: RwLock::new(HashMap::new()),
+        };
+
+        model.add_condition("INIT", is_init, "matches the initial configuration");
+        model.add_condition(
+            "VALID",
+            is_valid,
+            "matches any valid configuration (is typically negated)",
+        );
+
+        model
+    }
+
+    pub fn add_condition(
+        &self,
+        name: &'static str,
+        condition: <Self as MetaModel>::Condition,
+        help: &'static str,
+    ) {
+        self.conditions
+            .write()
+            .unwrap()
+            .insert(name, (condition, help));
     }
 
     fn collect_agent_types(
@@ -2600,25 +2645,29 @@ impl<
     }
 
     fn assert_init_is_reachable(&self) {
-        let mut reached = vec![false; self.configurations.read().unwrap().value_by_id.len()];
-        let mut pending = vec![0; 1];
+        let mut reached_configurations_mask =
+            vec![false; self.configurations.read().unwrap().value_by_id.len()];
+        let mut pending_configuration_ids: VecDeque<usize> = VecDeque::new();
+        pending_configuration_ids.push_back(0);
 
-        while let Some(configuration_id) = pending.pop() {
-            if reached[configuration_id] {
+        let incomings = self.incomings.read().unwrap();
+
+        while let Some(next_configuration_id) = pending_configuration_ids.pop_front() {
+            if reached_configurations_mask[next_configuration_id] {
                 continue;
             }
-            reached[configuration_id] = true;
-            self.incomings.read().unwrap()[configuration_id]
+            reached_configurations_mask[next_configuration_id] = true;
+            incomings[next_configuration_id]
                 .read()
                 .unwrap()
                 .iter()
                 .for_each(|incoming| {
-                    pending.push(incoming.from_configuration_id.to_usize());
+                    pending_configuration_ids.push_back(incoming.from_configuration_id.to_usize());
                 });
         }
 
         let mut unreachable_count = 0;
-        reached
+        reached_configurations_mask
             .iter()
             .enumerate()
             .filter(|(_, is_reached)| !*is_reached)
@@ -2637,6 +2686,118 @@ impl<
             unreachable_count
         );
     }
+
+    #[allow(clippy::too_many_arguments)]
+    fn find_closest_configuration_id(
+        &self,
+        from_configuration_id: ConfigurationId,
+        from_name: &str,
+        to_condition: <Self as MetaModel>::Condition,
+        to_negated: bool,
+        to_name: &str,
+        pending_configuration_ids: &mut VecDeque<ConfigurationId>,
+        prev_configuration_ids: &mut [ConfigurationId],
+    ) -> ConfigurationId {
+        pending_configuration_ids.clear();
+        pending_configuration_ids.push_back(from_configuration_id);
+
+        prev_configuration_ids.fill(ConfigurationId::invalid());
+
+        let outgoings = self.outgoings.read().unwrap();
+        while let Some(next_configuration_id) = pending_configuration_ids.pop_front() {
+            for outgoing in outgoings[next_configuration_id.to_usize()]
+                .read()
+                .unwrap()
+                .iter()
+            {
+                let to_configuration_id = outgoing.to_configuration_id;
+                if prev_configuration_ids[to_configuration_id.to_usize()].is_valid() {
+                    continue;
+                }
+                prev_configuration_ids[to_configuration_id.to_usize()] = next_configuration_id;
+
+                let mut is_condition = false;
+                if next_configuration_id != from_configuration_id {
+                    is_condition = to_condition(&self, to_configuration_id);
+                    if to_negated {
+                        is_condition = !is_condition; // NOT TESTED
+                    }
+                }
+
+                if is_condition {
+                    return to_configuration_id;
+                }
+
+                pending_configuration_ids.push_back(to_configuration_id);
+            }
+        }
+
+        // BEGIN NOT TESTED
+        panic!(
+            "could not find a path from the condition {} to the condition {}\n\
+            starting from the configuration {}",
+            to_name,
+            from_name,
+            self.display_configuration_id(from_configuration_id)
+        );
+        // END NOT TESTED
+    }
+
+    fn print_path_transitions(
+        &self,
+        stdout: &mut dyn Write,
+        from_configuration_id: ConfigurationId,
+        to_configuration_id: ConfigurationId,
+        to_name: Option<&str>,
+        prev_configuration_ids: &[ConfigurationId],
+    ) {
+        let prev_configuration_id = prev_configuration_ids[to_configuration_id.to_usize()];
+        assert!(prev_configuration_id.is_valid());
+
+        if prev_configuration_id != from_configuration_id {
+            self.print_path_transitions(
+                stdout,
+                from_configuration_id,
+                prev_configuration_id,
+                None,
+                &prev_configuration_ids,
+            );
+        }
+
+        for outgoing in self.outgoings.read().unwrap()[prev_configuration_id.to_usize()]
+            .read()
+            .unwrap()
+            .iter()
+        {
+            if outgoing.to_configuration_id != to_configuration_id {
+                continue;
+            }
+
+            let message_id = if outgoing.message_index.is_valid() {
+                Some(
+                    self.configurations
+                        .read()
+                        .unwrap()
+                        .get(prev_configuration_id)
+                        .message_ids[outgoing.message_index.to_usize()],
+                )
+            } else {
+                None
+            };
+
+            writeln!(stdout, "BY {}", self.event_label(message_id)).unwrap();
+            writeln!(
+                stdout,
+                "{} {}",
+                to_name.unwrap_or("TO"),
+                self.display_configuration_id(to_configuration_id)
+            )
+            .unwrap();
+            return;
+        }
+
+        panic!("outgoing transition disappeared"); // NOT TESTED
+    }
 }
 
 /// Add clap commands and flags to a clap application.
@@ -2644,6 +2805,7 @@ pub fn add_clap<'a, 'b>(app: App<'a, 'b>) -> App<'a, 'b> {
     app.arg(
         Arg::with_name("progress")
             .short("p")
+            .long("progress")
             .help("print configurations as they are reached"),
     )
     .arg(
@@ -2655,26 +2817,40 @@ pub fn add_clap<'a, 'b>(app: App<'a, 'b>) -> App<'a, 'b> {
             .default_value("PHYSICAL"),
     )
     .arg(
-        Arg::with_name("reachable").short("r").help(
-            "ensure that the initial configuration is reachable from all other configurations",
+        Arg::with_name("reachable")
+            .short("r")
+            .long("reachable")
+            .help("ensure that the initial configuration is reachable from all other configurations",
         ),
     )
     .arg(
         Arg::with_name("invalid")
             .short("i")
+            .long("invalid")
             .help("allow for invalid configurations (but do not explore beyond them)"),
     )
-    .subcommand(SubCommand::with_name("agents").about("list the agents of the model (does not compute the model)"))
-    .subcommand(SubCommand::with_name("conditions").about("list the conditions which can be used to identify configurations (does not compute the model)"))
     .subcommand(
-        SubCommand::with_name("configurations").about("list the configurations of the model"),
+        SubCommand::with_name("agents")
+            .about("list the agents of the model (does not compute the model)"))
+    .subcommand(
+        SubCommand::with_name("conditions")
+            .about("list the conditions which can be used to identify configurations \
+                   (does not compute the model)"))
+    .subcommand(
+        SubCommand::with_name("configurations")
+            .about("list the configurations of the model"),
     )
-    .subcommand(SubCommand::with_name("transitions").about("list the transitions of the model"))
-    /*
-    .subcommand(SubCommand::with_name("path").about("list transitions between a path of configuration")
-        .arg(Arg::with_name("CONDITION").about("the name of the next condition identifying a configuration along the path, may be prefixed with ! to negate the condition").multiple(true)
+    .subcommand(
+        SubCommand::with_name("transitions")
+            .about("list the transitions of the model"))
+    .subcommand(
+        SubCommand::with_name("path")
+            .about("list transitions between a path of configurations")
+            .arg(Arg::with_name("CONDITION")
+                    .multiple(true)
+                    .help("the name of at least two conditions identifying configurations along the path, \
+                          which may be prefixed with ! to negate the condition").multiple(true)
     ))
-    */
 }
 
 /// Execute operations on a model using clap commands.
@@ -2682,11 +2858,13 @@ pub trait ClapModel {
     /// Execute the chosen clap subcommand.
     ///
     /// Return whether a command was executed.
-    fn do_clap(&mut self, arg_matches: &ArgMatches, stdout: &mut dyn Write) -> bool {
-        self.do_clap_agents(arg_matches, stdout)
+    fn do_clap(&mut self, arg_matches: &ArgMatches, stdout: &mut dyn Write) {
+        let did_clap = self.do_clap_agents(arg_matches, stdout)
             || self.do_clap_conditions(arg_matches, stdout)
             || self.do_clap_configurations(arg_matches, stdout)
             || self.do_clap_transitions(arg_matches, stdout)
+            || self.do_clap_path(arg_matches, stdout);
+        assert!(did_clap);
     }
 
     /// Execute the `agents` clap subcommand, if requested to.
@@ -2708,6 +2886,11 @@ pub trait ClapModel {
     ///
     /// This computes the model.
     fn do_clap_transitions(&mut self, arg_matches: &ArgMatches, stdout: &mut dyn Write) -> bool;
+
+    /// Execute the `path` clap subcommand, if requested to.
+    ///
+    /// This doesn't compute the model.
+    fn do_clap_path(&mut self, arg_matches: &ArgMatches, stdout: &mut dyn Write) -> bool;
 }
 
 impl<
@@ -2761,11 +2944,13 @@ impl<
     fn do_clap_conditions(&mut self, arg_matches: &ArgMatches, stdout: &mut dyn Write) -> bool {
         match arg_matches.subcommand_matches("conditions") {
             Some(_) => {
-                self.conditions
-                    .read()
-                    .unwrap()
+                let conditions = self.conditions.read().unwrap();
+                let mut names: Vec<&&'static str> = conditions.keys().collect();
+                names.sort();
+                names
                     .iter()
-                    .for_each(|(name, (_condition, about))| {
+                    .map(|name| (*name, conditions[*name].1))
+                    .for_each(|(name, about)| {
                         writeln!(stdout, "{}: {}", name, about).unwrap();
                     });
                 true
@@ -2834,6 +3019,107 @@ impl<
                         });
                     },
                 );
+                true
+            }
+            None => false,
+        }
+    }
+
+    fn do_clap_path(&mut self, arg_matches: &ArgMatches, stdout: &mut dyn Write) -> bool {
+        match arg_matches.subcommand_matches("path") {
+            Some(matches) => {
+                self.do_compute(arg_matches);
+
+                let conditions = self.conditions.read().unwrap();
+                let mut steps: Vec<(&<Self as MetaModel>::Condition, bool, &str)> = matches
+                    .values_of("CONDITION")
+                    .expect(
+                        "the path command requires at least two configuration conditions, got none",
+                    )
+                    .map(|name| {
+                        let (key, negated) = match name.strip_prefix("!") {
+                            None => (name, false),
+                            Some(suffix) => (suffix, true), // NOT TESTED
+                        };
+                        if let Some((condition, _)) = conditions.get(key) {
+                            (condition, negated, name)
+                        } else {
+                            panic!("unknown configuration condition {}", key); // NOT TESTED
+                        }
+                    })
+                    .collect();
+
+                assert!(
+                    steps.len() > 1,
+                    "the path command requires at least two configuration conditions, got only one"
+                );
+
+                let mut prev_configuration_ids =
+                    vec![
+                        ConfigurationId::invalid();
+                        self.configurations.read().unwrap().value_by_id.len()
+                    ];
+
+                let mut pending_configuration_ids: VecDeque<ConfigurationId> = VecDeque::new();
+
+                let initial_configuration_id = ConfigurationId::from_usize(0);
+
+                let (first_condition, first_negated, first_name) = steps[0];
+                let mut start_at_init = first_condition(self, initial_configuration_id);
+                if first_negated {
+                    start_at_init = !start_at_init; // NOT TESTED
+                }
+
+                let mut current_configuration_id = initial_configuration_id;
+                let mut current_name = first_name;
+
+                if start_at_init {
+                    steps.remove(0);
+                } else {
+                    // BEGIN NOT TESTED
+                    current_configuration_id = self.find_closest_configuration_id(
+                        initial_configuration_id,
+                        "INIT",
+                        *first_condition,
+                        first_negated,
+                        first_name,
+                        &mut pending_configuration_ids,
+                        &mut prev_configuration_ids,
+                    );
+                    // END NOT TESTED
+                }
+
+                writeln!(
+                    stdout,
+                    "{} {}",
+                    current_name,
+                    self.display_configuration_id(current_configuration_id)
+                )
+                .unwrap();
+
+                steps
+                    .iter()
+                    .for_each(|(next_condition, next_negated, next_name)| {
+                        let next_configuration_id = self.find_closest_configuration_id(
+                            current_configuration_id,
+                            current_name,
+                            **next_condition,
+                            *next_negated,
+                            next_name,
+                            &mut pending_configuration_ids,
+                            &mut prev_configuration_ids,
+                        );
+                        self.print_path_transitions(
+                            stdout,
+                            current_configuration_id,
+                            next_configuration_id,
+                            Some(next_name),
+                            &prev_configuration_ids,
+                        );
+                        current_configuration_id = next_configuration_id;
+                        current_name = next_name;
+                    });
+
                 true
             }
             None => false, // NOT TESTED

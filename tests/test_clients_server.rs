@@ -201,7 +201,7 @@ fn test_agents() {
     let app = add_clap(App::new("agents"));
     let arg_matches = app.get_matches_from(vec!["test", "agents"].iter());
     let mut stdout_bytes = Vec::new();
-    assert!(model.do_clap(&arg_matches, &mut stdout_bytes));
+    model.do_clap(&arg_matches, &mut stdout_bytes);
     let stdout = str::from_utf8(&stdout_bytes).unwrap();
     assert_eq!(
         stdout,
@@ -220,7 +220,7 @@ fn test_configurations() {
     let arg_matches =
         app.get_matches_from(vec!["test", "-r", "-p", "-t", "1", "configurations"].iter());
     let mut stdout_bytes = Vec::new();
-    assert!(model.do_clap(&arg_matches, &mut stdout_bytes));
+    model.do_clap(&arg_matches, &mut stdout_bytes);
     let stdout = str::from_utf8(&stdout_bytes).unwrap();
     assert_eq!(
         stdout,
@@ -251,7 +251,7 @@ fn test_transitions() {
     let arg_matches =
         app.get_matches_from(vec!["test", "-r", "-p", "-t", "1", "transitions"].iter());
     let mut stdout_bytes = Vec::new();
-    assert!(model.do_clap(&arg_matches, &mut stdout_bytes));
+    model.do_clap(&arg_matches, &mut stdout_bytes);
     let stdout = str::from_utf8(&stdout_bytes).unwrap();
     assert_eq!(
             stdout,
