@@ -449,7 +449,7 @@ pub trait PartType<State, StateId> {
 /// This should be placed in a `Singleton` to allow the agent states to get services from it.
 pub struct AgentTypeData<State, StateId, Payload> {
     /// Memoization of the agent states.
-    states: Arc<RwLock<Memoize<State, StateId>>>,
+    states: RwLock<Memoize<State, StateId>>,
 
     /// The index of the first agent of this type.
     first_index: usize,
@@ -508,7 +508,7 @@ impl<
         };
 
         let default_state: State = Default::default();
-        let states = Arc::new(RwLock::new(Memoize::new(true)));
+        let states = RwLock::new(Memoize::new(true));
         states
             .write()
             .unwrap()
@@ -1243,7 +1243,7 @@ impl<
 #[derive(Copy, Clone, Debug)]
 pub struct Outgoing<ConfigurationId> {
     /// The identifier of the target configuration.
-    pub to: ConfigurationId,
+    pub to_configuration_id: ConfigurationId,
 
     /// The index of the message of the source configuration that was delivered to its target agent
     /// to reach the target configuration.
@@ -1258,7 +1258,7 @@ pub struct Outgoing<ConfigurationId> {
 #[derive(Copy, Clone, Debug)]
 pub struct Incoming<ConfigurationId> {
     /// The identifier of the source configuration.
-    pub from: ConfigurationId,
+    pub from_configuration_id: ConfigurationId,
 
     /// The index of the message of the source configuration that was delivered to its target agent
     /// to reach the target configuration.
@@ -1318,10 +1318,10 @@ pub struct Model<
     pub configurations: RwLock<Memoize<<Self as MetaModel>::Configuration, ConfigurationId>>,
 
     /// Memoization of the in-flight messages.
-    pub messages: Arc<RwLock<Memoize<Message<Payload>, MessageId>>>,
+    pub messages: RwLock<Memoize<Message<Payload>, MessageId>>,
 
     /// Map ordered message identifiers to their earlier order.
-    pub decr_order_messages: Arc<RwLock<HashMap<MessageId, MessageId>>>,
+    pub decr_order_messages: RwLock<HashMap<MessageId, MessageId>>,
 
     /// Memoization of the invalid conditions.
     pub invalids: RwLock<Memoize<<Self as MetaModel>::Invalid, InvalidId>>,
@@ -1344,10 +1344,16 @@ pub struct Model<
     /// Whether to print each new configuration as we reach it.
     pub eprint_progress: bool,
 
+    /// Whether we'll be testing if the initial configuration is reachable from every configuration.
+    pub ensure_init_is_reachable: bool,
+
     /// The number of threads to use for computing the model's configurations.
     ///
     /// If zero, uses all the available processors.
     pub threads: Threads,
+
+    /// Named conditions on a configuration.
+    pub conditions: RwLock<HashMap<&'static str, <Self as MetaModel>::Condition>>,
 }
 
 // END MAYBE TESTED
@@ -1407,6 +1413,9 @@ pub trait MetaModel {
 
     /// The context for processing event handling by an agent.
     type Context;
+
+    /// A condition on model configurations.
+    type Condition;
 }
 
 // BEGIN MAYBE TESTED
@@ -1486,6 +1495,7 @@ impl<
     type Outgoing = Outgoing<ConfigurationId>;
     type Context =
         Context<StateId, MessageId, InvalidId, ConfigurationId, Payload, MAX_AGENTS, MAX_MESSAGES>;
+    type Condition = fn(&Self, ConfigurationId) -> bool;
 }
 
 impl<
@@ -1530,8 +1540,8 @@ impl<
             first_indices,
             validators,
             configurations: RwLock::new(Memoize::new(false)),
-            messages: Arc::new(RwLock::new(Memoize::new(true))),
-            decr_order_messages: Arc::new(RwLock::new(HashMap::new())),
+            messages: RwLock::new(Memoize::new(true)),
+            decr_order_messages: RwLock::new(HashMap::new()),
             invalids: RwLock::new(Memoize::new(true)),
             outgoings: RwLock::new(Vec::new()),
             incomings: RwLock::new(Vec::new()),
@@ -1539,7 +1549,9 @@ impl<
             max_invalid_string_size: RwLock::new(0),
             max_configuration_string_size: RwLock::new(0),
             eprint_progress: false,
+            ensure_init_is_reachable: false,
             threads: Threads::Physical,
+            conditions: RwLock::new(HashMap::new()),
         }
     }
 
@@ -1583,7 +1595,7 @@ impl<
 
     /// Compute all the configurations of the model, if needed.
     pub fn compute(&self) {
-        if self.incomings.read().unwrap().len() > 0 {
+        if self.outgoings.read().unwrap().len() > 0 {
             return;
         }
 
@@ -1601,6 +1613,10 @@ impl<
             .build()
             .unwrap()
             .install(|| self.explore_configuration(stored.id));
+
+        if self.ensure_init_is_reachable {
+            self.assert_init_is_reachable();
+        }
     }
 
     fn reach_configuration(&self, mut context: <Self as MetaModel>::Context) {
@@ -1609,14 +1625,16 @@ impl<
         let stored = self.fully_store_configuration(context.to_configuration);
 
         let to_configuration_id = stored.id;
-        self.incomings.read().unwrap()[to_configuration_id.to_usize()]
-            .write()
-            .unwrap()
-            .push(context.incoming);
+        if self.ensure_init_is_reachable {
+            self.incomings.read().unwrap()[to_configuration_id.to_usize()]
+                .write()
+                .unwrap()
+                .push(context.incoming);
+        }
 
-        let from_configuration_id = context.incoming.from;
+        let from_configuration_id = context.incoming.from_configuration_id;
         let outgoing = Outgoing {
-            to: to_configuration_id,
+            to_configuration_id,
             message_index: context.incoming.message_index,
         };
 
@@ -1689,7 +1707,7 @@ impl<
         }
 
         let incoming = Incoming {
-            from: from_configuration_id,
+            from_configuration_id,
             message_index: ConfigurationId::invalid(),
         };
 
@@ -1744,7 +1762,7 @@ impl<
         */
 
         let incoming = Incoming {
-            from: from_configuration_id,
+            from_configuration_id,
             message_index: ConfigurationId::from_usize(message_index),
         };
 
@@ -2341,10 +2359,12 @@ impl<
     ) -> Stored<ConfigurationId> {
         let stored = self.store_configuration(configuration);
         if stored.is_new {
-            self.incomings
-                .write()
-                .unwrap()
-                .push(RwLock::new(Vec::new()));
+            if self.ensure_init_is_reachable {
+                self.incomings
+                    .write()
+                    .unwrap()
+                    .push(RwLock::new(Vec::new()));
+            };
             self.outgoings
                 .write()
                 .unwrap()
@@ -2546,6 +2566,45 @@ impl<
 
         string
     }
+
+    fn assert_init_is_reachable(&self) {
+        let mut reached = vec![false; self.configurations.read().unwrap().value_by_id.len()];
+        let mut pending = vec![0; 1];
+
+        while let Some(configuration_id) = pending.pop() {
+            if reached[configuration_id] {
+                continue;
+            }
+            reached[configuration_id] = true;
+            self.incomings.read().unwrap()[configuration_id]
+                .read()
+                .unwrap()
+                .iter()
+                .for_each(|incoming| {
+                    pending.push(incoming.from_configuration_id.to_usize());
+                });
+        }
+
+        let mut unreachable_count = 0;
+        reached
+            .iter()
+            .enumerate()
+            .filter(|(_, is_reached)| !*is_reached)
+            .for_each(|(configuration_id, _)| {
+                // BEGIN NOT TESTED
+                eprintln!(
+                    "there is no path back to initial state from the configuration {}",
+                    self.display_configuration_id(ConfigurationId::from_usize(configuration_id))
+                );
+                unreachable_count += 1;
+                // END NOT TESTED
+            });
+        assert!(
+            unreachable_count == 0,
+            "there is no path back to initial state from {} configurations",
+            unreachable_count
+        );
+    }
 }
 
 /// Add clap commands and flags to a clap application.
@@ -2562,6 +2621,11 @@ pub fn add_clap<'a, 'b>(app: App<'a, 'b>) -> App<'a, 'b> {
             .value_name("COUNT")
             .help("set the number of threads to use (may also specify PHYSICAL or LOGICAL)")
             .default_value("PHYSICAL"),
+    )
+    .arg(
+        Arg::with_name("reachable").short("r").help(
+            "ensure that the initial configuration is reachable from all other configurations",
+        ),
     )
     .subcommand(SubCommand::with_name("agents").about("list the agents of the model"))
     .subcommand(
@@ -2610,13 +2674,14 @@ impl<
     fn do_compute(&mut self, arg_matches: &ArgMatches) {
         let threads = arg_matches.value_of("threads").unwrap();
         self.threads = if threads == "PHYSICAL" {
-            Threads::Physical // NOT TESTED
+            Threads::Physical
         } else if threads == "LOGICAL" {
             Threads::Logical // NOT TESTED
         } else {
             Threads::Count(usize::from_str(threads).unwrap())
         };
         self.eprint_progress = arg_matches.is_present("progress");
+        self.ensure_init_is_reachable = arg_matches.is_present("reachable");
         self.compute();
     }
 }
@@ -2698,7 +2763,7 @@ impl<
                                 stdout,
                                 "- BY {}\n  TO {}",
                                 event_label,
-                                self.display_configuration_id(outgoing.to)
+                                self.display_configuration_id(outgoing.to_configuration_id)
                             )
                             .unwrap();
                         });
