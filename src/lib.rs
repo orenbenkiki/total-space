@@ -1347,6 +1347,9 @@ pub struct Model<
     /// Whether we'll be testing if the initial configuration is reachable from every configuration.
     pub ensure_init_is_reachable: bool,
 
+    /// Whether to allow for invalid configurations.
+    pub allow_invalid_configurations: bool,
+
     /// The number of threads to use for computing the model's configurations.
     ///
     /// If zero, uses all the available processors.
@@ -1550,6 +1553,7 @@ impl<
             max_configuration_string_size: RwLock::new(0),
             eprint_progress: false,
             ensure_init_is_reachable: false,
+            allow_invalid_configurations: false,
             threads: Threads::Physical,
             conditions: RwLock::new(HashMap::new()),
         }
@@ -1621,6 +1625,19 @@ impl<
 
     fn reach_configuration(&self, mut context: <Self as MetaModel>::Context) {
         self.validate_configuration(&mut context);
+
+        if !self.allow_invalid_configurations && context.to_configuration.invalid_id.is_valid() {
+            // BEGIN NOT TESTED
+            panic!(
+                "reached an invalid configuration {}\n\
+                   by the {}\n\
+                   from the valid configuration {}",
+                self.display_configuration_id(context.incoming.from_configuration_id),
+                self.event_label(context.delivered_message_id),
+                self.display_configuration(&context.to_configuration)
+            );
+            // END NOT TESTED
+        }
 
         let stored = self.fully_store_configuration(context.to_configuration);
 
@@ -2626,6 +2643,11 @@ pub fn add_clap<'a, 'b>(app: App<'a, 'b>) -> App<'a, 'b> {
         Arg::with_name("reachable").short("r").help(
             "ensure that the initial configuration is reachable from all other configurations",
         ),
+    )
+    .arg(
+        Arg::with_name("invalid")
+            .short("i")
+            .help("allow for invalid configurations (but do not explore beyond them)"),
     )
     .subcommand(SubCommand::with_name("agents").about("list the agents of the model"))
     .subcommand(
