@@ -245,8 +245,7 @@ type TestModel = Model<
     14, // MAX_MESSAGES
 >;
 
-#[test]
-fn test_model() {
+fn test_model() -> TestModel {
     const CLIENTS_COUNT: usize = 2;
     let client_type = Arc::new(AgentTypeData::<ClientState, StateId, Payload>::new(
         "C",
@@ -270,42 +269,46 @@ fn test_model() {
         Instances::Singleton,
         Some(manager_type.clone()),
     ));
-    let mut model = TestModel::new(server_type, vec![]);
-    {
+    let model = TestModel::new(server_type, vec![]);
+    if CLIENTS.read().unwrap().len() == 0 {
         let mut clients = CLIENTS.write().unwrap();
         clients.push(model.agent_index("C", Some(0)));
         clients.push(model.agent_index("C", Some(1)));
+        *MANAGER.write().unwrap() = model.agent_index("MGR", None);
+        *SERVER.write().unwrap() = model.agent_index("SRV", None);
     }
-    *MANAGER.write().unwrap() = model.agent_index("MGR", None);
-    *SERVER.write().unwrap() = model.agent_index("SRV", None);
+    model
+}
 
-    model.threads = Threads::Count(1);
-
-    {
-        let app = add_clap(App::new("test_client_server_model"));
-        let arg_matches = app.get_matches_from(vec!["test", "agents"].iter());
-        let mut stdout_bytes = Vec::new();
-        assert!(model.do_clap(&arg_matches, &mut stdout_bytes));
-        let stdout = str::from_utf8(&stdout_bytes).unwrap();
-        assert_eq!(
-            stdout,
-            "\
+#[test]
+fn test_agents() {
+    let mut model = test_model();
+    let app = add_clap(App::new("agents"));
+    let arg_matches = app.get_matches_from(vec!["test", "agents"].iter());
+    let mut stdout_bytes = Vec::new();
+    assert!(model.do_clap(&arg_matches, &mut stdout_bytes));
+    let stdout = str::from_utf8(&stdout_bytes).unwrap();
+    assert_eq!(
+        stdout,
+        "\
             C(0)\n\
             C(1)\n\
             MGR\n\
             SRV\n\
             "
-        );
-    }
+    );
+}
 
-    {
-        let app = add_clap(App::new("test_client_server_model"));
-        let arg_matches =
-            app.get_matches_from(vec!["test", "-r", "-p", "-t", "1", "configurations"].iter());
-        let mut stdout_bytes = Vec::new();
-        assert!(model.do_clap(&arg_matches, &mut stdout_bytes));
-        let stdout = str::from_utf8(&stdout_bytes).unwrap();
-        assert_eq!(
+#[test]
+fn test_configurations() {
+    let mut model = test_model();
+    let app = add_clap(App::new("configurations"));
+    let arg_matches =
+        app.get_matches_from(vec!["test", "-r", "-p", "-t", "1", "configurations"].iter());
+    let mut stdout_bytes = Vec::new();
+    assert!(model.do_clap(&arg_matches, &mut stdout_bytes));
+    let stdout = str::from_utf8(&stdout_bytes).unwrap();
+    assert_eq!(
             stdout,
             "C(0):IDL & C(1):IDL & MGR: & SRV:LST\n\
             C(0):WAT & C(1):IDL & MGR: & SRV:LST | C(0) -> REQ(C=0) -> SRV\n\
@@ -344,5 +347,4 @@ fn test_model() {
             C(0):WAT & C(1):IDL & MGR: & SRV:LST | SRV -> RSP -> C(0)\n\
             "
         );
-    }
 }

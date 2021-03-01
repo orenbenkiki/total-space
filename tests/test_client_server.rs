@@ -150,8 +150,7 @@ type TestModel = Model<
     14, // MAX_MESSAGES
 >;
 
-#[test]
-fn test_model() {
+fn test_model() -> TestModel {
     let client_type = Arc::new(AgentTypeData::<
         ClientState,
         <TestModel as MetaModel>::StateId,
@@ -165,31 +164,47 @@ fn test_model() {
         "Server", Instances::Singleton, Some(client_type.clone())
     ));
 
-    let mut model = TestModel::new(server_type, vec![]);
+    TestModel::new(server_type, vec![])
+}
 
-    {
-        let app = add_clap(App::new("test_client_server_model"));
-        let arg_matches = app.get_matches_from(vec!["test", "agents"].iter());
-        let mut stdout_bytes = Vec::new();
-        assert!(model.do_clap(&arg_matches, &mut stdout_bytes));
-        let stdout = str::from_utf8(&stdout_bytes).unwrap();
-        assert_eq!(
-            stdout,
-            "\
-            Client\n\
-            Server\n\
-            "
-        );
-    }
+#[test]
+fn test_agents() {
+    let mut model = test_model();
+    let app = add_clap(App::new("test_agents"));
+    let arg_matches = app.get_matches_from(vec!["test", "conditions"].iter());
+    let mut stdout_bytes = Vec::new();
+    assert!(model.do_clap(&arg_matches, &mut stdout_bytes));
+    let stdout = str::from_utf8(&stdout_bytes).unwrap();
+    assert_eq!(stdout, "init: matches the initial configuration\n");
+}
 
-    {
-        let app = add_clap(App::new("test_client_server_model"));
-        let arg_matches =
-            app.get_matches_from(vec!["test", "-r", "-p", "-t", "1", "configurations"].iter());
-        let mut stdout_bytes = Vec::new();
-        assert!(model.do_clap(&arg_matches, &mut stdout_bytes));
-        let stdout = str::from_utf8(&stdout_bytes).unwrap();
-        assert_eq!(
+#[test]
+fn test_conditions() {
+    let mut model = test_model();
+    let app = add_clap(App::new("test_conditions"));
+    let arg_matches = app.get_matches_from(vec!["test", "agents"].iter());
+    let mut stdout_bytes = Vec::new();
+    assert!(model.do_clap(&arg_matches, &mut stdout_bytes));
+    let stdout = str::from_utf8(&stdout_bytes).unwrap();
+    assert_eq!(
+        stdout,
+        "\
+        Client\n\
+        Server\n\
+        "
+    );
+}
+
+#[test]
+fn test_configurations() {
+    let mut model = test_model();
+    let app = add_clap(App::new("test_configurations"));
+    let arg_matches =
+        app.get_matches_from(vec!["test", "-r", "-p", "-t", "1", "configurations"].iter());
+    let mut stdout_bytes = Vec::new();
+    assert!(model.do_clap(&arg_matches, &mut stdout_bytes));
+    let stdout = str::from_utf8(&stdout_bytes).unwrap();
+    assert_eq!(
             stdout,
             "Client:Idle & Server:Listen\n\
             Client:Wait & Server:Listen | Client -> Request -> Server\n\
@@ -201,15 +216,18 @@ fn test_model() {
             Client:Wait & Server:Listen | Client -> Request -> Server & Client -> * Ping => Ping -> Server\n\
             "
         );
-    }
+}
 
-    {
-        let app = add_clap(App::new("test_client_server_model"));
-        let arg_matches = app.get_matches_from(vec!["test", "transitions"].iter());
-        let mut stdout_bytes = Vec::new();
-        assert!(model.do_clap(&arg_matches, &mut stdout_bytes));
-        let stdout = str::from_utf8(&stdout_bytes).unwrap();
-        assert_eq!(
+#[test]
+fn test_transitions() {
+    let mut model = test_model();
+    let app = add_clap(App::new("test_transitions"));
+    let arg_matches =
+        app.get_matches_from(vec!["test", "-r", "-p", "-t", "1", "transitions"].iter());
+    let mut stdout_bytes = Vec::new();
+    assert!(model.do_clap(&arg_matches, &mut stdout_bytes));
+    let stdout = str::from_utf8(&stdout_bytes).unwrap();
+    assert_eq!(
             stdout,
             "FROM Client:Idle & Server:Listen\n\
             - BY time event\n  \
@@ -247,5 +265,4 @@ fn test_model() {
               TO Client:Wait & Server:Listen | Client -> Request -> Server\n\
             "
         );
-    }
 }

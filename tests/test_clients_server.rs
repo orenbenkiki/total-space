@@ -172,8 +172,7 @@ type TestModel = Model<
     14, // MAX_MESSAGES
 >;
 
-#[test]
-fn test_model() {
+fn test_model() -> TestModel {
     let client_type = Arc::new(AgentTypeData::<
         ClientState,
         <TestModel as MetaModel>::StateId,
@@ -186,42 +185,46 @@ fn test_model() {
     >::new(
         "SRV", Instances::Singleton, Some(client_type.clone())
     ));
-    let mut model = TestModel::new(server_type, vec![]);
-    {
+    let model = TestModel::new(server_type, vec![]);
+    if CLIENTS.read().unwrap().len() == 0 {
         let mut clients = CLIENTS.write().unwrap();
         clients.push(model.agent_index("C", Some(0)));
         clients.push(model.agent_index("C", Some(1)));
+        *SERVER.write().unwrap() = model.agent_index("SRV", None);
     }
-    *SERVER.write().unwrap() = model.agent_index("SRV", None);
+    model
+}
 
-    model.threads = Threads::Count(1);
+#[test]
+fn test_agents() {
+    let mut model = test_model();
+    let app = add_clap(App::new("agents"));
+    let arg_matches = app.get_matches_from(vec!["test", "agents"].iter());
+    let mut stdout_bytes = Vec::new();
+    assert!(model.do_clap(&arg_matches, &mut stdout_bytes));
+    let stdout = str::from_utf8(&stdout_bytes).unwrap();
+    assert_eq!(
+        stdout,
+        "\
+        C(0)\n\
+        C(1)\n\
+        SRV\n\
+        "
+    );
+}
 
-    {
-        let app = add_clap(App::new("test_client_server_model"));
-        let arg_matches = app.get_matches_from(vec!["test", "agents"].iter());
-        let mut stdout_bytes = Vec::new();
-        assert!(model.do_clap(&arg_matches, &mut stdout_bytes));
-        let stdout = str::from_utf8(&stdout_bytes).unwrap();
-        assert_eq!(
-            stdout,
-            "\
-            C(0)\n\
-            C(1)\n\
-            SRV\n\
-            "
-        );
-    }
-
-    {
-        let app = add_clap(App::new("test_client_server_model"));
-        let arg_matches =
-            app.get_matches_from(vec!["test", "-r", "-p", "-t", "1", "configurations"].iter());
-        let mut stdout_bytes = Vec::new();
-        assert!(model.do_clap(&arg_matches, &mut stdout_bytes));
-        let stdout = str::from_utf8(&stdout_bytes).unwrap();
-        assert_eq!(
-            stdout,
-            "\
+#[test]
+fn test_configurations() {
+    let mut model = test_model();
+    let app = add_clap(App::new("configurations"));
+    let arg_matches =
+        app.get_matches_from(vec!["test", "-r", "-p", "-t", "1", "configurations"].iter());
+    let mut stdout_bytes = Vec::new();
+    assert!(model.do_clap(&arg_matches, &mut stdout_bytes));
+    let stdout = str::from_utf8(&stdout_bytes).unwrap();
+    assert_eq!(
+        stdout,
+        "\
             C(0):IDL & C(1):IDL & SRV:LST\n\
             C(0):WAT & C(1):IDL & SRV:LST | C(0) -> REQ(C=0) -> SRV\n\
             C(0):WAT & C(1):WAT & SRV:LST | C(0) -> REQ(C=0) -> SRV & C(1) -> REQ(C=1) -> SRV\n\
@@ -238,16 +241,19 @@ fn test_model() {
             C(0):WAT & C(1):WAT & SRV:WRK(C=1) | C(0) -> REQ(C=0) -> SRV\n\
             C(0):IDL & C(1):WAT & SRV:LST | C(1) -> REQ(C=1) -> SRV\n\
             "
-        );
-    }
+    );
+}
 
-    {
-        let app = add_clap(App::new("test_client_server_model"));
-        let arg_matches = app.get_matches_from(vec!["test", "transitions"].iter());
-        let mut stdout_bytes = Vec::new();
-        assert!(model.do_clap(&arg_matches, &mut stdout_bytes));
-        let stdout = str::from_utf8(&stdout_bytes).unwrap();
-        assert_eq!(
+#[test]
+fn test_transitions() {
+    let mut model = test_model();
+    let app = add_clap(App::new("transitions"));
+    let arg_matches =
+        app.get_matches_from(vec!["test", "-r", "-p", "-t", "1", "transitions"].iter());
+    let mut stdout_bytes = Vec::new();
+    assert!(model.do_clap(&arg_matches, &mut stdout_bytes));
+    let stdout = str::from_utf8(&stdout_bytes).unwrap();
+    assert_eq!(
             stdout,
             "FROM C(0):IDL & C(1):IDL & SRV:LST\n\
             - BY time event\n  \
@@ -322,5 +328,4 @@ fn test_model() {
               TO C(0):IDL & C(1):WAT & SRV:WRK(C=1)\n\
             "
         );
-    }
 }

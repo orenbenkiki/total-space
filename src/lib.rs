@@ -1356,7 +1356,7 @@ pub struct Model<
     pub threads: Threads,
 
     /// Named conditions on a configuration.
-    pub conditions: RwLock<HashMap<&'static str, <Self as MetaModel>::Condition>>,
+    pub conditions: RwLock<HashMap<&'static str, (<Self as MetaModel>::Condition, &'static str)>>,
 }
 
 // END MAYBE TESTED
@@ -1501,6 +1501,15 @@ impl<
     type Condition = fn(&Self, ConfigurationId) -> bool;
 }
 
+// BEGIN NOT TESTED
+fn is_init<Model, ConfigurationId: IndexLike>(
+    _model: &Model,
+    configuration_id: ConfigurationId,
+) -> bool {
+    configuration_id.to_usize() == 0
+}
+// END NOT TESTED
+
 impl<
         StateId: IndexLike,
         MessageId: IndexLike,
@@ -1529,6 +1538,12 @@ impl<
         let mut agent_types: Vec<<Self as MetaModel>::AgentTypeArc> = vec![];
         let mut first_indices: Vec<usize> = vec![];
         let mut agent_labels: Vec<Arc<String>> = vec![];
+        let conditions = RwLock::new(HashMap::new());
+        let condition: <Self as MetaModel>::Condition = is_init;
+        conditions
+            .write()
+            .unwrap()
+            .insert("init", (condition, "matches the initial configuration"));
 
         Self::collect_agent_types(
             last_agent_type,
@@ -1555,7 +1570,7 @@ impl<
             ensure_init_is_reachable: false,
             allow_invalid_configurations: false,
             threads: Threads::Physical,
-            conditions: RwLock::new(HashMap::new()),
+            conditions,
         }
     }
 
@@ -2649,11 +2664,17 @@ pub fn add_clap<'a, 'b>(app: App<'a, 'b>) -> App<'a, 'b> {
             .short("i")
             .help("allow for invalid configurations (but do not explore beyond them)"),
     )
-    .subcommand(SubCommand::with_name("agents").about("list the agents of the model"))
+    .subcommand(SubCommand::with_name("agents").about("list the agents of the model (does not compute the model)"))
+    .subcommand(SubCommand::with_name("conditions").about("list the conditions which can be used to identify configurations (does not compute the model)"))
     .subcommand(
         SubCommand::with_name("configurations").about("list the configurations of the model"),
     )
     .subcommand(SubCommand::with_name("transitions").about("list the transitions of the model"))
+    /*
+    .subcommand(SubCommand::with_name("path").about("list transitions between a path of configuration")
+        .arg(Arg::with_name("CONDITION").about("the name of the next condition identifying a configuration along the path, may be prefixed with ! to negate the condition").multiple(true)
+    ))
+    */
 }
 
 /// Execute operations on a model using clap commands.
@@ -2663,6 +2684,7 @@ pub trait ClapModel {
     /// Return whether a command was executed.
     fn do_clap(&mut self, arg_matches: &ArgMatches, stdout: &mut dyn Write) -> bool {
         self.do_clap_agents(arg_matches, stdout)
+            || self.do_clap_conditions(arg_matches, stdout)
             || self.do_clap_configurations(arg_matches, stdout)
             || self.do_clap_transitions(arg_matches, stdout)
     }
@@ -2671,6 +2693,11 @@ pub trait ClapModel {
     ///
     /// This doesn't compute the model.
     fn do_clap_agents(&mut self, arg_matches: &ArgMatches, stdout: &mut dyn Write) -> bool;
+
+    /// Execute the `conditions` clap subcommand, if requested to.
+    ///
+    /// This doesn't compute the model.
+    fn do_clap_conditions(&mut self, arg_matches: &ArgMatches, stdout: &mut dyn Write) -> bool;
 
     /// Execute the `configurations` clap subcommand, if requested to.
     ///
@@ -2696,7 +2723,7 @@ impl<
     fn do_compute(&mut self, arg_matches: &ArgMatches) {
         let threads = arg_matches.value_of("threads").unwrap();
         self.threads = if threads == "PHYSICAL" {
-            Threads::Physical
+            Threads::Physical // NOT TESTED
         } else if threads == "LOGICAL" {
             Threads::Logical // NOT TESTED
         } else {
@@ -2725,6 +2752,22 @@ impl<
                 self.agent_labels.iter().for_each(|agent_label| {
                     writeln!(stdout, "{}", agent_label).unwrap();
                 });
+                true
+            }
+            None => false,
+        }
+    }
+
+    fn do_clap_conditions(&mut self, arg_matches: &ArgMatches, stdout: &mut dyn Write) -> bool {
+        match arg_matches.subcommand_matches("conditions") {
+            Some(_) => {
+                self.conditions
+                    .read()
+                    .unwrap()
+                    .iter()
+                    .for_each(|(name, (_condition, about))| {
+                        writeln!(stdout, "{}: {}", name, about).unwrap();
+                    });
                 true
             }
             None => false,
