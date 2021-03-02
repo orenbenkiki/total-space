@@ -310,7 +310,8 @@ fn test_configurations() {
     let stdout = str::from_utf8(&stdout_bytes).unwrap();
     assert_eq!(
             stdout,
-            "C(0):IDL & C(1):IDL & MGR: & SRV:LST\n\
+            "\
+            C(0):IDL & C(1):IDL & MGR: & SRV:LST\n\
             C(0):WAT & C(1):IDL & MGR: & SRV:LST | C(0) -> REQ(C=0) -> SRV\n\
             C(0):WAT & C(1):WAT & MGR: & SRV:LST | C(0) -> REQ(C=0) -> SRV & C(1) -> REQ(C=1) -> SRV\n\
             C(0):WAT & C(1):WAT & MGR: & SRV:WRK(C=0) | C(1) -> REQ(C=1) -> SRV\n\

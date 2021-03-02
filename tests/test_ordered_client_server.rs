@@ -190,7 +190,8 @@ fn test_configurations() {
     let stdout = str::from_utf8(&stdout_bytes).unwrap();
     assert_eq!(
             stdout,
-            "Client:Idle & Server:Listen\n\
+            "\
+            Client:Idle & Server:Listen\n\
             Client:Wait1 & Server:Listen | Client -> @0 Request -> Server\n\
             Client:Wait2 & Server:Listen | Client -> @0 Request -> Server & Client -> @1 Request -> Server\n\
             Client:Wait2 & Server:Work | Client -> @0 Request -> Server\n\
@@ -214,7 +215,8 @@ fn test_transitions() {
     let stdout = str::from_utf8(&stdout_bytes).unwrap();
     assert_eq!(
             stdout,
-            "FROM Client:Idle & Server:Listen\n\
+            "\
+            FROM Client:Idle & Server:Listen\n\
             - BY time event\n  \
               TO Client:Wait1 & Server:Listen | Client -> @0 Request -> Server\n\
             FROM Client:Wait1 & Server:Listen | Client -> @0 Request -> Server\n\

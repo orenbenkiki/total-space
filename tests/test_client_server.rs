@@ -177,7 +177,8 @@ fn test_conditions() {
     let stdout = str::from_utf8(&stdout_bytes).unwrap();
     assert_eq!(
         stdout,
-        "INIT: matches the initial configuration\n\
+        "\
+        INIT: matches the initial configuration\n\
         VALID: matches any valid configuration (is typically negated)\n\
         "
     );
@@ -211,7 +212,8 @@ fn test_configurations() {
     let stdout = str::from_utf8(&stdout_bytes).unwrap();
     assert_eq!(
             stdout,
-            "Client:Idle & Server:Listen\n\
+            "\
+            Client:Idle & Server:Listen\n\
             Client:Wait & Server:Listen | Client -> Request -> Server\n\
             Client:Wait & Server:Work\n\
             Client:Wait & Server:Listen | Server -> Response -> Client\n\
@@ -234,7 +236,8 @@ fn test_transitions() {
     let stdout = str::from_utf8(&stdout_bytes).unwrap();
     assert_eq!(
             stdout,
-            "FROM Client:Idle & Server:Listen\n\
+            "\
+            FROM Client:Idle & Server:Listen\n\
             - BY time event\n  \
               TO Client:Wait & Server:Listen | Client -> Request -> Server\n\
             - BY time event\n  \
@@ -283,7 +286,8 @@ fn test_path() {
     let stdout = str::from_utf8(&stdout_bytes).unwrap();
     assert_eq!(
         stdout,
-        "INIT Client:Idle & Server:Listen\n\
+        "\
+        INIT Client:Idle & Server:Listen\n\
         BY time event\n\
         TO Client:Idle & Server:Listen | Client -> * Ping -> Server\n\
         BY message Client -> * Ping -> Server\n\
