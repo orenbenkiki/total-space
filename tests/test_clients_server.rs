@@ -387,3 +387,121 @@ fn test_states() {
         "
     );
 }
+
+#[test]
+fn test_path() {
+    let mut model = test_model();
+    let app = add_clap(App::new("path"));
+    let arg_matches = app.get_matches_from(
+        vec![
+            "test", "-r", "-p", "-t", "1", "path", "1MSG", "2MSG", "INIT",
+        ]
+        .iter(),
+    );
+    let mut stdout_bytes = Vec::new();
+    model.do_clap(&arg_matches, &mut stdout_bytes);
+    let stdout = str::from_utf8(&stdout_bytes).unwrap();
+    assert_eq!(
+        stdout,
+        "\
+        1MSG C(0):WAT & C(1):IDL & SRV:LST | C(0) -> REQ(C=0) -> SRV\n\
+        BY time event\n\
+        TO C(0):WAT & C(1):WAT & SRV:LST | C(0) -> REQ(C=0) -> SRV & C(1) -> REQ(C=1) -> SRV\n\
+        BY message C(0) -> REQ(C=0) -> SRV\n\
+        1MSG C(0):WAT & C(1):WAT & SRV:WRK(C=0) | C(1) -> REQ(C=1) -> SRV\n\
+        BY time event\n\
+        2MSG C(0):WAT & C(1):WAT & SRV:LST | C(1) -> REQ(C=1) -> SRV & SRV -> RSP -> C(0)\n\
+        BY message C(1) -> REQ(C=1) -> SRV\n\
+        TO C(0):WAT & C(1):WAT & SRV:WRK(C=1) | SRV -> RSP -> C(0)\n\
+        BY time event\n\
+        TO C(0):WAT & C(1):WAT & SRV:LST | SRV -> RSP -> C(0) & SRV -> RSP -> C(1)\n\
+        BY message SRV -> RSP -> C(0)\n\
+        TO C(0):IDL & C(1):WAT & SRV:LST | SRV -> RSP -> C(1)\n\
+        BY message SRV -> RSP -> C(1)\n\
+        INIT C(0):IDL & C(1):IDL & SRV:LST\n\
+        "
+    );
+}
+
+#[test]
+fn test_sequence() {
+    let mut model = test_model();
+    let app = add_clap(App::new("sequence"));
+    let arg_matches = app.get_matches_from(
+        vec![
+            "test", "-r", "-p", "-t", "1", "sequence", "1MSG", "2MSG", "0MSG",
+        ]
+        .iter(),
+    );
+    let mut stdout_bytes = Vec::new();
+    model.do_clap(&arg_matches, &mut stdout_bytes);
+    let stdout = str::from_utf8(&stdout_bytes).unwrap();
+    assert_eq!(
+        stdout,
+        "\
+        @startuml\n\
+        autonumber \" <b>#</b> \"\n\
+        skinparam shadowing false\n\
+        skinparam sequence {\n\
+        ArrowColor Black\n\
+        ActorBorderColor Black\n\
+        LifeLineBorderColor Black\n\
+        LifeLineBackgroundColor Black\n\
+        ParticipantBorderColor Black\n\
+        }\n\
+        skinparam ControlBorderColor White\n\
+        skinparam ControlBackgroundColor White\n\
+        participant \"C(0)\" as A0 order 10100\n\
+        activate A0 #CadetBlue\n\
+        participant \"C(1)\" as A1 order 10200\n\
+        activate A1 #CadetBlue\n\
+        participant \"SRV\" as A2 order 10300\n\
+        activate A2 #CadetBlue\n\
+        control \" \" as T0 order 10101\n\
+        activate T0 #Silver\n\
+        rnote over A0 : WAT\n\
+        / rnote over A1 : IDL\n\
+        / rnote over A2 : LST\n\
+        / rnote over T0 : REQ(C=0)\n\
+        ?o-> A1\n\
+        deactivate A1\n\
+        control \" \" as T1 order 10201\n\
+        A1 -> T1 : REQ(C=1)\n\
+        activate T1 #Silver\n\
+        rnote over A1 : WAT\n\
+        activate A1 #MediumPurple\n\
+        T0 -> A2 : REQ(C=0)\n\
+        deactivate T0\n\
+        deactivate A2\n\
+        autonumber stop\n\
+        ?-[#White]\\ A2\n\
+        autonumber resume\n\
+        rnote over A2 : WRK(C=0)\n\
+        activate A2 #CadetBlue\n\
+        ?o-> A2\n\
+        deactivate A2\n\
+        control \" \" as T2 order 10299\n\
+        A2 -> T2 : RSP\n\
+        activate T2 #Silver\n\
+        rnote over A2 : LST\n\
+        activate A2 #MediumPurple\n\
+        T1 -> A2 : REQ(C=1)\n\
+        deactivate T1\n\
+        deactivate A2\n\
+        autonumber stop\n\
+        ?-[#White]\\ A2\n\
+        autonumber resume\n\
+        rnote over A2 : WRK(C=1)\n\
+        activate A2 #CadetBlue\n\
+        T2 -> A0 : RSP\n\
+        deactivate T2\n\
+        deactivate A0\n\
+        autonumber stop\n\
+        ?-[#White]\\ A0\n\
+        autonumber resume\n\
+        rnote over A0 : IDL\n\
+        activate A0 #MediumPurple\n\
+        @enduml\n\
+        "
+    );
+}

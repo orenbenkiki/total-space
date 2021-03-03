@@ -29,7 +29,6 @@ use rayon::prelude::*;
 use rayon::scope;
 use rayon::Scope as ParallelScope;
 use rayon::ThreadPoolBuilder;
-use std::cell::RefCell;
 use std::collections::VecDeque;
 use std::fmt::Debug;
 use std::fmt::Display;
@@ -38,7 +37,6 @@ use std::fmt::Result as FormatterResult;
 use std::hash::Hash;
 use std::io::Write;
 use std::marker::PhantomData;
-use std::rc::Rc;
 use std::str::FromStr;
 use std::sync::Arc;
 use std::sync::RwLock;
@@ -397,7 +395,10 @@ pub trait AgentInstances<StateId, Payload>: Name {
     fn is_singleton(&self) -> bool;
 
     /// The number of agents of this type that will be used in the system.
-    fn count(&self) -> usize;
+    fn instances_count(&self) -> usize;
+
+    /// The order of the agent (for sequence diagrams).
+    fn instance_order(&self, instance: usize) -> usize;
 
     /// Display the state.
     ///
@@ -405,10 +406,7 @@ pub trait AgentInstances<StateId, Payload>: Name {
     /// `<state-name>(<state-data>)` if the state contains additional data. The `Debug` of the state
     /// might be acceptable as-is, but typically it is better to get rid or shorten the explicit
     /// field names, and/or format their values in a more compact form.
-    ///
-    /// Since we are caching the display string, we can't return it; instead, you'll need to provide
-    /// a work function that will process it.
-    fn state_display(&self, state_id: StateId, callback: Box<dyn FnOnce(&str)>);
+    fn state_display(&self, state_id: StateId) -> String;
 
     /// Return the short state name.
     fn state_name(&self, state_id: StateId) -> &'static str;
@@ -470,8 +468,8 @@ pub struct AgentTypeData<State, StateId, Payload> {
     /// Whether this type only has a single instance.
     is_singleton: bool,
 
-    /// The number of instances of this type we'll be using in the system.
-    count: usize,
+    /// The order of each instance (for sequence diagrams).
+    instance_orders: Vec<usize>,
 
     /// The previous agent type in the chain.
     prev_agent_type: Option<Arc<dyn AgentType<StateId, Payload> + Send + Sync>>,
@@ -524,9 +522,11 @@ impl<
             .unwrap()
             .store(default_state, Some(format!("{}", default_state)));
 
+        let instance_orders = vec![0; count];
+
         AgentTypeData {
             name,
-            count,
+            instance_orders,
             is_singleton,
             states,
             first_index: prev_agent_type
@@ -575,7 +575,7 @@ impl<
     }
 
     fn parts_count(&self) -> usize {
-        self.count
+        self.instances_count()
     }
 }
 
@@ -592,14 +592,10 @@ pub trait AgentState<
     /// Return the actions that may be taken by an agent with some state when time passes.
     fn pass_time(&self, instance: usize) -> Reaction<State, Payload>;
 
-    // BEGIN NOT TESTED
-
     /// Whether any agent in this state is deferring messages.
     fn is_deferring(&self) -> bool {
         false
     }
-
-    // END NOT TESTED
 
     /// The maximal number of messages sent by this agent which may be in-flight when it is in this
     /// state.
@@ -627,14 +623,10 @@ pub trait ContainerState<
     /// Return the actions that may be taken by an agent with some state when time passes.
     fn pass_time(&self, instance: usize, parts: &[Part]) -> Reaction<State, Payload>;
 
-    // BEGIN NOT TESTED
-
     /// Whether any agent in this state is deferring messages.
     fn is_deferring(&self, _parts: &[Part]) -> bool {
         false
     }
-
-    // END NOT TESTED
 
     /// The maximal number of messages sent by this agent which may be in-flight when it is in this
     /// state.
@@ -753,19 +745,23 @@ impl<
     }
 
     fn next_index(&self) -> usize {
-        self.first_index + self.count
+        self.first_index + self.instances_count()
     }
 
     fn is_singleton(&self) -> bool {
         self.is_singleton
     }
 
-    fn count(&self) -> usize {
-        self.count
+    fn instances_count(&self) -> usize {
+        self.instance_orders.len()
     }
 
-    fn state_display(&self, state_id: StateId, callback: Box<dyn FnOnce(&str)>) {
-        (callback)(self.states.read().unwrap().display(state_id))
+    fn instance_order(&self, instance: usize) -> usize {
+        self.instance_orders[instance]
+    }
+
+    fn state_display(&self, state_id: StateId) -> String {
+        self.states.read().unwrap().display(state_id).to_string()
     }
 
     // BEGIN NOT TESTED
@@ -800,12 +796,16 @@ impl<
         self.agent_type_data.is_singleton()
     }
 
-    fn count(&self) -> usize {
-        self.agent_type_data.count()
+    fn instances_count(&self) -> usize {
+        self.agent_type_data.instances_count()
     }
 
-    fn state_display(&self, state_id: StateId, callback: Box<dyn FnOnce(&str)>) {
-        self.agent_type_data.state_display(state_id, callback)
+    fn instance_order(&self, instance: usize) -> usize {
+        self.agent_type_data.instance_order(instance)
+    }
+
+    fn state_display(&self, state_id: StateId) -> String {
+        self.agent_type_data.state_display(state_id)
     }
 
     // BEGIN NOT TESTED
@@ -828,10 +828,10 @@ impl<
         payload: &Payload,
     ) -> Reaction<StateId, Payload> {
         debug_assert!(
-            instance < self.count,
+            instance < self.instances_count(),
             "instance: {} count: {}",
             instance,
-            self.count() // NOT TESTED
+            self.instances_count() // NOT TESTED
         );
         let reaction = self
             .states
@@ -844,10 +844,10 @@ impl<
 
     fn pass_time(&self, instance: usize, state_ids: &[StateId]) -> Reaction<StateId, Payload> {
         debug_assert!(
-            instance < self.count,
+            instance < self.instances_count(),
             "instance: {} count: {}",
             instance,
-            self.count() // NOT TESTED
+            self.instances_count() // NOT TESTED
         );
         let reaction = self
             .states
@@ -860,10 +860,10 @@ impl<
 
     fn state_is_deferring(&self, instance: usize, state_ids: &[StateId]) -> bool {
         debug_assert!(
-            instance < self.count,
+            instance < self.instances_count(),
             "instance: {} count: {}",
             instance,
-            self.count() // NOT TESTED
+            self.instances_count() // NOT TESTED
         );
         self.states
             .read()
@@ -878,10 +878,10 @@ impl<
         state_ids: &[StateId],
     ) -> Option<usize> {
         debug_assert!(
-            instance < self.count,
+            instance < self.instances_count(),
             "instance: {} count: {}",
             instance,
-            self.count() // NOT TESTED
+            self.instances_count() // NOT TESTED
         );
         self.states
             .read()
@@ -927,10 +927,10 @@ impl<
         payload: &Payload,
     ) -> Reaction<StateId, Payload> {
         debug_assert!(
-            instance < self.agent_type_data.count,
+            instance < self.instances_count(),
             "instance: {} count: {}",
             instance,
-            self.count() // NOT TESTED
+            self.instances_count() // NOT TESTED
         );
 
         let mut parts_buffer = [Part::default(); MAX_PARTS];
@@ -949,10 +949,10 @@ impl<
 
     fn pass_time(&self, instance: usize, state_ids: &[StateId]) -> Reaction<StateId, Payload> {
         debug_assert!(
-            instance < self.agent_type_data.count,
+            instance < self.instances_count(),
             "instance: {} count: {}",
             instance,
-            self.count() // NOT TESTED
+            self.instances_count() // NOT TESTED
         );
 
         let mut parts_buffer = [Part::default(); MAX_PARTS];
@@ -969,13 +969,12 @@ impl<
         self.agent_type_data.translate_reaction(reaction)
     }
 
-    // BEGIN NOT TESTED
     fn state_is_deferring(&self, instance: usize, state_ids: &[StateId]) -> bool {
         debug_assert!(
-            instance < self.agent_type_data.count,
+            instance < self.instances_count(),
             "instance: {} count: {}",
             instance,
-            self.count()
+            self.instances_count() // NOT TESTED
         );
 
         let mut parts_buffer = [Part::default(); MAX_PARTS];
@@ -989,7 +988,6 @@ impl<
             .get(state_ids[self.agent_type_data.first_index + instance])
             .is_deferring(parts)
     }
-    // END NOT TESTED
 
     fn state_max_in_flight_messages(
         &self,
@@ -997,10 +995,10 @@ impl<
         state_ids: &[StateId],
     ) -> Option<usize> {
         debug_assert!(
-            instance < self.agent_type_data.count,
+            instance < self.instances_count(),
             "instance: {} count: {}",
             instance,
-            self.count() // NOT TESTED
+            self.instances_count() // NOT TESTED
         );
 
         let mut parts_buffer = [Part::default(); MAX_PARTS];
@@ -1267,11 +1265,7 @@ pub struct Outgoing<ConfigurationId> {
 
     /// The index of the message of the source configuration that was delivered to its target agent
     /// to reach the target configuration.
-    ///
-    /// We use the configuration identifier type as this is guaranteed to be large enough, and
-    /// anything smaller will not reduce the structure size, if we want fields to be properly
-    /// aligned.
-    pub message_index: ConfigurationId,
+    pub delivered_message_index: MessageIndex,
 }
 
 /// A transition to a given configuration.
@@ -1282,11 +1276,7 @@ pub struct Incoming<ConfigurationId> {
 
     /// The index of the message of the source configuration that was delivered to its target agent
     /// to reach the target configuration.
-    ///
-    /// We use the configuration identifier type as this is guaranteed to be large enough, and
-    /// anything smaller will not reduce the structure size, if we want fields to be properly
-    /// aligned.
-    pub message_index: ConfigurationId,
+    pub delivered_message_index: MessageIndex,
 }
 
 /// Specify the number of threads to use.
@@ -1377,6 +1367,95 @@ pub struct Model<
 
     /// Named conditions on a configuration.
     pub conditions: RwLock<HashMap<&'static str, (<Self as MetaModel>::Condition, &'static str)>>,
+}
+
+/// How a message relates to the previous configuration.
+#[derive(PartialEq, Eq, Copy, Clone, Debug)]
+pub enum PrevMessage {
+    /// Not applicable.
+    NotApplicable,
+
+    /// The message is newly sent and did not exist in the previous configuration.
+    NotThere,
+
+    /// The message existed in the previous configuration in some index (possibly with a different order).
+    Kept(usize),
+
+    /// The message replaced another message in the previous configuration in some index.
+    Replaced(usize),
+}
+
+/// How a message relates to the next configuration.
+#[derive(PartialEq, Eq, Copy, Clone, Debug)]
+pub enum NextMessage {
+    /// Not applicable.
+    NotApplicable,
+
+    /// The message will be delivered to reach the next configuration.
+    Delivered,
+
+    /// The message will existed in the next configuration in some index (possibly with a different order).
+    Kept(usize),
+
+    /// The message will be replaced by another message in the next configuration in some index.
+    Replaced(usize),
+}
+
+/// The additional control timelines associated with a specific agent.
+#[derive(Clone, Debug)]
+pub struct AgentTimelines {
+    /// The indices of the control timelines to the left of the agent, ordered from closer to
+    /// further.
+    left: Vec<usize>,
+
+    /// The indices of the control timelines to the right of the agent, ordered from closer to
+    /// further.
+    right: Vec<usize>,
+}
+
+/// The current state of a sequence diagram.
+#[derive(Clone, Debug)]
+pub struct SequenceState<const MAX_AGENTS: usize, const MAX_MESSAGES: usize> {
+    /// For each timeline, the index of the message it contains (in the current configuration).
+    pub timelines: Vec<Option<usize>>,
+
+    /// For each message in the current configuration, the timeline it is on.
+    /// This may be `None` if the message was delivered in the very next transition
+    /// (always true for immediate messages).
+    pub message_timelines: [Option<usize>; MAX_MESSAGES],
+
+    /// The additional control timelines of each agent.
+    pub agents_timelines: Vec<AgentTimelines>,
+}
+
+/// A transition between configurations along a path.
+#[derive(Debug)]
+pub struct PathTransition<MessageId, ConfigurationId, const MAX_MESSAGES: usize> {
+    /// The source configuration identifier.
+    pub from_configuration_id: ConfigurationId,
+
+    /// How all the messages in the source configuration relate to the messages in the target
+    /// configuration.
+    pub from_next_messages: [NextMessage; MAX_MESSAGES],
+
+    /// The index of the delivered message.
+    pub delivered_message_index: Option<MessageIndex>,
+
+    /// The identifier of the delivered message.
+    pub delivered_message_id: Option<MessageId>,
+
+    /// The agent that received the message.
+    pub agent_index: usize,
+
+    /// The target configuration identifier.
+    pub to_configuration_id: ConfigurationId,
+
+    /// How all the messages in the target configuration relate to the messages in the source
+    /// configuration.
+    pub to_prev_messages: [PrevMessage; MAX_MESSAGES],
+
+    /// The name of the condition the target configuration satisfies.
+    pub to_condition_name: Option<String>,
 }
 
 /// A transition between agent states in the diagram.
@@ -1483,11 +1562,17 @@ pub trait MetaModel {
     /// A condition on model configurations.
     type Condition;
 
+    /// A transition along a path between configurations.
+    type PathTransition;
+
     /// A transition in the states diagram.
     type AgentStateTransition;
 
     /// The collection of all state transitions in the states diagram.
     type AgentStateTransitions;
+
+    /// The state of a sequence diagram.
+    type SequenceState;
 }
 
 // BEGIN MAYBE TESTED
@@ -1568,9 +1653,11 @@ impl<
     type Context =
         Context<StateId, MessageId, InvalidId, ConfigurationId, Payload, MAX_AGENTS, MAX_MESSAGES>;
     type Condition = fn(&Self, ConfigurationId) -> bool;
+    type PathTransition = PathTransition<MessageId, ConfigurationId, MAX_MESSAGES>;
     type AgentStateTransition = AgentStateTransition<StateId, MessageId, MAX_MESSAGES>;
     type AgentStateTransitions =
         HashMap<AgentStateTransition<StateId, MessageId, MAX_MESSAGES>, Vec<MessageId>>;
+    type SequenceState = SequenceState<MAX_AGENTS, MAX_MESSAGES>;
 }
 
 fn is_init<Model, ConfigurationId: IndexLike>(
@@ -1609,7 +1696,74 @@ fn is_valid<
         .invalid_id
         .is_valid()
 }
+
 // END NOT TESTED
+
+fn has_replacement<
+    StateId: IndexLike,
+    MessageId: IndexLike,
+    InvalidId: IndexLike,
+    ConfigurationId: IndexLike,
+    Payload: KeyLike + Validated + Named,
+    const MAX_AGENTS: usize,
+    const MAX_MESSAGES: usize,
+>(
+    model: &Model<
+        StateId,
+        MessageId,
+        InvalidId,
+        ConfigurationId,
+        Payload,
+        MAX_AGENTS,
+        MAX_MESSAGES,
+    >,
+    configuration_id: ConfigurationId,
+) -> bool {
+    let messages = model.messages.read().unwrap();
+    model
+        .configurations
+        .read()
+        .unwrap()
+        .get(configuration_id)
+        .message_ids
+        .iter()
+        .take_while(|message_id| message_id.is_valid())
+        .map(|message_id| messages.get(*message_id))
+        .any(|message| message.replaced.is_some())
+}
+
+fn has_messages_count<
+    StateId: IndexLike,
+    MessageId: IndexLike,
+    InvalidId: IndexLike,
+    ConfigurationId: IndexLike,
+    Payload: KeyLike + Validated + Named,
+    const MAX_AGENTS: usize,
+    const MAX_MESSAGES: usize,
+    const MESSAGES_COUNT: usize,
+>(
+    model: &Model<
+        StateId,
+        MessageId,
+        InvalidId,
+        ConfigurationId,
+        Payload,
+        MAX_AGENTS,
+        MAX_MESSAGES,
+    >,
+    configuration_id: ConfigurationId,
+) -> bool {
+    model
+        .configurations
+        .read()
+        .unwrap()
+        .get(configuration_id)
+        .message_ids
+        .iter()
+        .take_while(|message_id| message_id.is_valid())
+        .count()
+        == MESSAGES_COUNT
+}
 
 impl<
         StateId: IndexLike,
@@ -1674,6 +1828,151 @@ impl<
             is_valid,
             "matches any valid configuration (is typically negated)",
         );
+        model.add_condition(
+            "REPLACE",
+            has_replacement,
+            "matches a configuration with a replaced message",
+        );
+        model.add_condition(
+            "0MSG",
+            has_messages_count::<
+                StateId,
+                MessageId,
+                InvalidId,
+                ConfigurationId,
+                Payload,
+                MAX_AGENTS,
+                MAX_MESSAGES,
+                0,
+            >,
+            "matches any configuration with no in-flight messages",
+        );
+        model.add_condition(
+            "1MSG",
+            has_messages_count::<
+                StateId,
+                MessageId,
+                InvalidId,
+                ConfigurationId,
+                Payload,
+                MAX_AGENTS,
+                MAX_MESSAGES,
+                1,
+            >,
+            "matches any configuration with a single in-flight message",
+        );
+        model.add_condition(
+            "2MSG",
+            has_messages_count::<
+                StateId,
+                MessageId,
+                InvalidId,
+                ConfigurationId,
+                Payload,
+                MAX_AGENTS,
+                MAX_MESSAGES,
+                2,
+            >,
+            "matches any configuration with 2 in-flight messages",
+        );
+        model.add_condition(
+            "3MSG",
+            has_messages_count::<
+                StateId,
+                MessageId,
+                InvalidId,
+                ConfigurationId,
+                Payload,
+                MAX_AGENTS,
+                MAX_MESSAGES,
+                3,
+            >,
+            "matches any configuration with 3 in-flight messages",
+        );
+        model.add_condition(
+            "4MSG",
+            has_messages_count::<
+                StateId,
+                MessageId,
+                InvalidId,
+                ConfigurationId,
+                Payload,
+                MAX_AGENTS,
+                MAX_MESSAGES,
+                4,
+            >,
+            "matches any configuration with 4 in-flight messages",
+        );
+        model.add_condition(
+            "5MSG",
+            has_messages_count::<
+                StateId,
+                MessageId,
+                InvalidId,
+                ConfigurationId,
+                Payload,
+                MAX_AGENTS,
+                MAX_MESSAGES,
+                5,
+            >,
+            "matches any configuration with 5 in-flight messages",
+        );
+        model.add_condition(
+            "6MSG",
+            has_messages_count::<
+                StateId,
+                MessageId,
+                InvalidId,
+                ConfigurationId,
+                Payload,
+                MAX_AGENTS,
+                MAX_MESSAGES,
+                6,
+            >,
+            "matches any configuration with 6 in-flight messages",
+        );
+        model.add_condition(
+            "7MSG",
+            has_messages_count::<
+                StateId,
+                MessageId,
+                InvalidId,
+                ConfigurationId,
+                Payload,
+                MAX_AGENTS,
+                MAX_MESSAGES,
+                7,
+            >,
+            "matches any configuration with 7 in-flight messages",
+        );
+        model.add_condition(
+            "8MSG",
+            has_messages_count::<
+                StateId,
+                MessageId,
+                InvalidId,
+                ConfigurationId,
+                Payload,
+                MAX_AGENTS,
+                MAX_MESSAGES,
+                8,
+            >,
+            "matches any configuration with 8 in-flight messages",
+        );
+        model.add_condition(
+            "9MSG",
+            has_messages_count::<
+                StateId,
+                MessageId,
+                InvalidId,
+                ConfigurationId,
+                Payload,
+                MAX_AGENTS,
+                MAX_MESSAGES,
+                9,
+            >,
+            "matches any configuration with 9 in-flight messages",
+        );
 
         model
     }
@@ -1705,7 +2004,7 @@ impl<
             );
         }
 
-        let count = last_agent_type.count();
+        let count = last_agent_type.instances_count();
         assert!(
             count > 0,
             "zero instances requested for the type {}",
@@ -1789,7 +2088,7 @@ impl<
         let from_configuration_id = context.incoming.from_configuration_id;
         let outgoing = Outgoing {
             to_configuration_id,
-            message_index: context.incoming.message_index,
+            delivered_message_index: context.incoming.delivered_message_index,
         };
 
         self.outgoings.read().unwrap()[from_configuration_id.to_usize()]
@@ -1838,7 +2137,7 @@ impl<
                     configuration_id,
                     configuration,
                     configuration.immediate_index.to_usize(),
-                );
+                )
             } else {
                 self.deliver_message_event(
                     parallel_scope,
@@ -1874,7 +2173,7 @@ impl<
 
         let incoming = Incoming {
             from_configuration_id,
-            message_index: ConfigurationId::invalid(),
+            delivered_message_index: MessageIndex::invalid(),
         };
 
         let context = Context {
@@ -1930,7 +2229,7 @@ impl<
 
         let incoming = Incoming {
             from_configuration_id,
-            message_index: ConfigurationId::from_usize(message_index),
+            delivered_message_index: MessageIndex::from_usize(message_index),
         };
 
         let mut to_configuration = from_configuration;
@@ -1994,10 +2293,14 @@ impl<
             Action::Ignore => self.ignore_message(parallel_scope, context), // NOT TESTED
 
             Action::Change(target_to_state_id) => {
-                context
-                    .to_configuration
-                    .change_state(context.agent_index, target_to_state_id);
-                self.reach_configuration(parallel_scope, context);
+                if target_to_state_id == context.agent_from_state_id {
+                    self.ignore_message(parallel_scope, context); // NOT TESTED
+                } else {
+                    context
+                        .to_configuration
+                        .change_state(context.agent_index, target_to_state_id);
+                    self.reach_configuration(parallel_scope, context);
+                }
             }
             Action::Send1(emit1) => self.emit_transition(parallel_scope, context, emit1),
             Action::ChangeAndSend1(target_to_state_id, emit1) => {
@@ -2063,7 +2366,6 @@ impl<
     ) {
         match emit {
             Emit::Immediate(payload, target_index) => {
-                // BEGIN NOT TESTED
                 let message = Message {
                     order: MessageOrder::Immediate,
                     source_index: context.agent_index,
@@ -2072,7 +2374,6 @@ impl<
                     replaced: None,
                 };
                 self.emit_message(parallel_scope, context, message);
-                // END NOT TESTED
             }
 
             Emit::Unordered(payload, target_index) => {
@@ -2097,6 +2398,7 @@ impl<
                 self.emit_message(parallel_scope, context, message);
             }
 
+            // BEGIN NOT TESTED
             Emit::ImmediateReplacement(callback, payload, target_index) => {
                 let replaced = self.replace_message(&mut context, callback, &payload, target_index);
                 let message = Message {
@@ -2108,8 +2410,7 @@ impl<
                 };
                 self.emit_message(parallel_scope, context, message);
             }
-
-            // BEGIN NOT TESTED
+            // END NOT TESTED
             Emit::UnorderedReplacement(callback, payload, target_index) => {
                 let replaced = self.replace_message(&mut context, callback, &payload, target_index);
                 let message = Message {
@@ -2122,6 +2423,7 @@ impl<
                 self.emit_message(parallel_scope, context, message);
             }
 
+            // BEGIN NOT TESTED
             Emit::OrderedReplacement(callback, payload, target_index) => {
                 let replaced = self.replace_message(&mut context, callback, &payload, target_index);
                 let message = self.ordered_message(
@@ -2168,9 +2470,9 @@ impl<
         };
 
         let mut message_id = MessageId::invalid();
-        let mut next_message = message;
+        let mut decr_message = message;
         loop {
-            if let Some(next_message_id) = self.messages.read().unwrap().lookup(&next_message) {
+            if let Some(next_message_id) = self.messages.read().unwrap().lookup(&decr_message) {
                 if message_id.is_valid() {
                     self.decr_order_messages
                         .write()
@@ -2184,7 +2486,7 @@ impl<
                 .messages
                 .write()
                 .unwrap()
-                .store(message, Some(self.display_message(&next_message)));
+                .store(message, Some(self.display_message(&decr_message)));
 
             if message_id.is_valid() {
                 // BEGIN NOT TESTED
@@ -2200,7 +2502,7 @@ impl<
             }
 
             order -= 1;
-            next_message.order = MessageOrder::Ordered(MessageIndex::from_usize(order));
+            decr_message.order = MessageOrder::Ordered(MessageIndex::from_usize(order));
             message_id = stored.id;
         }
 
@@ -2229,7 +2531,8 @@ impl<
                         && callback(Some(message.payload))
                 })
                 .fold(None, |replaced, (message_index, message)| {
-                    match replaced {
+                    match replaced // MAYBE TESTED
+                    {
                         None => Some((message_index, message)),
                         // BEGIN NOT TESTED
                         Some((_, ref conflict)) => {
@@ -2239,28 +2542,25 @@ impl<
                             let source_label = self.agent_labels[context.agent_index].clone();
                             let target_label = self.agent_labels[target_index].clone();
                             let event_label = self.event_label(context.delivered_message_id);
-                            context.agent_type.state_display(
-                                context.agent_from_state_id,
-                                Box::new(move |from_state| {
-                                    panic!(
-                                        "both the message {} \
-                                    and the message {} \
-                                    can be replaced by the ambiguous replacement message {} \
-                                    sent to the agent {} \
-                                    by the agent {} \
-                                    in the state {} \
-                                    when responding to the {}",
-                                        conflict_payload,
-                                        message_payload,
-                                        replacement_payload,
-                                        target_label,
-                                        source_label,
-                                        from_state,
-                                        event_label
-                                    );
-                                }),
+                            let from_state = context
+                                .agent_type
+                                .state_display(context.agent_from_state_id);
+                            panic!(
+                                "both the message {} \
+                                 and the message {} \
+                                 can be replaced by the ambiguous replacement message {} \
+                                 sent to the agent {} \
+                                 by the agent {} \
+                                 in the state {} \
+                                 when responding to the {}",
+                                conflict_payload,
+                                message_payload,
+                                replacement_payload,
+                                target_label,
+                                source_label,
+                                from_state,
+                                event_label
                             );
-                            None // NOT REACHED
                         } // END NOT TESTED
                     }
                 })
@@ -2272,22 +2572,20 @@ impl<
                         let source_label = self.agent_labels[context.agent_index].clone();
                         let target_label = self.agent_labels[target_index].clone();
                         let event_label = self.event_label(context.delivered_message_id);
-                        context.agent_type.state_display(
-                            context.agent_from_state_id,
-                            Box::new(move |from_state| {
-                                panic!(
-                                    "nothing was replaced by the required replacement message {} \
-                                sent to the agent {} \
-                                by the agent {} \
-                                in the state {} \
-                                when responding to the {}",
-                                    replacement_payload,
-                                    target_label,
-                                    source_label,
-                                    from_state,
-                                    event_label
-                                );
-                            }),
+                        let from_state = context
+                            .agent_type
+                            .state_display(context.agent_from_state_id);
+                        panic!(
+                            "nothing was replaced by the required replacement message {} \
+                             sent to the agent {} \
+                             by the agent {} \
+                             in the state {} \
+                             when responding to the {}",
+                            replacement_payload,
+                            target_label,
+                            source_label,
+                            from_state,
+                            event_label
                         );
                         // END NOT TESTED
                     }
@@ -2410,21 +2708,25 @@ impl<
         parallel_scope: &ParallelScope,
         context: <Self as MetaModel>::Context,
     ) {
-        if context.incoming.message_index.is_valid() {
+        if context.incoming.delivered_message_index.is_valid() {
             self.reach_configuration(parallel_scope, context);
         }
     }
 
     fn defer_message(&self, context: <Self as MetaModel>::Context) {
-        match context.delivered_message_id {
+        match context.delivered_message_id // MAYBE TESTED
+        {
             None => {
                 // BEGIN NOT TESTED
                 let agent_label = self.agent_labels[context.agent_index].clone();
                 let event_label = self.event_label(None);
-                context.agent_type.state_display(context.agent_from_state_id, Box::new(move |from_state| {
-                    panic!("the agent {} is deferring (should be ignoring) the {} while in the state {}",
-                           agent_label, event_label, from_state);
-                }));
+                let from_state = context
+                    .agent_type
+                    .state_display(context.agent_from_state_id);
+                panic!(
+                    "the agent {} is deferring (should be ignoring) the {} while in the state {}",
+                    agent_label, event_label, from_state
+                );
                 // END NOT TESTED
             }
 
@@ -2436,10 +2738,11 @@ impl<
                     // BEGIN NOT TESTED
                     let agent_label = self.agent_labels[context.agent_index].clone();
                     let event_label = self.event_label(Some(delivered_message_id));
-                    context.agent_type.state_display(context.agent_from_state_id, Box::new(move |from_state| {
-                        panic!("the agent {} is deferring (should be ignoring) the {} while in the state {}",
-                               agent_label, event_label, from_state);
-                    }));
+                    let from_state = context
+                        .agent_type
+                        .state_display(context.agent_from_state_id);
+                    panic!("the agent {} is deferring (should be ignoring) the {} while in the state {}",
+                           agent_label, event_label, from_state);
                     // END NOT TESTED
                 }
 
@@ -2447,14 +2750,12 @@ impl<
                     // BEGIN NOT TESTED
                     let agent_label = self.agent_labels[context.agent_index].clone();
                     let event_label = self.event_label(Some(delivered_message_id));
-                    context.agent_type.state_display(
-                        context.agent_from_state_id,
-                        Box::new(move |from_state| {
-                            panic!(
-                                "the agent {} is deferring the immediate {} while in the state {}",
-                                agent_label, event_label, from_state
-                            );
-                        }),
+                    let from_state = context
+                        .agent_type
+                        .state_display(context.agent_from_state_id);
+                    panic!(
+                        "the agent {} is deferring the immediate {} while in the state {}",
+                        agent_label, event_label, from_state
                     );
                     // END NOT TESTED
                 }
@@ -2578,9 +2879,9 @@ impl<
                 continue;
             }
             if let Some(lookup_instance) = instance {
-                assert!(lookup_instance < agent_type.count(),
+                assert!(lookup_instance < agent_type.instances_count(),
                         "out of bounds instance {} specified when locating an agent of type {} which has {} instances",
-                        lookup_instance, name, agent_type.count()); // NOT TESTED
+                        lookup_instance, name, agent_type.instances_count()); // NOT TESTED
                 return self.first_indices[agent_index] + lookup_instance;
             } else {
                 assert!(
@@ -2607,7 +2908,8 @@ impl<
 
     fn event_label(&self, message_id: Option<MessageId>) -> String {
         let messages = self.messages.read().unwrap();
-        match message_id {
+        match message_id // MAYBE TESTED
+        {
             None => "time event".to_string(),
             Some(message_id) if !message_id.is_valid() => "time event".to_string(),
             Some(message_id) => "message ".to_string() + messages.display(message_id),
@@ -2622,18 +2924,7 @@ impl<
         string.push_str(&*self.agent_labels[message.source_index]);
         string.push_str(" -> ");
 
-        match message.order {
-            MessageOrder::Immediate => string.push_str("* "),
-            MessageOrder::Unordered => {}
-            MessageOrder::Ordered(order) => string.push_str(&format!("@{} ", order)), //
-        }
-
-        if let Some(ref replaced) = message.replaced {
-            string.push_str(&format!("{}", replaced));
-            string.push_str(" => ");
-        }
-
-        string.push_str(&format!("{}", message.payload));
+        self.push_message_payload(message, false, false, &mut string);
 
         string.push_str(" -> ");
         string.push_str(&*self.agent_labels[message.target_index]);
@@ -2647,6 +2938,49 @@ impl<
         }
 
         string
+    }
+
+    /// Display a message in the sequence diagram.
+    pub fn display_sequence_message(
+        &self,
+        message: &<Self as MetaModel>::Message,
+        is_final: bool,
+    ) -> String {
+        let max_message_string_size = *self.max_message_string_size.read().unwrap();
+        let mut string = String::with_capacity(max_message_string_size);
+        self.push_message_payload(message, true, is_final, &mut string);
+        string.shrink_to_fit();
+        string
+    }
+
+    /// Display a message.
+    pub fn push_message_payload(
+        &self,
+        message: &<Self as MetaModel>::Message,
+        is_sequence: bool,
+        is_final: bool,
+        string: &mut String,
+    ) {
+        match message.order {
+            MessageOrder::Immediate => {
+                if !is_sequence {
+                    string.push_str("* ");
+                }
+            }
+            MessageOrder::Unordered => {}
+            MessageOrder::Ordered(order) => string.push_str(&format!("@{} ", order)), //
+        }
+
+        if let Some(ref replaced) = message.replaced {
+            if !is_sequence {
+                string.push_str(&format!("{} => ", replaced));
+            } else if !is_final {
+                string.push_str(RIGHT_DOUBLE_ARROW);
+                string.push(' ');
+            }
+        }
+
+        string.push_str(&format!("{}", message.payload));
     }
 
     // BEGIN NOT TESTED
@@ -2699,29 +3033,19 @@ impl<
     /// Display a configuration.
     fn display_configuration(&self, configuration: &<Self as MetaModel>::Configuration) -> String {
         let max_configuration_string_size = *self.max_configuration_string_size.read().unwrap();
-        let string_rc = Rc::new(RefCell::new(String::with_capacity(
-            max_configuration_string_size,
-        )));
+        let mut string = String::with_capacity(max_configuration_string_size);
 
         let mut prefix = "";
         (0..self.agents_count()).for_each(|agent_index| {
             let agent_type = &self.agent_types[agent_index];
             let agent_label = &self.agent_labels[agent_index];
             let agent_state_id = configuration.state_ids[agent_index];
-            string_rc.borrow_mut().push_str(prefix);
-            string_rc.borrow_mut().push_str(agent_label);
-            string_rc.borrow_mut().push(':');
-            let cloned_rc = string_rc.clone();
-            agent_type.state_display(
-                agent_state_id,
-                Box::new(move |agent_state| {
-                    cloned_rc.borrow_mut().push_str(agent_state);
-                }),
-            );
+            string.push_str(prefix);
+            string.push_str(agent_label);
+            string.push(':');
+            string.push_str(&agent_type.state_display(agent_state_id));
             prefix = " & ";
         });
-
-        let mut string = string_rc.take();
 
         prefix = " | ";
         configuration
@@ -2845,7 +3169,9 @@ impl<
                 prev_configuration_ids[to_configuration_id.to_usize()] = next_configuration_id;
 
                 let mut is_condition = false;
-                if next_configuration_id != from_configuration_id {
+                if next_configuration_id != from_configuration_id
+                    || to_configuration_id != from_configuration_id
+                {
                     is_condition = to_condition(&self, to_configuration_id);
                     if to_negated {
                         is_condition = !is_condition; // NOT TESTED
@@ -2864,67 +3190,282 @@ impl<
         panic!(
             "could not find a path from the condition {} to the condition {}\n\
             starting from the configuration {}",
-            to_name,
             from_name,
+            to_name,
             self.display_configuration_id(from_configuration_id)
         );
         // END NOT TESTED
     }
 
-    fn print_path_transitions(
+    fn collect_path(
         &self,
-        stdout: &mut dyn Write,
+        subcommand_name: &str,
+        matches: &ArgMatches,
+    ) -> Vec<<Self as MetaModel>::PathTransition> {
+        let conditions = self.conditions.read().unwrap();
+
+        let mut steps: Vec<(&<Self as MetaModel>::Condition, bool, &str)> = matches
+            .values_of("CONDITION")
+            .unwrap_or_else(|| {
+                // BEGIN NOT TESTED
+                panic!(
+                    "the {} command requires at least two configuration conditions, got none",
+                    subcommand_name
+                );
+                // END NOT TESTED
+            })
+            .map(|name| {
+                let (key, negated) = match name.strip_prefix("!") {
+                    None => (name, false),
+                    Some(suffix) => (suffix, true), // NOT TESTED
+                };
+                if let Some((condition, _)) = conditions.get(key) {
+                    (condition, negated, name)
+                } else {
+                    panic!("unknown configuration condition {}", key); // NOT TESTED
+                }
+            })
+            .collect();
+
+        assert!(
+            steps.len() > 1,
+            "the {} command requires at least two configuration conditions, got only one",
+            subcommand_name
+        );
+
+        let mut prev_configuration_ids =
+            vec![ConfigurationId::invalid(); self.configurations.read().unwrap().len()];
+
+        let mut pending_configuration_ids: VecDeque<ConfigurationId> = VecDeque::new();
+
+        let initial_configuration_id = ConfigurationId::from_usize(0);
+
+        let (first_condition, first_negated, first_name) = steps[0];
+        let mut start_at_init = first_condition(self, initial_configuration_id);
+        if first_negated {
+            start_at_init = !start_at_init; // NOT TESTED
+        }
+
+        let mut current_configuration_id = initial_configuration_id;
+        let mut current_name = first_name;
+
+        if start_at_init {
+            steps.remove(0);
+        } else {
+            current_configuration_id = self.find_closest_configuration_id(
+                initial_configuration_id,
+                "INIT",
+                *first_condition,
+                first_negated,
+                first_name,
+                &mut pending_configuration_ids,
+                &mut prev_configuration_ids,
+            );
+        }
+
+        let mut path = vec![PathTransition {
+            from_configuration_id: current_configuration_id,
+            from_next_messages: [NextMessage::NotApplicable; MAX_MESSAGES],
+            delivered_message_index: None,
+            delivered_message_id: None,
+            agent_index: usize::max_value(),
+            to_prev_messages: [PrevMessage::NotApplicable; MAX_MESSAGES],
+            to_configuration_id: current_configuration_id,
+            to_condition_name: Some(current_name.to_string()),
+        }];
+
+        steps
+            .iter()
+            .for_each(|(next_condition, next_negated, next_name)| {
+                let next_configuration_id = self.find_closest_configuration_id(
+                    current_configuration_id,
+                    current_name,
+                    **next_condition,
+                    *next_negated,
+                    next_name,
+                    &mut pending_configuration_ids,
+                    &mut prev_configuration_ids,
+                );
+                self.collect_path_step(
+                    current_configuration_id,
+                    next_configuration_id,
+                    Some(next_name),
+                    &prev_configuration_ids,
+                    &mut path,
+                );
+                current_configuration_id = next_configuration_id;
+                current_name = next_name;
+            });
+
+        path
+    }
+
+    fn collect_path_step(
+        &self,
         from_configuration_id: ConfigurationId,
         to_configuration_id: ConfigurationId,
         to_name: Option<&str>,
         prev_configuration_ids: &[ConfigurationId],
+        mut path: &mut Vec<<Self as MetaModel>::PathTransition>,
     ) {
         let prev_configuration_id = prev_configuration_ids[to_configuration_id.to_usize()];
         assert!(prev_configuration_id.is_valid());
 
         if prev_configuration_id != from_configuration_id {
-            self.print_path_transitions(
-                stdout,
+            self.collect_path_step(
                 from_configuration_id,
                 prev_configuration_id,
                 None,
                 &prev_configuration_ids,
+                &mut path,
             );
         }
+        let from_configuration_id = prev_configuration_id;
 
-        for outgoing in self.outgoings.read().unwrap()[prev_configuration_id.to_usize()]
+        let all_outgoings = self.outgoings.read().unwrap();
+        let from_outgoings = all_outgoings[from_configuration_id.to_usize()]
             .read()
-            .unwrap()
-            .iter()
-        {
-            if outgoing.to_configuration_id != to_configuration_id {
-                continue;
-            }
-
-            let message_id = if outgoing.message_index.is_valid() {
-                Some(
-                    self.configurations
-                        .read()
-                        .unwrap()
-                        .get(prev_configuration_id)
-                        .message_ids[outgoing.message_index.to_usize()],
-                )
-            } else {
-                None
-            };
-
-            writeln!(stdout, "BY {}", self.event_label(message_id)).unwrap();
-            writeln!(
-                stdout,
-                "{} {}",
-                to_name.unwrap_or("TO"),
-                self.display_configuration_id(to_configuration_id)
-            )
             .unwrap();
-            return;
+        let outgoing_index = from_outgoings
+            .iter()
+            .position(|outgoing| outgoing.to_configuration_id == to_configuration_id)
+            .unwrap();
+        let outgoing = from_outgoings[outgoing_index];
+
+        let configurations = self.configurations.read().unwrap();
+        let from_configuration = configurations.get(from_configuration_id);
+        let to_configuration = configurations.get(to_configuration_id);
+
+        let messages = self.messages.read().unwrap();
+
+        let mut agent_index: Option<usize> = None;
+        let mut delivered_message_id: Option<MessageId> = None;
+        let mut from_next_messages = [NextMessage::NotApplicable; MAX_MESSAGES];
+        from_configuration
+            .message_ids
+            .iter()
+            .take_while(|from_message_id| from_message_id.is_valid())
+            .enumerate()
+            .for_each(|(from_message_index, from_message_id)| {
+                from_next_messages[from_message_index] = if from_message_index
+                    == outgoing.delivered_message_index.to_usize()
+                {
+                    let from_message = messages.get(*from_message_id);
+                    agent_index = Some(from_message.target_index);
+                    delivered_message_id = Some(*from_message_id);
+                    NextMessage::Delivered
+                } else if let Some(to_message_index) =
+                    self.message_exists_in_configuration(from_message_id, to_configuration, None)
+                {
+                    NextMessage::Kept(to_message_index)
+                } else {
+                    let from_message = messages.get(*from_message_id);
+                    let to_message_index = to_configuration
+                        .message_ids
+                        .iter()
+                        .take_while(|to_message_id| to_message_id.is_valid())
+                        .position(|to_message_id| {
+                            let to_message = messages.get(*to_message_id);
+                            to_message.source_index == from_message.source_index
+                                && to_message.target_index == from_message.target_index
+                                && to_message.replaced == Some(from_message.payload)
+                        })
+                        .unwrap();
+                    NextMessage::Replaced(to_message_index)
+                }
+            });
+
+        let mut to_prev_messages = [PrevMessage::NotApplicable; MAX_MESSAGES];
+        to_configuration
+            .message_ids
+            .iter()
+            .take_while(|to_message_id| to_message_id.is_valid())
+            .enumerate()
+            .for_each(|(to_message_index, to_message_id)| {
+                to_prev_messages[to_message_index] = if let Some(from_message_index) =
+                    self.message_exists_in_configuration(to_message_id, from_configuration, None)
+                {
+                    PrevMessage::Kept(from_message_index)
+                } else {
+                    let to_message = messages.get(*to_message_id);
+                    assert!(agent_index.is_none() || agent_index == Some(to_message.source_index));
+                    agent_index = Some(to_message.source_index);
+                    if let Some(replaced) = to_message.replaced {
+                        let from_message_index = from_configuration
+                            .message_ids
+                            .iter()
+                            .take_while(|from_message_id| from_message_id.is_valid())
+                            .position(|from_message_id| {
+                                let from_message = messages.get(*from_message_id);
+                                from_message.source_index == to_message.source_index
+                                    && from_message.target_index == to_message.target_index
+                                    && from_message.payload == replaced
+                            })
+                            .unwrap();
+                        PrevMessage::Replaced(from_message_index)
+                    } else {
+                        PrevMessage::NotThere
+                    }
+                };
+            });
+
+        if agent_index.is_none() {
+            // BEGIN NOT TESTED
+            agent_index = from_configuration
+                .state_ids
+                .iter()
+                .take_while(|state_id| state_id.is_valid())
+                .zip(to_configuration.state_ids.iter())
+                .position(|(from_state_id, to_state_id)| from_state_id != to_state_id)
+            // END NOT TESTED
         }
 
-        panic!("outgoing transition disappeared"); // NOT TESTED
+        let delivered_message_index = if outgoing.delivered_message_index == MessageIndex::invalid()
+        {
+            None
+        } else {
+            Some(outgoing.delivered_message_index)
+        };
+
+        path.push(PathTransition {
+            from_configuration_id,
+            from_next_messages,
+            delivered_message_index,
+            delivered_message_id,
+            agent_index: agent_index.unwrap(),
+            to_prev_messages,
+            to_configuration_id,
+            to_condition_name: to_name.map(str::to_string),
+        });
+    }
+
+    fn print_path(&self, path: &[<Self as MetaModel>::PathTransition], stdout: &mut dyn Write) {
+        path.iter().for_each(|transition| {
+            if transition.to_configuration_id != transition.from_configuration_id {
+                writeln!(
+                    stdout,
+                    "BY {}",
+                    self.event_label(transition.delivered_message_id)
+                )
+                .unwrap();
+            }
+
+            match &transition.to_condition_name {
+                Some(condition_name) => writeln!(
+                    stdout,
+                    "{} {}",
+                    condition_name,
+                    self.display_configuration_id(transition.to_configuration_id)
+                )
+                .unwrap(),
+                None => writeln!(
+                    stdout,
+                    "TO {}",
+                    self.display_configuration_id(transition.to_configuration_id)
+                )
+                .unwrap(),
+            }
+        });
     }
 }
 
@@ -3049,16 +3590,7 @@ impl<
         is_deferring: bool,
         stdout: &mut dyn Write,
     ) {
-        let string_rc = Rc::new(RefCell::new(String::with_capacity(32)));
-
-        let cloned_rc = string_rc.clone();
-        self.agent_types[agent_index].state_display(
-            state_id,
-            Box::new(move |agent_state| {
-                cloned_rc.borrow_mut().push_str(agent_state);
-            }),
-        );
-
+        let state = self.agent_types[agent_index].state_display(state_id);
         let shape = if is_deferring { "octagon" } else { "ellipse" };
 
         writeln!(
@@ -3066,7 +3598,7 @@ impl<
             "A_{}_{} [ label=\"{}\", shape={} ];",
             state_id.to_usize(),
             is_deferring,
-            string_rc.take(),
+            state,
             shape
         )
         .unwrap();
@@ -3218,6 +3750,462 @@ impl<
         .unwrap();
     }
 
+    fn print_sequence_diagram(
+        &self,
+        path: &[<Self as MetaModel>::PathTransition],
+        stdout: &mut dyn Write,
+    ) {
+        writeln!(stdout, "@startuml").unwrap();
+        writeln!(stdout, "autonumber \" <b>#</b> \"").unwrap();
+        writeln!(stdout, "skinparam shadowing false").unwrap();
+        writeln!(stdout, "skinparam sequence {{").unwrap();
+        writeln!(stdout, "ArrowColor Black").unwrap();
+        writeln!(stdout, "ActorBorderColor Black").unwrap();
+        writeln!(stdout, "LifeLineBorderColor Black").unwrap();
+        writeln!(stdout, "LifeLineBackgroundColor Black").unwrap();
+        writeln!(stdout, "ParticipantBorderColor Black").unwrap();
+        writeln!(stdout, "}}").unwrap();
+        writeln!(stdout, "skinparam ControlBorderColor White").unwrap();
+        writeln!(stdout, "skinparam ControlBackgroundColor White").unwrap();
+
+        let mut sequence_state = SequenceState {
+            timelines: vec![],
+            message_timelines: [None; MAX_MESSAGES],
+            agents_timelines: vec![
+                AgentTimelines {
+                    left: vec![],
+                    right: vec![]
+                };
+                MAX_AGENTS
+            ],
+        };
+
+        let configurations = self.configurations.read().unwrap();
+        let first_configuration = configurations.get(path[0].from_configuration_id);
+
+        self.print_sequence_participants(first_configuration, stdout);
+        self.print_first_timelines(&mut sequence_state, first_configuration, stdout);
+        self.print_sequence_first_notes(&sequence_state, first_configuration, stdout);
+
+        path.iter()
+            .enumerate()
+            .skip(1)
+            .map(|(transition_index, transition)| {
+                if transition_index + 1 < path.len() {
+                    (transition, Some(&path[transition_index + 1]))
+                } else {
+                    (transition, None)
+                }
+            })
+            .for_each(|(transition, next_transition)| {
+                self.print_sequence_transition(
+                    &mut sequence_state,
+                    transition,
+                    next_transition,
+                    stdout,
+                );
+            });
+
+        let last_configuration = configurations.get(path.last().unwrap().to_configuration_id);
+        if last_configuration.invalid_id.is_valid() {}
+
+        writeln!(stdout, "@enduml").unwrap();
+    }
+
+    fn print_sequence_participants(
+        &self,
+        first_configuration: &<Self as MetaModel>::Configuration,
+        stdout: &mut dyn Write,
+    ) {
+        self.agent_labels
+            .iter()
+            .enumerate()
+            .for_each(|(agent_index, agent_label)| {
+                let agent_type = &self.agent_types[agent_index];
+                let agent_instance = self.agent_instance(agent_index);
+                writeln!(
+                    stdout,
+                    "participant \"{}\" as A{} order {}",
+                    agent_label,
+                    agent_index,
+                    self.agent_scaled_order(agent_index),
+                )
+                .unwrap();
+                if agent_type.state_is_deferring(agent_instance, &first_configuration.state_ids) {
+                    // BEGIN NOT TESTED
+                    writeln!(stdout, "activate A{} #MediumPurple", agent_index).unwrap();
+                    // END NOT TESTED
+                } else {
+                    writeln!(stdout, "activate A{} #CadetBlue", agent_index).unwrap();
+                }
+            });
+    }
+
+    fn print_first_timelines(
+        &self,
+        mut sequence_state: &mut <Self as MetaModel>::SequenceState,
+        first_configuration: &<Self as MetaModel>::Configuration,
+        stdout: &mut dyn Write,
+    ) {
+        let messages = self.messages.read().unwrap();
+        first_configuration
+            .message_ids
+            .iter()
+            .take_while(|message_id| message_id.is_valid())
+            .enumerate()
+            .for_each(|(message_index, message_id)| {
+                let message = messages.get(*message_id);
+                let timeline_index =
+                    self.add_sequence_timeline(&mut sequence_state, message_index, message, stdout);
+                writeln!(stdout, "activate T{} #Silver", timeline_index).unwrap();
+            });
+    }
+
+    fn agent_scaled_order(&self, agent_index: usize) -> usize {
+        let agent_type = &self.agent_types[agent_index];
+        let agent_instance = self.agent_instance(agent_index);
+        let agent_order = agent_type.instance_order(agent_instance);
+        ((agent_order + 1) * 100 + agent_index + 1) * 100
+    }
+
+    fn is_rightwards_message(&self, message: &<Self as MetaModel>::Message) -> bool {
+        let source_scaled_order = self.agent_scaled_order(message.source_index);
+        let target_scaled_order = self.agent_scaled_order(message.target_index);
+        source_scaled_order < target_scaled_order
+    }
+
+    fn add_sequence_timeline(
+        &self,
+        mut sequence_state: &mut <Self as MetaModel>::SequenceState,
+        message_index: usize,
+        message: &<Self as MetaModel>::Message,
+        stdout: &mut dyn Write,
+    ) -> usize {
+        let timeline_index = sequence_state.timelines.len();
+        sequence_state.timelines.push(Some(message_index));
+        sequence_state.message_timelines[message_index] = Some(timeline_index);
+
+        let timeline_order = if self.is_rightwards_message(message) {
+            sequence_state.agents_timelines[message.source_index]
+                .right
+                .push(timeline_index);
+            self.agent_scaled_order(message.source_index)
+                + sequence_state.agents_timelines[message.source_index]
+                    .right
+                    .len()
+        } else {
+            sequence_state.agents_timelines[message.source_index]
+                .left
+                .push(timeline_index);
+            self.agent_scaled_order(message.source_index)
+                - sequence_state.agents_timelines[message.source_index]
+                    .left
+                    .len()
+        };
+
+        writeln!(
+            stdout,
+            "control \" \" as T{} order {}",
+            timeline_index, timeline_order
+        )
+        .unwrap();
+
+        timeline_index
+    }
+
+    fn print_sequence_first_notes(
+        &self,
+        sequence_state: &<Self as MetaModel>::SequenceState,
+        first_configuration: &<Self as MetaModel>::Configuration,
+        stdout: &mut dyn Write,
+    ) {
+        self.agent_types
+            .iter()
+            .enumerate()
+            .map(|(agent_index, agent_type)| {
+                (
+                    agent_index,
+                    agent_type.state_display(first_configuration.state_ids[agent_index]),
+                )
+            })
+            .filter(|(_agent_index, agent_state)| !agent_state.is_empty())
+            .enumerate()
+            .for_each(|(note_index, (agent_index, agent_state))| {
+                if note_index > 0 {
+                    write!(stdout, "/ ").unwrap();
+                }
+                writeln!(stdout, "rnote over A{} : {}", agent_index, agent_state,).unwrap();
+            });
+
+        let messages = self.messages.read().unwrap();
+        sequence_state
+            .timelines
+            .iter()
+            .enumerate()
+            .for_each(|(timeline_index, message_index)| {
+                let message_id = first_configuration.message_ids[message_index.unwrap()];
+                let message = messages.get(message_id);
+                writeln!(
+                    stdout,
+                    "/ rnote over T{} : {}",
+                    timeline_index,
+                    self.display_sequence_message(message, false)
+                )
+                .unwrap();
+            });
+    }
+
+    fn print_sequence_transition(
+        &self,
+        mut sequence_state: &mut <Self as MetaModel>::SequenceState,
+        transition: &<Self as MetaModel>::PathTransition,
+        next_transition: Option<&<Self as MetaModel>::PathTransition>,
+        stdout: &mut dyn Write,
+    ) {
+        let configurations = self.configurations.read().unwrap();
+        let from_configuration = configurations.get(transition.from_configuration_id);
+        let to_configuration = configurations.get(transition.to_configuration_id);
+
+        let did_send_messages = self.print_sequence_send_messages(
+            &mut sequence_state,
+            transition,
+            next_transition,
+            from_configuration,
+            to_configuration,
+            stdout,
+        );
+        self.print_sequence_changed_notes(
+            transition,
+            did_send_messages,
+            from_configuration,
+            to_configuration,
+            stdout,
+        );
+        self.print_sequence_activate_changed(from_configuration, to_configuration, stdout);
+    }
+
+    fn print_sequence_send_messages(
+        &self,
+        mut sequence_state: &mut <Self as MetaModel>::SequenceState,
+        transition: &<Self as MetaModel>::PathTransition,
+        next_transition: Option<&<Self as MetaModel>::PathTransition>,
+        from_configuration: &<Self as MetaModel>::Configuration,
+        to_configuration: &<Self as MetaModel>::Configuration,
+        stdout: &mut dyn Write,
+    ) -> bool {
+        let messages = self.messages.read().unwrap();
+
+        if let Some(delivered_message_index) = transition.delivered_message_index {
+            let delivered_message_id = transition.delivered_message_id.unwrap();
+            let delivered_message = messages.get(delivered_message_id);
+            if let Some(timeline_index) =
+                sequence_state.message_timelines[delivered_message_index.to_usize()]
+            {
+                writeln!(
+                    stdout,
+                    "T{} -> A{} : {}",
+                    timeline_index,
+                    delivered_message.target_index,
+                    self.display_sequence_message(delivered_message, true)
+                )
+                .unwrap();
+                writeln!(stdout, "deactivate T{}", timeline_index).unwrap();
+                if to_configuration.state_ids[transition.agent_index]
+                    != from_configuration.state_ids[transition.agent_index]
+                {
+                    writeln!(stdout, "deactivate A{}", transition.agent_index).unwrap();
+                }
+            }
+        } else {
+            writeln!(stdout, "?o-> A{}", transition.agent_index).unwrap();
+            if to_configuration.state_ids[transition.agent_index]
+                != from_configuration.state_ids[transition.agent_index]
+            {
+                writeln!(stdout, "deactivate A{}", transition.agent_index).unwrap();
+            }
+        }
+
+        let from_message_timelines = sequence_state.message_timelines;
+        sequence_state.message_timelines.fill(None);
+
+        let mut did_send_messages: bool = false;
+
+        transition
+            .to_prev_messages
+            .iter()
+            .take_while(|prev_message| **prev_message != PrevMessage::NotApplicable)
+            .enumerate()
+            .for_each(|(to_message_index, prev_message)| match prev_message {
+                PrevMessage::Kept(from_message_index) => {
+                    let timeline_index = from_message_timelines[*from_message_index];
+                    debug_assert!(timeline_index.is_some());
+                    sequence_state.message_timelines[to_message_index] = timeline_index;
+                }
+                PrevMessage::Replaced(from_message_index) => {
+                    let timeline_index = from_message_timelines[*from_message_index].unwrap();
+                    let to_message_id = to_configuration.message_ids[to_message_index];
+                    let to_message = messages.get(to_message_id);
+                    writeln!(
+                        stdout,
+                        "A{} -> T{} : {}",
+                        to_message.source_index,
+                        timeline_index,
+                        self.display_sequence_message(to_message, false)
+                    )
+                    .unwrap();
+                    sequence_state.message_timelines[to_message_index] = Some(timeline_index);
+                    did_send_messages = true;
+                }
+                _ => {}
+            });
+
+        transition
+            .to_prev_messages
+            .iter()
+            .take_while(|prev_message| **prev_message != PrevMessage::NotApplicable)
+            .enumerate()
+            .filter(|(_, prev_message)| **prev_message == PrevMessage::NotThere)
+            .for_each(|(to_message_index, _prev_message)| {
+                let to_message_id = to_configuration.message_ids[to_message_index];
+                let to_message = messages.get(to_message_id);
+                debug_assert!(to_message.source_index == transition.agent_index);
+                match next_transition {
+                    Some(next_transition)
+                        if next_transition.from_next_messages[to_message_index]
+                            == NextMessage::Delivered =>
+                    {
+                        let color = if to_message.order == MessageOrder::Immediate {
+                            "[#Crimson]" // NOT TESTED
+                        } else {
+                            ""
+                        };
+                        writeln!(
+                            stdout,
+                            "A{} -{}> A{} : {}",
+                            to_message.source_index,
+                            color,
+                            to_message.target_index,
+                            self.display_sequence_message(to_message, false),
+                        )
+                        .unwrap();
+                        let configurations = self.configurations.read().unwrap();
+                        let next_to_configuration =
+                            configurations.get(next_transition.to_configuration_id);
+                        if next_to_configuration.state_ids[to_message.target_index]
+                            != from_configuration.state_ids[to_message.target_index]
+                        {
+                            writeln!(stdout, "deactivate A{}", to_message.target_index).unwrap();
+                        }
+                        did_send_messages = true;
+                    }
+                    _ => {
+                        let agent_timelines =
+                            &sequence_state.agents_timelines[to_message.source_index];
+                        let side_timelines = if self.is_rightwards_message(to_message) {
+                            &agent_timelines.right
+                        } else {
+                            &agent_timelines.left
+                        };
+                        let empty_timeline_index = side_timelines
+                            .iter()
+                            .rev()
+                            .position(|timeline_index| {
+                                sequence_state.timelines[*timeline_index].is_none()
+                            })
+                            .map(|rev_index| side_timelines.len() - 1 - rev_index);
+
+                        let timeline_index =
+                            if let Some(existing_timeline_index) = empty_timeline_index {
+                                // BEGIN NOT TESTED
+                                debug_assert!(
+                                    sequence_state.timelines[existing_timeline_index].is_none()
+                                );
+                                sequence_state.message_timelines[to_message_index] =
+                                    Some(existing_timeline_index);
+                                existing_timeline_index
+                                // END NOT TESTED
+                            } else {
+                                self.add_sequence_timeline(
+                                    &mut sequence_state,
+                                    to_message_index,
+                                    to_message,
+                                    stdout,
+                                )
+                            };
+                        writeln!(
+                            stdout,
+                            "A{} -> T{} : {}",
+                            to_message.source_index,
+                            timeline_index,
+                            self.display_sequence_message(to_message, false)
+                        )
+                        .unwrap();
+                        writeln!(stdout, "activate T{} #Silver", timeline_index).unwrap();
+                        did_send_messages = true;
+                    }
+                }
+            });
+
+        did_send_messages
+    }
+
+    fn print_sequence_changed_notes(
+        &self,
+        transition: &<Self as MetaModel>::PathTransition,
+        did_send_messages: bool,
+        from_configuration: &<Self as MetaModel>::Configuration,
+        to_configuration: &<Self as MetaModel>::Configuration,
+        stdout: &mut dyn Write,
+    ) {
+        from_configuration
+            .state_ids
+            .iter()
+            .take_while(|state_id| state_id.is_valid())
+            .zip(to_configuration.state_ids.iter())
+            .enumerate()
+            .filter(|(_, (from_state_id, to_state_id))| from_state_id != to_state_id)
+            .enumerate()
+            .for_each(|(note_index, (agent_index, _state_ids))| {
+                let agent_type = &self.agent_types[agent_index];
+                if note_index > 0 {
+                    write!(stdout, "/ ").unwrap(); // NOT TESTED
+                }
+                if agent_index != transition.agent_index || !did_send_messages {
+                    writeln!(stdout, "autonumber stop").unwrap();
+                    writeln!(stdout, "?-[#White]\\ A{}", agent_index).unwrap();
+                    writeln!(stdout, "autonumber resume").unwrap();
+                }
+                let agent_state = agent_type.state_display(to_configuration.state_ids[agent_index]);
+                if !agent_state.is_empty() {
+                    writeln!(stdout, "rnote over A{} : {}", agent_index, agent_state).unwrap();
+                }
+            });
+    }
+
+    fn print_sequence_activate_changed(
+        &self,
+        from_configuration: &<Self as MetaModel>::Configuration,
+        to_configuration: &<Self as MetaModel>::Configuration,
+        stdout: &mut dyn Write,
+    ) {
+        from_configuration
+            .state_ids
+            .iter()
+            .take_while(|state_id| state_id.is_valid())
+            .zip(to_configuration.state_ids.iter())
+            .enumerate()
+            .filter(|(_, (from_state_id, to_state_id))| from_state_id != to_state_id)
+            .for_each(|(agent_index, _state_ids)| {
+                let agent_type = &self.agent_types[agent_index];
+                let agent_instance = self.agent_instance(agent_index);
+                if agent_type.state_is_deferring(agent_instance, &to_configuration.state_ids) {
+                    writeln!(stdout, "activate A{} #CadetBlue", agent_index).unwrap();
+                } else {
+                    writeln!(stdout, "activate A{} #MediumPurple", agent_index).unwrap();
+                }
+            });
+    }
+
     fn collect_agent_state_transitions(
         &self,
         agent_index: usize,
@@ -3234,7 +4222,7 @@ impl<
                         agent_index,
                         from_configuration,
                         to_configuration,
-                        outgoing.message_index.to_usize(),
+                        outgoing.delivered_message_index.to_usize(),
                         &mut state_transitions,
                     );
                 });
@@ -3252,7 +4240,6 @@ impl<
         state_transitions: &mut <Self as MetaModel>::AgentStateTransitions,
     ) {
         let messages = self.messages.read().unwrap();
-        let decr_order_messages = self.decr_order_messages.read().unwrap();
 
         let mut sent_messages_count = 0;
         let agent_type = &self.agent_types[agent_index];
@@ -3272,18 +4259,13 @@ impl<
             .map(|to_message_id| (to_message_id, messages.get(*to_message_id)))
             .filter(|(_, to_message)| to_message.source_index == agent_index)
             .for_each(|(to_message_id, _)| {
-                if !from_configuration
-                    .message_ids
-                    .iter()
-                    .take_while(|from_message_id| from_message_id.is_valid())
-                    .enumerate()
-                    .filter(|(from_message_index, _)| {
-                        *from_message_index != delivered_message_index
-                    })
-                    .any(|(_, from_message_id)| {
-                        from_message_id == to_message_id
-                            || decr_order_messages.get(to_message_id) == Some(from_message_id)
-                    })
+                if self
+                    .message_exists_in_configuration(
+                        to_message_id,
+                        &from_configuration,
+                        Some(delivered_message_index),
+                    )
+                    .is_none()
                 {
                     state_transition.sent_message_ids[sent_messages_count] = *to_message_id;
                     sent_messages_count += 1;
@@ -3291,7 +4273,7 @@ impl<
             });
 
         let (delivered_message_id, delivered_to_us) =
-            if delivered_message_index == ConfigurationId::invalid().to_usize() {
+            if delivered_message_index == MessageIndex::invalid().to_usize() {
                 (MessageId::invalid(), false)
             } else {
                 let delivered_message_id = from_configuration.message_ids[delivered_message_index];
@@ -3322,6 +4304,30 @@ impl<
                 state_transitions.insert(state_transition, vec![delivered_message_id]);
             }
         }
+    }
+
+    fn message_exists_in_configuration(
+        &self,
+        message_id: &MessageId,
+        configuration: &<Self as MetaModel>::Configuration,
+        delivered_message_index: Option<usize>,
+    ) -> Option<usize> {
+        let decr_order_messages = self.decr_order_messages.read().unwrap();
+        configuration
+            .message_ids
+            .iter()
+            .take_while(|configuration_message_id| configuration_message_id.is_valid())
+            .enumerate()
+            .filter(|(configuration_message_index, _)| {
+                delivered_message_index != Some(*configuration_message_index)
+            })
+            .position(|(_, configuration_message_id)| {
+                configuration_message_id == message_id
+                    || (delivered_message_index.is_some()
+                        && decr_order_messages.get(message_id) == Some(configuration_message_id))
+                    || (delivered_message_index.is_none()
+                        && decr_order_messages.get(configuration_message_id) == Some(message_id))
+            })
     }
 }
 
@@ -3369,7 +4375,15 @@ pub fn add_clap<'a, 'b>(app: App<'a, 'b>) -> App<'a, 'b> {
     .subcommand(SubCommand::with_name("transitions").about("list the transitions of the model"))
     .subcommand(
         SubCommand::with_name("path")
-            .about("list transitions between a path of configurations")
+            .about("list transitions for a path between configurations")
+            .arg(Arg::with_name("CONDITION").multiple(true).help(
+                "the name of at least two conditions identifying configurations along the path, \
+                          which may be prefixed with ! to negate the condition",
+            )),
+    )
+    .subcommand(
+        SubCommand::with_name("sequence")
+            .about("generate a PlantUML sequence diagram for a path between configurations")
             .arg(Arg::with_name("CONDITION").multiple(true).help(
                 "the name of at least two conditions identifying configurations along the path, \
                           which may be prefixed with ! to negate the condition",
@@ -3396,6 +4410,7 @@ pub trait ClapModel {
             || self.do_clap_configurations(arg_matches, stdout)
             || self.do_clap_transitions(arg_matches, stdout)
             || self.do_clap_path(arg_matches, stdout)
+            || self.do_clap_sequence(arg_matches, stdout)
             || self.do_clap_states(arg_matches, stdout);
         assert!(did_clap);
     }
@@ -3421,9 +4436,10 @@ pub trait ClapModel {
     fn do_clap_transitions(&mut self, arg_matches: &ArgMatches, stdout: &mut dyn Write) -> bool;
 
     /// Execute the `path` clap subcommand, if requested to.
-    ///
-    /// This doesn't compute the model.
     fn do_clap_path(&mut self, arg_matches: &ArgMatches, stdout: &mut dyn Write) -> bool;
+
+    /// Execute the `sequence` clap subcommand, if requested to.
+    fn do_clap_sequence(&mut self, arg_matches: &ArgMatches, stdout: &mut dyn Write) -> bool;
 
     /// Execute the `states` clap subcommand, if requested to.
     fn do_clap_states(&mut self, arg_matches: &ArgMatches, stdout: &mut dyn Write) -> bool;
@@ -3511,12 +4527,12 @@ impl<
 
                         outgoings.read().unwrap().iter().for_each(|outgoing| {
                             let event_label =
-                                if outgoing.message_index == ConfigurationId::invalid() {
+                                if outgoing.delivered_message_index == MessageIndex::invalid() {
                                     self.event_label(None)
                                 } else {
                                     self.event_label(Some(
                                         from_configuration.message_ids
-                                            [outgoing.message_index.to_usize()],
+                                            [outgoing.delivered_message_index.to_usize()],
                                     ))
                                 };
 
@@ -3540,94 +4556,20 @@ impl<
         match arg_matches.subcommand_matches("path") {
             Some(matches) => {
                 self.do_compute(arg_matches);
+                let path = self.collect_path("path", matches);
+                self.print_path(&path, stdout);
+                true
+            }
+            None => false,
+        }
+    }
 
-                let conditions = self.conditions.read().unwrap();
-                let mut steps: Vec<(&<Self as MetaModel>::Condition, bool, &str)> = matches
-                    .values_of("CONDITION")
-                    .expect(
-                        "the path command requires at least two configuration conditions, got none",
-                    )
-                    .map(|name| {
-                        let (key, negated) = match name.strip_prefix("!") {
-                            None => (name, false),
-                            Some(suffix) => (suffix, true), // NOT TESTED
-                        };
-                        if let Some((condition, _)) = conditions.get(key) {
-                            (condition, negated, name)
-                        } else {
-                            panic!("unknown configuration condition {}", key); // NOT TESTED
-                        }
-                    })
-                    .collect();
-
-                assert!(
-                    steps.len() > 1,
-                    "the path command requires at least two configuration conditions, got only one"
-                );
-
-                let mut prev_configuration_ids =
-                    vec![ConfigurationId::invalid(); self.configurations.read().unwrap().len()];
-
-                let mut pending_configuration_ids: VecDeque<ConfigurationId> = VecDeque::new();
-
-                let initial_configuration_id = ConfigurationId::from_usize(0);
-
-                let (first_condition, first_negated, first_name) = steps[0];
-                let mut start_at_init = first_condition(self, initial_configuration_id);
-                if first_negated {
-                    start_at_init = !start_at_init; // NOT TESTED
-                }
-
-                let mut current_configuration_id = initial_configuration_id;
-                let mut current_name = first_name;
-
-                if start_at_init {
-                    steps.remove(0);
-                } else {
-                    // BEGIN NOT TESTED
-                    current_configuration_id = self.find_closest_configuration_id(
-                        initial_configuration_id,
-                        "INIT",
-                        *first_condition,
-                        first_negated,
-                        first_name,
-                        &mut pending_configuration_ids,
-                        &mut prev_configuration_ids,
-                    );
-                    // END NOT TESTED
-                }
-
-                writeln!(
-                    stdout,
-                    "{} {}",
-                    current_name,
-                    self.display_configuration_id(current_configuration_id)
-                )
-                .unwrap();
-
-                steps
-                    .iter()
-                    .for_each(|(next_condition, next_negated, next_name)| {
-                        let next_configuration_id = self.find_closest_configuration_id(
-                            current_configuration_id,
-                            current_name,
-                            **next_condition,
-                            *next_negated,
-                            next_name,
-                            &mut pending_configuration_ids,
-                            &mut prev_configuration_ids,
-                        );
-                        self.print_path_transitions(
-                            stdout,
-                            current_configuration_id,
-                            next_configuration_id,
-                            Some(next_name),
-                            &prev_configuration_ids,
-                        );
-                        current_configuration_id = next_configuration_id;
-                        current_name = next_name;
-                    });
-
+    fn do_clap_sequence(&mut self, arg_matches: &ArgMatches, stdout: &mut dyn Write) -> bool {
+        match arg_matches.subcommand_matches("sequence") {
+            Some(matches) => {
+                self.do_compute(arg_matches);
+                let path = self.collect_path("path", matches);
+                self.print_sequence_diagram(&path, stdout);
                 true
             }
             None => false,

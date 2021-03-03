@@ -72,9 +72,10 @@ impl ContainerState<ManagerState, ClientState, Payload> for ManagerState {
         payload: &Payload,
         clients: &[ClientState],
     ) -> Reaction<Self, Payload> {
-        match payload {
+        match payload // MAYBE TESTED
+        {
             Payload::Check { client } if clients[*client] == ClientState::Check => {
-                Reaction::Do1(Action::Send1(Emit::Unordered(
+                Reaction::Do1(Action::Send1(Emit::Immediate(
                     Payload::Confirm,
                     CLIENTS.read().unwrap()[*client],
                 )))
@@ -326,26 +327,129 @@ fn test_configurations() {
             C(0):WAT & C(1):CHK & MGR: & SRV:LST | SRV -> RSP -> C(0) & C(1) -> CHK(C=1) -> MGR\n\
             C(0):IDL & C(1):CHK & MGR: & SRV:LST | C(1) -> CHK(C=1) -> MGR\n\
             C(0):WAT & C(1):CHK & MGR: & SRV:LST | C(0) -> REQ(C=0) -> SRV & C(1) -> CHK(C=1) -> MGR\n\
-            C(0):WAT & C(1):CHK & MGR: & SRV:LST | C(0) -> REQ(C=0) -> SRV & MGR -> CNF -> C(1)\n\
-            C(0):WAT & C(1):CHK & MGR: & SRV:WRK(C=0) | MGR -> CNF -> C(1)\n\
-            C(0):WAT & C(1):CHK & MGR: & SRV:LST | SRV -> RSP -> C(0) & MGR -> CNF -> C(1)\n\
-            C(0):IDL & C(1):CHK & MGR: & SRV:LST | MGR -> CNF -> C(1)\n\
-            C(0):CHK & C(1):CHK & MGR: & SRV:LST | MGR -> CNF -> C(1) & C(0) -> CHK(C=0) -> MGR\n\
+            C(0):WAT & C(1):CHK & MGR: & SRV:LST | C(0) -> REQ(C=0) -> SRV & MGR -> * CNF -> C(1)\n\
+            C(0):CHK & C(1):CHK & MGR: & SRV:LST | C(1) -> CHK(C=1) -> MGR & C(0) -> CHK(C=0) -> MGR\n\
+            C(0):CHK & C(1):CHK & MGR: & SRV:LST | MGR -> * CNF -> C(1) & C(0) -> CHK(C=0) -> MGR\n\
             C(0):CHK & C(1):IDL & MGR: & SRV:LST | C(0) -> CHK(C=0) -> MGR\n\
             C(0):CHK & C(1):WAT & MGR: & SRV:LST | C(1) -> REQ(C=1) -> SRV & C(0) -> CHK(C=0) -> MGR\n\
             C(0):CHK & C(1):WAT & MGR: & SRV:WRK(C=1) | C(0) -> CHK(C=0) -> MGR\n\
             C(0):CHK & C(1):WAT & MGR: & SRV:LST | SRV -> RSP -> C(1) & C(0) -> CHK(C=0) -> MGR\n\
-            C(0):CHK & C(1):WAT & MGR: & SRV:LST | SRV -> RSP -> C(1) & MGR -> CNF -> C(0)\n\
-            C(0):CHK & C(1):IDL & MGR: & SRV:LST | MGR -> CNF -> C(0)\n\
-            C(0):CHK & C(1):WAT & MGR: & SRV:LST | C(1) -> REQ(C=1) -> SRV & MGR -> CNF -> C(0)\n\
-            C(0):CHK & C(1):WAT & MGR: & SRV:WRK(C=1) | MGR -> CNF -> C(0)\n\
+            C(0):CHK & C(1):WAT & MGR: & SRV:LST | SRV -> RSP -> C(1) & MGR -> * CNF -> C(0)\n\
+            C(0):CHK & C(1):WAT & MGR: & SRV:WRK(C=1) | MGR -> * CNF -> C(0)\n\
             C(0):IDL & C(1):WAT & MGR: & SRV:WRK(C=1)\n\
             C(0):WAT & C(1):WAT & MGR: & SRV:WRK(C=1) | C(0) -> REQ(C=0) -> SRV\n\
+            C(0):CHK & C(1):WAT & MGR: & SRV:LST | C(1) -> REQ(C=1) -> SRV & MGR -> * CNF -> C(0)\n\
             C(0):IDL & C(1):WAT & MGR: & SRV:LST | C(1) -> REQ(C=1) -> SRV\n\
-            C(0):CHK & C(1):CHK & MGR: & SRV:LST | C(1) -> CHK(C=1) -> MGR & MGR -> CNF -> C(0)\n\
-            C(0):CHK & C(1):CHK & MGR: & SRV:LST | MGR -> CNF -> C(1) & MGR -> CNF -> C(0)\n\
-            C(0):CHK & C(1):CHK & MGR: & SRV:LST | C(1) -> CHK(C=1) -> MGR & C(0) -> CHK(C=0) -> MGR\n\
+            C(0):CHK & C(1):IDL & MGR: & SRV:LST | MGR -> * CNF -> C(0)\n\
+            C(0):CHK & C(1):CHK & MGR: & SRV:LST | C(1) -> CHK(C=1) -> MGR & MGR -> * CNF -> C(0)\n\
+            C(0):IDL & C(1):CHK & MGR: & SRV:LST | MGR -> * CNF -> C(1)\n\
+            C(0):WAT & C(1):CHK & MGR: & SRV:LST | SRV -> RSP -> C(0) & MGR -> * CNF -> C(1)\n\
             C(0):WAT & C(1):IDL & MGR: & SRV:LST | SRV -> RSP -> C(0)\n\
+            C(0):WAT & C(1):CHK & MGR: & SRV:WRK(C=0) | MGR -> * CNF -> C(1)\n\
             "
         );
+}
+
+#[test]
+fn test_sequence() {
+    let mut model = test_model();
+    let app = add_clap(App::new("sequence"));
+    let arg_matches = app.get_matches_from(
+        vec![
+            "test", "-r", "-p", "-t", "1", "sequence", "INIT", "2MSG", "INIT",
+        ]
+        .iter(),
+    );
+    let mut stdout_bytes = Vec::new();
+    model.do_clap(&arg_matches, &mut stdout_bytes);
+    let stdout = str::from_utf8(&stdout_bytes).unwrap();
+    assert_eq!(
+        stdout,
+        "\
+        @startuml\n\
+        autonumber \" <b>#</b> \"\n\
+        skinparam shadowing false\n\
+        skinparam sequence {\n\
+        ArrowColor Black\n\
+        ActorBorderColor Black\n\
+        LifeLineBorderColor Black\n\
+        LifeLineBackgroundColor Black\n\
+        ParticipantBorderColor Black\n\
+        }\n\
+        skinparam ControlBorderColor White\n\
+        skinparam ControlBackgroundColor White\n\
+        participant \"C(0)\" as A0 order 10100\n\
+        activate A0 #CadetBlue\n\
+        participant \"C(1)\" as A1 order 10200\n\
+        activate A1 #CadetBlue\n\
+        participant \"MGR\" as A2 order 10300\n\
+        activate A2 #CadetBlue\n\
+        participant \"SRV\" as A3 order 10400\n\
+        activate A3 #CadetBlue\n\
+        rnote over A0 : IDL\n\
+        / rnote over A1 : IDL\n\
+        / rnote over A3 : LST\n\
+        ?o-> A0\n\
+        deactivate A0\n\
+        control \" \" as T0 order 10101\n\
+        A0 -> T0 : REQ(C=0)\n\
+        activate T0 #Silver\n\
+        rnote over A0 : WAT\n\
+        activate A0 #MediumPurple\n\
+        ?o-> A1\n\
+        deactivate A1\n\
+        control \" \" as T1 order 10201\n\
+        A1 -> T1 : REQ(C=1)\n\
+        activate T1 #Silver\n\
+        rnote over A1 : WAT\n\
+        activate A1 #MediumPurple\n\
+        T0 -> A3 : REQ(C=0)\n\
+        deactivate T0\n\
+        deactivate A3\n\
+        autonumber stop\n\
+        ?-[#White]\\ A3\n\
+        autonumber resume\n\
+        rnote over A3 : WRK(C=0)\n\
+        activate A3 #CadetBlue\n\
+        ?o-> A3\n\
+        deactivate A3\n\
+        control \" \" as T2 order 10399\n\
+        A3 -> T2 : RSP\n\
+        activate T2 #Silver\n\
+        rnote over A3 : LST\n\
+        activate A3 #MediumPurple\n\
+        T1 -> A3 : REQ(C=1)\n\
+        deactivate T1\n\
+        deactivate A3\n\
+        autonumber stop\n\
+        ?-[#White]\\ A3\n\
+        autonumber resume\n\
+        rnote over A3 : WRK(C=1)\n\
+        activate A3 #CadetBlue\n\
+        ?o-> A3\n\
+        deactivate A3\n\
+        control \" \" as T3 order 10398\n\
+        A3 -> T3 : RSP\n\
+        activate T3 #Silver\n\
+        rnote over A3 : LST\n\
+        activate A3 #MediumPurple\n\
+        T2 -> A0 : RSP\n\
+        deactivate T2\n\
+        deactivate A0\n\
+        autonumber stop\n\
+        ?-[#White]\\ A0\n\
+        autonumber resume\n\
+        rnote over A0 : IDL\n\
+        activate A0 #MediumPurple\n\
+        T3 -> A1 : RSP\n\
+        deactivate T3\n\
+        deactivate A1\n\
+        autonumber stop\n\
+        ?-[#White]\\ A1\n\
+        autonumber resume\n\
+        rnote over A1 : IDL\n\
+        activate A1 #MediumPurple\n\
+        @enduml\n\
+        "
+    );
 }
