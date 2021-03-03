@@ -1,7 +1,6 @@
 extern crate total_space;
 
 use clap::App;
-use lazy_static::*;
 use num_traits::cast::FromPrimitive;
 use num_traits::cast::ToPrimitive;
 use std::fmt::Display;
@@ -13,67 +12,39 @@ use std::sync::RwLock;
 use strum::IntoStaticStr;
 use total_space::*;
 
-index_type! { StateId, u8 }
-index_type! { MessageId, u8 }
-index_type! { InvalidId, u8 }
-index_type! { ConfigurationId, u32 }
-
-lazy_static! {
-    static ref CLIENTS: RwLock<Vec<usize>> = RwLock::new(Vec::new());
-    static ref SERVER: RwLock<usize> = RwLock::new(0);
-}
+declare_global_agent_indices! {CLIENTS}
+declare_global_agent_index! {SERVER}
 
 // BEGIN MAYBE TESTED
-
 #[derive(PartialEq, Eq, Hash, Copy, Clone, Debug, IntoStaticStr)]
 enum Payload {
     Request { client: usize },
     Response,
 }
-
-// END MAYBE TESTED
-
-impl_name_for_into_static_str! {Payload}
-
-impl_display_by_patched_debug! {Payload}
-impl PatchDebug for Payload {
-    fn patch_debug(string: String) -> String {
-        string
-            .replace("client", "C")
-            .replace("Request", "REQ")
-            .replace("Response", "RSP")
-    }
+impl_message_payload! {
+    Payload,
+    "client" => "C",
+    "Request" => "REQ",
+    "Response" => "RSP"
 }
+// END MAYBE TESTED
 
 impl Validated for Payload {}
 
 // BEGIN MAYBE TESTED
-
 #[derive(PartialEq, Eq, Hash, Copy, Clone, Debug, IntoStaticStr)]
 enum ClientState {
     Idle,
     Wait,
 }
-
+impl_agent_state! {
+    ClientState = Self::Idle,
+    "Idle" => "IDL",
+    "Wait" => "WAT"
+}
 // END MAYBE TESTED
 
-impl_name_for_into_static_str! {ClientState}
-
-impl_display_by_patched_debug! {ClientState}
-impl PatchDebug for ClientState {
-    fn patch_debug(string: String) -> String {
-        string.replace("Idle", "IDL").replace("Wait", "WAT")
-    }
-}
-
 impl Validated for ClientState {}
-
-impl Default for ClientState {
-    fn default() -> Self // NOT TESTED
-    {
-        Self::Idle
-    }
-}
 
 impl AgentState<ClientState, Payload> for ClientState {
     fn pass_time(&self, instance: usize) -> Reaction<Self, Payload> {
@@ -81,10 +52,7 @@ impl AgentState<ClientState, Payload> for ClientState {
             Self::Wait => Reaction::Ignore,
             Self::Idle => Reaction::Do1(Action::ChangeAndSend1(
                 Self::Wait,
-                Emit::Unordered(
-                    Payload::Request { client: instance },
-                    *SERVER.read().unwrap(),
-                ),
+                Emit::Unordered(Payload::Request { client: instance }, agent_index!(SERVER)),
             )),
         }
     }
@@ -102,35 +70,20 @@ impl AgentState<ClientState, Payload> for ClientState {
 }
 
 // BEGIN MAYBE TESTED
-
 #[derive(PartialEq, Eq, Hash, Copy, Clone, Debug, IntoStaticStr)]
 enum ServerState {
     Listen,
     Work { client: usize },
 }
-
+impl_agent_state! {
+    ServerState = Self::Listen,
+    "client" => "C",
+    "Listen" => "LST",
+    "Work" => "WRK"
+}
 // END MAYBE TESTED
 
-impl_name_for_into_static_str! {ServerState}
-
-impl_display_by_patched_debug! {ServerState}
-impl PatchDebug for ServerState {
-    fn patch_debug(string: String) -> String {
-        string
-            .replace("client", "C")
-            .replace("Listen", "LST")
-            .replace("Work", "WRK")
-    }
-}
-
 impl Validated for ServerState {}
-
-impl Default for ServerState {
-    fn default() -> Self // NOT TESTED
-    {
-        Self::Listen
-    }
-}
 
 impl AgentState<ServerState, Payload> for ServerState {
     fn pass_time(&self, _instance: usize) -> Reaction<Self, Payload> {
@@ -138,7 +91,7 @@ impl AgentState<ServerState, Payload> for ServerState {
             Self::Listen => Reaction::Ignore,
             Self::Work { client } => Reaction::Do1(Action::ChangeAndSend1(
                 Self::Listen,
-                Emit::Unordered(Payload::Response, CLIENTS.read().unwrap()[*client]),
+                Emit::Unordered(Payload::Response, agent_index!(CLIENTS[*client])),
             )),
         }
     }
@@ -158,9 +111,14 @@ impl AgentState<ServerState, Payload> for ServerState {
     }
 
     fn max_in_flight_messages(&self) -> Option<usize> {
-        Some(CLIENTS.read().unwrap().len())
+        Some(agents_count!(CLIENTS))
     }
 }
+
+index_type! { StateId, u8 }
+index_type! { MessageId, u8 }
+index_type! { InvalidId, u8 }
+index_type! { ConfigurationId, u32 }
 
 type TestModel = Model<
     StateId,
@@ -186,12 +144,8 @@ fn test_model() -> TestModel {
         "SRV", Instances::Singleton, Some(client_type.clone())
     ));
     let model = TestModel::new(server_type, vec![]);
-    if CLIENTS.read().unwrap().len() == 0 {
-        let mut clients = CLIENTS.write().unwrap();
-        clients.push(model.agent_index("C", Some(0)));
-        clients.push(model.agent_index("C", Some(1)));
-        *SERVER.write().unwrap() = model.agent_index("SRV", None);
-    }
+    init_global_agent_indices!(CLIENTS, "C", model);
+    init_global_agent_index!(SERVER, "SRV", model);
     model
 }
 

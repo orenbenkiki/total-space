@@ -13,19 +13,11 @@ use std::sync::RwLock;
 use strum::IntoStaticStr;
 use total_space::*;
 
-index_type! { StateId, u8 }
-index_type! { MessageId, u8 }
-index_type! { InvalidId, u8 }
-index_type! { ConfigurationId, u32 }
-
-lazy_static! {
-    static ref CLIENTS: RwLock<Vec<usize>> = RwLock::new(Vec::new());
-    static ref MANAGER: RwLock<usize> = RwLock::new(usize::max_value());
-    static ref SERVER: RwLock<usize> = RwLock::new(usize::max_value());
-}
+declare_global_agent_indices! { CLIENTS }
+declare_global_agent_index! { MANAGER }
+declare_global_agent_index! { SERVER }
 
 // BEGIN MAYBE TESTED
-
 #[derive(PartialEq, Eq, Hash, Copy, Clone, Debug, IntoStaticStr)]
 enum Payload {
     Check { client: usize },
@@ -33,33 +25,30 @@ enum Payload {
     Request { client: usize },
     Response,
 }
-
-// END MAYBE TESTED
-
-impl_name_for_into_static_str! {Payload}
-
-impl_display_by_patched_debug! {Payload}
-impl PatchDebug for Payload {
-    fn patch_debug(string: String) -> String {
-        string
-            .replace("Check", "CHK")
-            .replace("Confirm", "CNF")
-            .replace("Request", "REQ")
-            .replace("Response", "RSP")
-            .replace("client", "C")
-    }
+impl_message_payload! {
+    Payload,
+    "Check" => "CHK",
+    "Confirm" => "CNF",
+    "Request" => "REQ",
+    "Response" => "RSP",
+    "client" => "C"
 }
+// END MAYBE TESTED
 
 impl Validated for Payload {}
 
 // BEGIN MAYBE TESTED
-
 #[derive(PartialEq, Eq, Hash, Copy, Clone, Debug, IntoStaticStr)]
 enum ManagerState {
     Fixed,
 }
-
+impl_agent_state! {
+    ManagerState = Self::Fixed,
+    "Fixed" => ""
+}
 // END MAYBE TESTED
+
+impl Validated for ManagerState {}
 
 impl ContainerState<ManagerState, ClientState, Payload> for ManagerState {
     fn pass_time(&self, _instance: usize, _clients: &[ClientState]) -> Reaction<Self, Payload> {
@@ -77,7 +66,7 @@ impl ContainerState<ManagerState, ClientState, Payload> for ManagerState {
             Payload::Check { client } if clients[*client] == ClientState::Check => {
                 Reaction::Do1(Action::Send1(Emit::Immediate(
                     Payload::Confirm,
-                    CLIENTS.read().unwrap()[*client],
+                    agent_index!(CLIENTS[*client]),
                 )))
             }
             _ => Reaction::Unexpected, // NOT TESTED
@@ -89,55 +78,22 @@ impl ContainerState<ManagerState, ClientState, Payload> for ManagerState {
     }
 }
 
-impl_name_for_into_static_str! {ManagerState}
-
-impl_display_by_patched_debug! {ManagerState}
-impl PatchDebug for ManagerState {
-    fn patch_debug(string: String) -> String {
-        string.replace("Fixed", "")
-    }
-}
-
-impl Validated for ManagerState {}
-
-impl Default for ManagerState {
-    fn default() -> Self // NOT TESTED
-    {
-        Self::Fixed
-    }
-}
-
 // BEGIN MAYBE TESTED
-
 #[derive(PartialEq, Eq, Hash, Copy, Clone, Debug, IntoStaticStr)]
 enum ClientState {
     Idle,
     Check,
     Wait,
 }
-
+impl_agent_state! {
+    ClientState = Self::Idle,
+    "Idle" => "IDL",
+    "Wait" => "WAT",
+    "Check" => "CHK"
+}
 // END MAYBE TESTED
 
-impl_name_for_into_static_str! {ClientState}
-
-impl_display_by_patched_debug! {ClientState}
-impl PatchDebug for ClientState {
-    fn patch_debug(string: String) -> String {
-        string
-            .replace("Idle", "IDL")
-            .replace("Wait", "WAT")
-            .replace("Check", "CHK")
-    }
-}
-
 impl Validated for ClientState {}
-
-impl Default for ClientState {
-    fn default() -> Self // NOT TESTED
-    {
-        Self::Idle
-    }
-}
 
 impl AgentState<ClientState, Payload> for ClientState {
     fn pass_time(&self, instance: usize) -> Reaction<Self, Payload> {
@@ -176,35 +132,20 @@ impl AgentState<ClientState, Payload> for ClientState {
 }
 
 // BEGIN MAYBE TESTED
-
 #[derive(PartialEq, Eq, Hash, Copy, Clone, Debug, IntoStaticStr)]
 enum ServerState {
     Listen,
     Work { client: usize },
 }
-
+impl_agent_state! {
+    ServerState = Self::Listen,
+    "client" => "C",
+    "Listen" => "LST",
+    "Work" => "WRK"
+}
 // END MAYBE TESTED
 
-impl_name_for_into_static_str! {ServerState}
-
-impl_display_by_patched_debug! {ServerState}
-impl PatchDebug for ServerState {
-    fn patch_debug(string: String) -> String {
-        string
-            .replace("client", "C")
-            .replace("Listen", "LST")
-            .replace("Work", "WRK")
-    }
-}
-
 impl Validated for ServerState {}
-
-impl Default for ServerState {
-    fn default() -> Self // NOT TESTED
-    {
-        Self::Listen
-    }
-}
 
 impl AgentState<ServerState, Payload> for ServerState {
     fn pass_time(&self, _instance: usize) -> Reaction<Self, Payload> {
@@ -212,7 +153,7 @@ impl AgentState<ServerState, Payload> for ServerState {
             Self::Listen => Reaction::Ignore,
             Self::Work { client } => Reaction::Do1(Action::ChangeAndSend1(
                 Self::Listen,
-                Emit::Unordered(Payload::Response, CLIENTS.read().unwrap()[*client]),
+                Emit::Unordered(Payload::Response, agent_index!(CLIENTS[*client])),
             )),
         }
     }
@@ -232,9 +173,14 @@ impl AgentState<ServerState, Payload> for ServerState {
     }
 
     fn max_in_flight_messages(&self) -> Option<usize> {
-        Some(CLIENTS.read().unwrap().len())
+        Some(agents_count!(CLIENTS))
     }
 }
+
+index_type! { StateId, u8 }
+index_type! { MessageId, u8 }
+index_type! { InvalidId, u8 }
+index_type! { ConfigurationId, u32 }
 
 type TestModel = Model<
     StateId,
@@ -271,13 +217,9 @@ fn test_model() -> TestModel {
         Some(manager_type.clone()),
     ));
     let model = TestModel::new(server_type, vec![]);
-    if CLIENTS.read().unwrap().len() == 0 {
-        let mut clients = CLIENTS.write().unwrap();
-        clients.push(model.agent_index("C", Some(0)));
-        clients.push(model.agent_index("C", Some(1)));
-        *MANAGER.write().unwrap() = model.agent_index("MGR", None);
-        *SERVER.write().unwrap() = model.agent_index("SRV", None);
-    }
+    init_global_agent_indices!(CLIENTS, "C", model);
+    init_global_agent_index!(MANAGER, "MGR", model);
+    init_global_agent_index!(SERVER, "SRV", model);
     model
 }
 

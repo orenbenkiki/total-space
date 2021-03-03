@@ -8,48 +8,35 @@ use std::fmt::Formatter;
 use std::fmt::Result as FormatterResult;
 use std::str;
 use std::sync::Arc;
+use std::sync::RwLock;
 use strum::IntoStaticStr;
 use total_space::*;
 
+declare_global_agent_index! {CLIENT}
+declare_global_agent_index! {SERVER}
+
+// BEGIN MAYBE TESTED
 #[derive(PartialEq, Eq, Hash, Copy, Clone, Debug, IntoStaticStr)]
 enum Payload {
     Ping,
     Request,
     Response,
 }
-
-impl_name_for_into_static_str! {Payload}
-
-impl Display for Payload {
-    fn fmt(&self, formatter: &mut Formatter<'_>) -> FormatterResult {
-        write!(formatter, "{}", self.name())
-    }
-}
+impl_message_payload! { Payload }
+// END MAYBE TESTED
 
 impl Validated for Payload {}
 
+// BEGIN MAYBE TESTED
 #[derive(PartialEq, Eq, Hash, Copy, Clone, Debug, IntoStaticStr)]
 enum ClientState {
     Idle,
     Wait,
 }
-
-impl_name_for_into_static_str! {ClientState}
-
-impl Display for ClientState {
-    fn fmt(&self, formatter: &mut Formatter<'_>) -> FormatterResult {
-        write!(formatter, "{}", self.name())
-    }
-}
+impl_agent_state! { ClientState = Self::Idle }
+// END MAYBE TESTED
 
 impl Validated for ClientState {}
-
-impl Default for ClientState {
-    fn default() -> Self // NOT TESTED
-    {
-        Self::Idle
-    }
-}
 
 fn is_maybe_ping(payload: Option<Payload>) -> bool {
     match payload {
@@ -64,8 +51,15 @@ impl AgentState<ClientState, Payload> for ClientState {
         match self {
             Self::Wait => Reaction::Ignore,
             Self::Idle => Reaction::Do1Of2(
-                Action::ChangeAndSend1(Self::Wait, Emit::Unordered(Payload::Request, 1)),
-                Action::Send1(Emit::UnorderedReplacement(is_maybe_ping, Payload::Ping, 1)),
+                Action::ChangeAndSend1(
+                    Self::Wait,
+                    Emit::Unordered(Payload::Request, agent_index!(SERVER)),
+                ),
+                Action::Send1(Emit::UnorderedReplacement(
+                    is_maybe_ping,
+                    Payload::Ping,
+                    agent_index!(SERVER),
+                )),
             ),
         }
     }
@@ -82,28 +76,16 @@ impl AgentState<ClientState, Payload> for ClientState {
     }
 }
 
+// BEGIN MAYBE TESTED
 #[derive(PartialEq, Eq, Hash, Copy, Clone, Debug, IntoStaticStr)]
 enum ServerState {
     Listen,
     Work,
 }
-
-impl_name_for_into_static_str! {ServerState}
-
-impl Display for ServerState {
-    fn fmt(&self, formatter: &mut Formatter<'_>) -> FormatterResult {
-        write!(formatter, "{}", self.name())
-    }
-}
+impl_agent_state! { ServerState = Self::Listen }
+// END MAYBE TESTED
 
 impl Validated for ServerState {}
-
-impl Default for ServerState {
-    fn default() -> Self // NOT TESTED
-    {
-        Self::Listen
-    }
-}
 
 impl AgentState<ServerState, Payload> for ServerState {
     fn pass_time(&self, _instance: usize) -> Reaction<Self, Payload> {
@@ -111,7 +93,7 @@ impl AgentState<ServerState, Payload> for ServerState {
             Self::Listen => Reaction::Ignore,
             Self::Work => Reaction::Do1(Action::ChangeAndSend1(
                 Self::Listen,
-                Emit::Unordered(Payload::Response, 0),
+                Emit::Unordered(Payload::Response, agent_index!(CLIENT)),
             )),
         }
     }
@@ -155,6 +137,7 @@ fn test_model() -> TestModel {
         <TestModel as MetaModel>::StateId,
         Payload,
     >::new("Client", Instances::Singleton, None));
+
     let server_type = Arc::new(AgentTypeData::<
         ServerState,
         <TestModel as MetaModel>::StateId,
@@ -163,7 +146,10 @@ fn test_model() -> TestModel {
         "Server", Instances::Singleton, Some(client_type.clone())
     ));
 
-    TestModel::new(server_type, vec![])
+    let model = TestModel::new(server_type, vec![]);
+    init_global_agent_index!(CLIENT, "Client", model);
+    init_global_agent_index!(SERVER, "Server", model);
+    model
 }
 
 #[test]
