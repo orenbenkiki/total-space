@@ -2055,9 +2055,9 @@ impl<
         }
     }
 
-    fn reach_configuration(
-        &self,
-        parallel_scope: &ParallelScope,
+    fn reach_configuration<'a>(
+        &'a self,
+        parallel_scope: &ParallelScope<'a>,
         mut context: <Self as MetaModel>::Context,
     ) {
         self.validate_configuration(&mut context);
@@ -2097,13 +2097,14 @@ impl<
             .push(outgoing);
 
         if stored.is_new {
-            self.explore_configuration(parallel_scope, stored.id);
+            parallel_scope
+                .spawn(move |same_scope| self.explore_configuration(same_scope, stored.id));
         }
     }
 
-    fn explore_configuration(
-        &self,
-        parallel_scope: &ParallelScope,
+    fn explore_configuration<'a>(
+        &'a self,
+        parallel_scope: &ParallelScope<'a>,
         configuration_id: ConfigurationId,
     ) {
         let configuration = *self.configurations.read().unwrap().get(configuration_id);
@@ -2149,9 +2150,9 @@ impl<
         });
     }
 
-    fn deliver_time_event(
-        &self,
-        parallel_scope: &ParallelScope,
+    fn deliver_time_event<'a>(
+        &'a self,
+        parallel_scope: &ParallelScope<'a>,
         from_configuration_id: ConfigurationId,
         from_configuration: <Self as MetaModel>::Configuration,
         agent_index: usize,
@@ -2190,9 +2191,9 @@ impl<
         self.process_reaction(parallel_scope, context, reaction);
     }
 
-    fn deliver_message_event(
-        &self,
-        parallel_scope: &ParallelScope,
+    fn deliver_message_event<'a>(
+        &'a self,
+        parallel_scope: &ParallelScope<'a>,
         from_configuration_id: ConfigurationId,
         from_configuration: <Self as MetaModel>::Configuration,
         message_index: usize,
@@ -2249,9 +2250,9 @@ impl<
         self.process_reaction(parallel_scope, context, reaction);
     }
 
-    fn process_reaction(
-        &self,
-        parallel_scope: &ParallelScope,
+    fn process_reaction<'a>(
+        &'a self,
+        parallel_scope: &ParallelScope<'a>,
         context: <Self as MetaModel>::Context,
         reaction: <Self as MetaModel>::Reaction,
     ) {
@@ -2282,9 +2283,9 @@ impl<
         }
     }
 
-    fn perform_action(
-        &self,
-        parallel_scope: &ParallelScope,
+    fn perform_action<'a>(
+        &'a self,
+        parallel_scope: &ParallelScope<'a>,
         mut context: <Self as MetaModel>::Context,
         action: <Self as MetaModel>::Action,
     ) {
@@ -2358,9 +2359,9 @@ impl<
         }
     }
 
-    fn emit_transition(
-        &self,
-        parallel_scope: &ParallelScope,
+    fn emit_transition<'a>(
+        &'a self,
+        parallel_scope: &ParallelScope<'a>,
         mut context: <Self as MetaModel>::Context,
         emit: <Self as MetaModel>::Emit,
     ) {
@@ -2668,9 +2669,9 @@ impl<
         }
     }
 
-    fn emit_message(
-        &self,
-        parallel_scope: &ParallelScope,
+    fn emit_message<'a>(
+        &'a self,
+        parallel_scope: &ParallelScope<'a>,
         mut context: <Self as MetaModel>::Context,
         message: <Self as MetaModel>::Message,
     ) {
@@ -2703,9 +2704,9 @@ impl<
     }
     // END NOT TESTED
 
-    fn ignore_message(
-        &self,
-        parallel_scope: &ParallelScope,
+    fn ignore_message<'a>(
+        &'a self,
+        parallel_scope: &ParallelScope<'a>,
         context: <Self as MetaModel>::Context,
     ) {
         if context.incoming.delivered_message_index.is_valid() {

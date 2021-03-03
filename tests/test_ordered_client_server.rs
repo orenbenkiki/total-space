@@ -198,8 +198,8 @@ fn test_configurations() {
             Client:Wait2 & Server:Listen | Client -> @0 Request -> Server & Server -> @0 Response -> Client\n\
             Client:Wait2 & Server:Work | Server -> @0 Response -> Client\n\
             Client:Wait2 & Server:Listen | Server -> @0 Response -> Client & Server -> @1 Response -> Client\n\
-            Client:Wait1 & Server:Listen | Server -> @0 Response -> Client\n\
             Client:Wait1 & Server:Work\n\
+            Client:Wait1 & Server:Listen | Server -> @0 Response -> Client\n\
             "
         );
 }
@@ -243,16 +243,16 @@ fn test_transitions() {
             FROM Client:Wait2 & Server:Listen | Server -> @0 Response -> Client & Server -> @1 Response -> Client\n\
             - BY message Server -> @0 Response -> Client\n  \
               TO Client:Wait1 & Server:Listen | Server -> @0 Response -> Client\n\
-            FROM Client:Wait1 & Server:Listen | Server -> @0 Response -> Client\n\
-            - BY time event\n  \
-              TO Client:Wait2 & Server:Listen | Client -> @0 Request -> Server & Server -> @0 Response -> Client\n\
-            - BY message Server -> @0 Response -> Client\n  \
-              TO Client:Idle & Server:Listen\n\
             FROM Client:Wait1 & Server:Work\n\
             - BY time event\n  \
               TO Client:Wait2 & Server:Work | Client -> @0 Request -> Server\n\
             - BY time event\n  \
               TO Client:Wait1 & Server:Listen | Server -> @0 Response -> Client\n\
-            "
+            FROM Client:Wait1 & Server:Listen | Server -> @0 Response -> Client\n\
+            - BY time event\n  \
+              TO Client:Wait2 & Server:Listen | Client -> @0 Request -> Server & Server -> @0 Response -> Client\n\
+            - BY message Server -> @0 Response -> Client\n  \
+              TO Client:Idle & Server:Listen\n\
+            ",
         );
 }

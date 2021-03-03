@@ -225,16 +225,16 @@ fn test_configurations() {
             "\
             Client:Idle & Server:Listen\n\
             Client:Wait & Server:Listen | Client -> Request -> Server\n\
-            Client:Wait & Server:Work\n\
-            Client:Wait & Server:Listen | Server -> Response -> Client\n\
             Client:Idle & Server:Listen | Client -> Ping -> Server\n\
             Client:Wait & Server:Listen | Client -> Request -> Server & Client -> Ping -> Server\n\
-            Client:Wait & Server:Work | Client -> Ping -> Server\n\
-            Client:Wait & Server:Listen | Server -> Response -> Client & Client -> Ping -> Server\n\
             Client:Idle & Server:Listen | Client -> Ping => Ping -> Server\n\
             Client:Wait & Server:Listen | Client -> Request -> Server & Client -> Ping => Ping -> Server\n\
             Client:Wait & Server:Work | Client -> Ping => Ping -> Server\n\
-            Client:Wait & Server:Listen | Server -> Response -> Client & Client -> Ping => Ping -> Server\n\
+            Client:Wait & Server:Listen | Client -> Ping => Ping -> Server & Server -> Response -> Client\n\
+            Client:Wait & Server:Work\n\
+            Client:Wait & Server:Listen | Server -> Response -> Client\n\
+            Client:Wait & Server:Work | Client -> Ping -> Server\n\
+            Client:Wait & Server:Listen | Client -> Ping -> Server & Server -> Response -> Client\n\
             "
         );
 }
@@ -259,12 +259,6 @@ fn test_transitions() {
             FROM Client:Wait & Server:Listen | Client -> Request -> Server\n\
             - BY message Client -> Request -> Server\n  \
               TO Client:Wait & Server:Work\n\
-            FROM Client:Wait & Server:Work\n\
-            - BY time event\n  \
-              TO Client:Wait & Server:Listen | Server -> Response -> Client\n\
-            FROM Client:Wait & Server:Listen | Server -> Response -> Client\n\
-            - BY message Server -> Response -> Client\n  \
-              TO Client:Idle & Server:Listen\n\
             FROM Client:Idle & Server:Listen | Client -> Ping -> Server\n\
             - BY time event\n  \
               TO Client:Wait & Server:Listen | Client -> Request -> Server & Client -> Ping -> Server\n\
@@ -277,16 +271,6 @@ fn test_transitions() {
               TO Client:Wait & Server:Work | Client -> Ping -> Server\n\
             - BY message Client -> Ping -> Server\n  \
               TO Client:Wait & Server:Listen | Client -> Request -> Server\n\
-            FROM Client:Wait & Server:Work | Client -> Ping -> Server\n\
-            - BY time event\n  \
-              TO Client:Wait & Server:Listen | Server -> Response -> Client & Client -> Ping -> Server\n\
-            - BY message Client -> Ping -> Server\n  \
-              TO Client:Wait & Server:Work\n\
-            FROM Client:Wait & Server:Listen | Server -> Response -> Client & Client -> Ping -> Server\n\
-            - BY message Server -> Response -> Client\n  \
-              TO Client:Idle & Server:Listen | Client -> Ping -> Server\n\
-            - BY message Client -> Ping -> Server\n  \
-              TO Client:Wait & Server:Listen | Server -> Response -> Client\n\
             FROM Client:Idle & Server:Listen | Client -> Ping => Ping -> Server\n\
             - BY time event\n  \
               TO Client:Wait & Server:Listen | Client -> Request -> Server & Client -> Ping => Ping -> Server\n\
@@ -301,14 +285,30 @@ fn test_transitions() {
               TO Client:Wait & Server:Listen | Client -> Request -> Server\n\
             FROM Client:Wait & Server:Work | Client -> Ping => Ping -> Server\n\
             - BY time event\n  \
-              TO Client:Wait & Server:Listen | Server -> Response -> Client & Client -> Ping => Ping -> Server\n\
+              TO Client:Wait & Server:Listen | Client -> Ping => Ping -> Server & Server -> Response -> Client\n\
             - BY message Client -> Ping => Ping -> Server\n  \
               TO Client:Wait & Server:Work\n\
-            FROM Client:Wait & Server:Listen | Server -> Response -> Client & Client -> Ping => Ping -> Server\n\
-            - BY message Server -> Response -> Client\n  \
-              TO Client:Idle & Server:Listen | Client -> Ping => Ping -> Server\n\
+            FROM Client:Wait & Server:Listen | Client -> Ping => Ping -> Server & Server -> Response -> Client\n\
             - BY message Client -> Ping => Ping -> Server\n  \
               TO Client:Wait & Server:Listen | Server -> Response -> Client\n\
+            - BY message Server -> Response -> Client\n  \
+              TO Client:Idle & Server:Listen | Client -> Ping => Ping -> Server\n\
+            FROM Client:Wait & Server:Work\n\
+            - BY time event\n  \
+              TO Client:Wait & Server:Listen | Server -> Response -> Client\n\
+            FROM Client:Wait & Server:Listen | Server -> Response -> Client\n\
+            - BY message Server -> Response -> Client\n  \
+              TO Client:Idle & Server:Listen\n\
+            FROM Client:Wait & Server:Work | Client -> Ping -> Server\n\
+            - BY time event\n  \
+              TO Client:Wait & Server:Listen | Client -> Ping -> Server & Server -> Response -> Client\n\
+            - BY message Client -> Ping -> Server\n  \
+              TO Client:Wait & Server:Work\n\
+            FROM Client:Wait & Server:Listen | Client -> Ping -> Server & Server -> Response -> Client\n\
+            - BY message Client -> Ping -> Server\n  \
+              TO Client:Wait & Server:Listen | Server -> Response -> Client\n\
+            - BY message Server -> Response -> Client\n  \
+              TO Client:Idle & Server:Listen | Client -> Ping -> Server\n\
             "
         );
 }
@@ -387,17 +387,21 @@ fn test_sequence() {
         activate A1 #CadetBlue\n\
         ?o-> A1\n\
         deactivate A1\n\
-        A1 -> A0 : Response\n\
-        deactivate A0\n\
+        control \" \" as T1 order 10199\n\
+        A1 -> T1 : Response\n\
+        activate T1 #Silver\n\
         rnote over A1 : Listen\n\
         activate A1 #MediumPurple\n\
+        T0 -> A1 : Ping\n\
+        deactivate T0\n\
+        T1 -> A0 : Response\n\
+        deactivate T1\n\
+        deactivate A0\n\
         autonumber stop\n\
         ?-[#White]\\ A0\n\
         autonumber resume\n\
         rnote over A0 : Idle\n\
         activate A0 #MediumPurple\n\
-        T0 -> A1 : Ping\n\
-        deactivate T0\n\
         @enduml\n\
         "
     );

@@ -229,17 +229,17 @@ fn test_configurations() {
         C(0):WAT & C(1):IDL & SRV:LST | C(0) -> REQ(C=0) -> SRV\n\
         C(0):WAT & C(1):WAT & SRV:LST | C(0) -> REQ(C=0) -> SRV & C(1) -> REQ(C=1) -> SRV\n\
         C(0):WAT & C(1):WAT & SRV:WRK(C=0) | C(1) -> REQ(C=1) -> SRV\n\
-        C(0):WAT & C(1):WAT & SRV:LST | C(1) -> REQ(C=1) -> SRV & SRV -> RSP -> C(0)\n\
-        C(0):WAT & C(1):WAT & SRV:WRK(C=1) | SRV -> RSP -> C(0)\n\
-        C(0):WAT & C(1):WAT & SRV:LST | SRV -> RSP -> C(0) & SRV -> RSP -> C(1)\n\
-        C(0):IDL & C(1):WAT & SRV:LST | SRV -> RSP -> C(1)\n\
+        C(0):WAT & C(1):WAT & SRV:WRK(C=1) | C(0) -> REQ(C=0) -> SRV\n\
         C(0):WAT & C(1):WAT & SRV:LST | C(0) -> REQ(C=0) -> SRV & SRV -> RSP -> C(1)\n\
         C(0):WAT & C(1):WAT & SRV:WRK(C=0) | SRV -> RSP -> C(1)\n\
+        C(0):WAT & C(1):WAT & SRV:LST | SRV -> RSP -> C(1) & SRV -> RSP -> C(0)\n\
         C(0):WAT & C(1):IDL & SRV:WRK(C=0)\n\
         C(0):WAT & C(1):IDL & SRV:LST | SRV -> RSP -> C(0)\n\
-        C(0):IDL & C(1):WAT & SRV:WRK(C=1)\n\
-        C(0):WAT & C(1):WAT & SRV:WRK(C=1) | C(0) -> REQ(C=0) -> SRV\n\
+        C(0):WAT & C(1):WAT & SRV:LST | C(1) -> REQ(C=1) -> SRV & SRV -> RSP -> C(0)\n\
+        C(0):WAT & C(1):WAT & SRV:WRK(C=1) | SRV -> RSP -> C(0)\n\
         C(0):IDL & C(1):WAT & SRV:LST | C(1) -> REQ(C=1) -> SRV\n\
+        C(0):IDL & C(1):WAT & SRV:WRK(C=1)\n\
+        C(0):IDL & C(1):WAT & SRV:LST | SRV -> RSP -> C(1)\n\
         "
     );
 }
@@ -274,26 +274,9 @@ fn test_transitions() {
             FROM C(0):WAT & C(1):WAT & SRV:WRK(C=0) | C(1) -> REQ(C=1) -> SRV\n\
             - BY time event\n  \
               TO C(0):WAT & C(1):WAT & SRV:LST | C(1) -> REQ(C=1) -> SRV & SRV -> RSP -> C(0)\n\
-            FROM C(0):WAT & C(1):WAT & SRV:LST | C(1) -> REQ(C=1) -> SRV & SRV -> RSP -> C(0)\n\
-            - BY message C(1) -> REQ(C=1) -> SRV\n  \
-              TO C(0):WAT & C(1):WAT & SRV:WRK(C=1) | SRV -> RSP -> C(0)\n\
-            - BY message SRV -> RSP -> C(0)\n  \
-              TO C(0):IDL & C(1):WAT & SRV:LST | C(1) -> REQ(C=1) -> SRV\n\
-            FROM C(0):WAT & C(1):WAT & SRV:WRK(C=1) | SRV -> RSP -> C(0)\n\
-            - BY time event\n  \
-              TO C(0):WAT & C(1):WAT & SRV:LST | SRV -> RSP -> C(0) & SRV -> RSP -> C(1)\n\
-            - BY message SRV -> RSP -> C(0)\n  \
-              TO C(0):IDL & C(1):WAT & SRV:WRK(C=1)\n\
-            FROM C(0):WAT & C(1):WAT & SRV:LST | SRV -> RSP -> C(0) & SRV -> RSP -> C(1)\n\
-            - BY message SRV -> RSP -> C(0)\n  \
-              TO C(0):IDL & C(1):WAT & SRV:LST | SRV -> RSP -> C(1)\n\
-            - BY message SRV -> RSP -> C(1)\n  \
-              TO C(0):WAT & C(1):IDL & SRV:LST | SRV -> RSP -> C(0)\n\
-            FROM C(0):IDL & C(1):WAT & SRV:LST | SRV -> RSP -> C(1)\n\
+            FROM C(0):WAT & C(1):WAT & SRV:WRK(C=1) | C(0) -> REQ(C=0) -> SRV\n\
             - BY time event\n  \
               TO C(0):WAT & C(1):WAT & SRV:LST | C(0) -> REQ(C=0) -> SRV & SRV -> RSP -> C(1)\n\
-            - BY message SRV -> RSP -> C(1)\n  \
-              TO C(0):IDL & C(1):IDL & SRV:LST\n\
             FROM C(0):WAT & C(1):WAT & SRV:LST | C(0) -> REQ(C=0) -> SRV & SRV -> RSP -> C(1)\n\
             - BY message C(0) -> REQ(C=0) -> SRV\n  \
               TO C(0):WAT & C(1):WAT & SRV:WRK(C=0) | SRV -> RSP -> C(1)\n\
@@ -301,9 +284,14 @@ fn test_transitions() {
               TO C(0):WAT & C(1):IDL & SRV:LST | C(0) -> REQ(C=0) -> SRV\n\
             FROM C(0):WAT & C(1):WAT & SRV:WRK(C=0) | SRV -> RSP -> C(1)\n\
             - BY time event\n  \
-              TO C(0):WAT & C(1):WAT & SRV:LST | SRV -> RSP -> C(0) & SRV -> RSP -> C(1)\n\
+              TO C(0):WAT & C(1):WAT & SRV:LST | SRV -> RSP -> C(1) & SRV -> RSP -> C(0)\n\
             - BY message SRV -> RSP -> C(1)\n  \
               TO C(0):WAT & C(1):IDL & SRV:WRK(C=0)\n\
+            FROM C(0):WAT & C(1):WAT & SRV:LST | SRV -> RSP -> C(1) & SRV -> RSP -> C(0)\n\
+            - BY message SRV -> RSP -> C(1)\n  \
+              TO C(0):WAT & C(1):IDL & SRV:LST | SRV -> RSP -> C(0)\n\
+            - BY message SRV -> RSP -> C(0)\n  \
+              TO C(0):IDL & C(1):WAT & SRV:LST | SRV -> RSP -> C(1)\n\
             FROM C(0):WAT & C(1):IDL & SRV:WRK(C=0)\n\
             - BY time event\n  \
               TO C(0):WAT & C(1):WAT & SRV:WRK(C=0) | C(1) -> REQ(C=1) -> SRV\n\
@@ -314,19 +302,31 @@ fn test_transitions() {
               TO C(0):WAT & C(1):WAT & SRV:LST | C(1) -> REQ(C=1) -> SRV & SRV -> RSP -> C(0)\n\
             - BY message SRV -> RSP -> C(0)\n  \
               TO C(0):IDL & C(1):IDL & SRV:LST\n\
-            FROM C(0):IDL & C(1):WAT & SRV:WRK(C=1)\n\
+            FROM C(0):WAT & C(1):WAT & SRV:LST | C(1) -> REQ(C=1) -> SRV & SRV -> RSP -> C(0)\n\
+            - BY message C(1) -> REQ(C=1) -> SRV\n  \
+              TO C(0):WAT & C(1):WAT & SRV:WRK(C=1) | SRV -> RSP -> C(0)\n\
+            - BY message SRV -> RSP -> C(0)\n  \
+              TO C(0):IDL & C(1):WAT & SRV:LST | C(1) -> REQ(C=1) -> SRV\n\
+            FROM C(0):WAT & C(1):WAT & SRV:WRK(C=1) | SRV -> RSP -> C(0)\n\
             - BY time event\n  \
-              TO C(0):WAT & C(1):WAT & SRV:WRK(C=1) | C(0) -> REQ(C=0) -> SRV\n\
-            - BY time event\n  \
-              TO C(0):IDL & C(1):WAT & SRV:LST | SRV -> RSP -> C(1)\n\
-            FROM C(0):WAT & C(1):WAT & SRV:WRK(C=1) | C(0) -> REQ(C=0) -> SRV\n\
-            - BY time event\n  \
-              TO C(0):WAT & C(1):WAT & SRV:LST | C(0) -> REQ(C=0) -> SRV & SRV -> RSP -> C(1)\n\
+              TO C(0):WAT & C(1):WAT & SRV:LST | SRV -> RSP -> C(1) & SRV -> RSP -> C(0)\n\
+            - BY message SRV -> RSP -> C(0)\n  \
+              TO C(0):IDL & C(1):WAT & SRV:WRK(C=1)\n\
             FROM C(0):IDL & C(1):WAT & SRV:LST | C(1) -> REQ(C=1) -> SRV\n\
             - BY time event\n  \
               TO C(0):WAT & C(1):WAT & SRV:LST | C(0) -> REQ(C=0) -> SRV & C(1) -> REQ(C=1) -> SRV\n\
             - BY message C(1) -> REQ(C=1) -> SRV\n  \
               TO C(0):IDL & C(1):WAT & SRV:WRK(C=1)\n\
+            FROM C(0):IDL & C(1):WAT & SRV:WRK(C=1)\n\
+            - BY time event\n  \
+              TO C(0):WAT & C(1):WAT & SRV:WRK(C=1) | C(0) -> REQ(C=0) -> SRV\n\
+            - BY time event\n  \
+              TO C(0):IDL & C(1):WAT & SRV:LST | SRV -> RSP -> C(1)\n\
+            FROM C(0):IDL & C(1):WAT & SRV:LST | SRV -> RSP -> C(1)\n\
+            - BY time event\n  \
+              TO C(0):WAT & C(1):WAT & SRV:LST | C(0) -> REQ(C=0) -> SRV & SRV -> RSP -> C(1)\n\
+            - BY message SRV -> RSP -> C(1)\n  \
+              TO C(0):IDL & C(1):IDL & SRV:LST\n\
             "
         );
 }
@@ -352,7 +352,8 @@ fn test_states() {
         A_1_true [ label=\"WRK(C=0)\", shape=octagon ];\n\
         subgraph cluster_0 {\n\
         T_0 [ shape=point, height=0.015, width=0.015 ];\n\
-        M_0_0 [ label=\"C(0) &#8594;\\nREQ(C=0)\", shape=plain ];\n\
+        M_0_0 [ label=\"C(0) &#8594;\\n\
+        REQ(C=0)\", shape=plain ];\n\
         M_0_0 -> T_0 [ arrowhead=normal, direction=forward, style=dashed ];\n\
         }\n\
         A_0_false -> T_0 [ arrowhead=none, direction=forward ];\n\
@@ -360,15 +361,17 @@ fn test_states() {
         A_2_true [ label=\"WRK(C=1)\", shape=octagon ];\n\
         subgraph cluster_1 {\n\
         T_1 [ shape=point, height=0.015, width=0.015 ];\n\
-        M_1_1 [ label=\"C(1) &#8594;\\nREQ(C=1)\", shape=plain ];\n\
+        M_1_1 [ label=\"C(1) &#8594;\\n\
+        REQ(C=1)\", shape=plain ];\n\
         M_1_1 -> T_1 [ arrowhead=normal, direction=forward, style=dashed ];\n\
         }\n\
         A_0_false -> T_1 [ arrowhead=none, direction=forward ];\n\
         T_1 -> A_2_true;\n\
         subgraph cluster_2 {\n\
         T_2 [ shape=point, height=0.015, width=0.015 ];\n\
-        M_2_2 [ label=\"RSP\\n&#8594; C(0)\", shape=plain ];\n\
-        T_2 -> M_2_2 [ arrowhead=normal, direction=forward, style=dashed ];\n\
+        M_2_3 [ label=\"RSP\\n\
+        &#8594; C(0)\", shape=plain ];\n\
+        T_2 -> M_2_3 [ arrowhead=normal, direction=forward, style=dashed ];\n\
         M_2_255 [ label=\"Time\", shape=plain ];\n\
         M_2_255 -> T_2 [ arrowhead=normal, direction=forward, style=dashed ];\n\
         }\n\
@@ -376,8 +379,9 @@ fn test_states() {
         T_2 -> A_0_false;\n\
         subgraph cluster_3 {\n\
         T_3 [ shape=point, height=0.015, width=0.015 ];\n\
-        M_3_3 [ label=\"RSP\\n&#8594; C(1)\", shape=plain ];\n\
-        T_3 -> M_3_3 [ arrowhead=normal, direction=forward, style=dashed ];\n\
+        M_3_2 [ label=\"RSP\\n\
+        &#8594; C(1)\", shape=plain ];\n\
+        T_3 -> M_3_2 [ arrowhead=normal, direction=forward, style=dashed ];\n\
         M_3_255 [ label=\"Time\", shape=plain ];\n\
         M_3_255 -> T_3 [ arrowhead=normal, direction=forward, style=dashed ];\n\
         }\n\
@@ -414,10 +418,10 @@ fn test_path() {
         BY message C(1) -> REQ(C=1) -> SRV\n\
         TO C(0):WAT & C(1):WAT & SRV:WRK(C=1) | SRV -> RSP -> C(0)\n\
         BY time event\n\
-        TO C(0):WAT & C(1):WAT & SRV:LST | SRV -> RSP -> C(0) & SRV -> RSP -> C(1)\n\
-        BY message SRV -> RSP -> C(0)\n\
-        TO C(0):IDL & C(1):WAT & SRV:LST | SRV -> RSP -> C(1)\n\
+        TO C(0):WAT & C(1):WAT & SRV:LST | SRV -> RSP -> C(1) & SRV -> RSP -> C(0)\n\
         BY message SRV -> RSP -> C(1)\n\
+        TO C(0):WAT & C(1):IDL & SRV:LST | SRV -> RSP -> C(0)\n\
+        BY message SRV -> RSP -> C(0)\n\
         INIT C(0):IDL & C(1):IDL & SRV:LST\n\
         "
     );
