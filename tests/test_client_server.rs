@@ -39,11 +39,7 @@ impl_agent_state! { ClientState = Self::Idle }
 impl Validated for ClientState {}
 
 fn is_maybe_ping(payload: Option<Payload>) -> bool {
-    match payload {
-        None => true,
-        Some(Payload::Ping) => true,
-        _ => false, // NOT TESTED
-    }
+    matches!(payload, None | Some(Payload::Ping))
 }
 
 impl AgentState<ClientState, Payload> for ClientState {

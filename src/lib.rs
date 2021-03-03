@@ -2128,7 +2128,7 @@ impl<
             invalid_id: InvalidId::invalid(),
             immediate_index: MessageIndex::invalid(),
         };
-        let stored = self.fully_store_configuration(initial_configuration);
+        let stored = self.store_configuration(initial_configuration);
 
         ThreadPoolBuilder::new()
             .num_threads(self.threads.count())
@@ -2163,7 +2163,7 @@ impl<
             // END NOT TESTED
         }
 
-        let stored = self.fully_store_configuration(context.to_configuration);
+        let stored = self.store_configuration(context.to_configuration);
 
         let to_configuration_id = stored.id;
         if self.ensure_init_is_reachable {
@@ -2928,17 +2928,8 @@ impl<
                 is_new: false,
             };
         }
-        self.configurations
-            .write()
-            .unwrap()
-            .store(configuration, None)
-    }
-
-    fn fully_store_configuration(
-        &self,
-        configuration: <Self as MetaModel>::Configuration,
-    ) -> Stored<ConfigurationId> {
-        let stored = self.store_configuration(configuration);
+        let mut configurations = self.configurations.write().unwrap();
+        let stored = configurations.store(configuration, None);
         if stored.is_new {
             if self.ensure_init_is_reachable {
                 self.incomings
