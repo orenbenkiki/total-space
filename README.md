@@ -39,9 +39,7 @@ of this crate.
 ## TODO
 
 * Document how to create a model.
-* Creating a model requires a lot of boiler plate code, which could be automated by macros.
 * Some macros should be converted to procedural derive macros.
-* Generate sequence diagrams.
 * Arrange the code.
 
 ## License
