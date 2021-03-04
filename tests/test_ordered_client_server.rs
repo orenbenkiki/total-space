@@ -1,5 +1,3 @@
-extern crate total_space;
-
 use clap::App;
 use num_traits::cast::FromPrimitive;
 use num_traits::cast::ToPrimitive;
@@ -8,7 +6,6 @@ use std::fmt::Formatter;
 use std::fmt::Result as FormatterResult;
 use std::str;
 use std::sync::Arc;
-use std::sync::RwLock;
 use strum::IntoStaticStr;
 use total_space::*;
 

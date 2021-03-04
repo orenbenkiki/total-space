@@ -1,5 +1,3 @@
-extern crate total_space;
-
 use clap::App;
 use lazy_static::*;
 use num_traits::cast::FromPrimitive;
@@ -9,7 +7,6 @@ use std::fmt::Formatter;
 use std::fmt::Result as FormatterResult;
 use std::str;
 use std::sync::Arc;
-use std::sync::RwLock;
 use strum::IntoStaticStr;
 use total_space::*;
 
@@ -101,17 +98,11 @@ impl AgentState<ClientState, Payload> for ClientState {
             Self::Idle => Reaction::Do1Of2(
                 Action::ChangeAndSend1(
                     Self::Wait,
-                    Emit::Unordered(
-                        Payload::Request { client: instance },
-                        *SERVER.read().unwrap(),
-                    ),
+                    Emit::Unordered(Payload::Request { client: instance }, agent_index!(SERVER)),
                 ),
                 Action::ChangeAndSend1(
                     Self::Check,
-                    Emit::Unordered(
-                        Payload::Check { client: instance },
-                        *MANAGER.read().unwrap(),
-                    ),
+                    Emit::Unordered(Payload::Check { client: instance }, agent_index!(MANAGER)),
                 ),
             ),
             _ => Reaction::Ignore,

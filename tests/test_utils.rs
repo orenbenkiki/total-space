@@ -1,5 +1,3 @@
-extern crate total_space;
-
 use num_traits::cast::FromPrimitive;
 use num_traits::cast::ToPrimitive;
 use std::fmt::Display;
