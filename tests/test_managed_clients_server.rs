@@ -246,8 +246,8 @@ fn test_agents() {
 fn test_configurations() {
     let mut model = test_model();
     let app = add_clap(App::new("configurations"));
-    let arg_matches =
-        app.get_matches_from(vec!["test", "-r", "-p", "-t", "1", "configurations"].iter());
+    let arg_matches = app
+        .get_matches_from(vec!["test", "-r", "-p", "-s", "1", "-t", "1", "configurations"].iter());
     let mut stdout_bytes = Vec::new();
     model.do_clap(&arg_matches, &mut stdout_bytes);
     let stdout = str::from_utf8(&stdout_bytes).unwrap();
@@ -298,7 +298,7 @@ fn test_sequence() {
     let app = add_clap(App::new("sequence"));
     let arg_matches = app.get_matches_from(
         vec![
-            "test", "-r", "-p", "-t", "1", "sequence", "INIT", "2MSG", "INIT",
+            "test", "-r", "-p", "-s", "1", "-t", "1", "sequence", "INIT", "2MSG", "INIT",
         ]
         .iter(),
     );

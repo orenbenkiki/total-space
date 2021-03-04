@@ -39,6 +39,7 @@ of this crate.
 ## TODO
 
 * Document how to create a model.
+* Use a lock-free hashtable instead of brownhash for better multi-core scalability?
 * Some macros should be converted to procedural derive macros.
 * Arrange the code.
 

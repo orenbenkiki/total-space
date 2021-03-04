@@ -198,7 +198,7 @@ fn test_configurations() {
     let mut model = test_model();
     let app = add_clap(App::new("test_configurations"));
     let arg_matches =
-        app.get_matches_from(vec!["test", "-r", "-p", "-t", "1", "configurations"].iter());
+        app.get_matches_from(vec!["test", "-p", "-s", "1", "-t", "1", "configurations"].iter());
     let mut stdout_bytes = Vec::new();
     model.do_clap(&arg_matches, &mut stdout_bytes);
     let stdout = str::from_utf8(&stdout_bytes).unwrap();
@@ -226,7 +226,7 @@ fn test_transitions() {
     let mut model = test_model();
     let app = add_clap(App::new("test_transitions"));
     let arg_matches =
-        app.get_matches_from(vec!["test", "-r", "-p", "-t", "1", "transitions"].iter());
+        app.get_matches_from(vec!["test", "-p", "-s", "1", "-t", "1", "transitions"].iter());
     let mut stdout_bytes = Vec::new();
     model.do_clap(&arg_matches, &mut stdout_bytes);
     let stdout = str::from_utf8(&stdout_bytes).unwrap();
@@ -299,8 +299,8 @@ fn test_transitions() {
 fn test_path() {
     let mut model = test_model();
     let app = add_clap(App::new("test_path"));
-    let arg_matches =
-        app.get_matches_from(vec!["test", "-r", "-p", "-t", "1", "path", "INIT", "INIT"].iter());
+    let arg_matches = app
+        .get_matches_from(vec!["test", "-p", "-s", "1", "-t", "1", "path", "INIT", "INIT"].iter());
     let mut stdout_bytes = Vec::new();
     model.do_clap(&arg_matches, &mut stdout_bytes);
     let stdout = str::from_utf8(&stdout_bytes).unwrap();
@@ -322,7 +322,7 @@ fn test_sequence() {
     let app = add_clap(App::new("sequence"));
     let arg_matches = app.get_matches_from(
         vec![
-            "test", "-r", "-p", "-t", "1", "sequence", "INIT", "REPLACE", "2MSG", "INIT",
+            "test", "-p", "-s", "1", "-t", "1", "sequence", "INIT", "REPLACE", "2MSG", "INIT",
         ]
         .iter(),
     );

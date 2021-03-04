@@ -29,6 +29,7 @@ use rayon::prelude::*;
 use rayon::scope;
 use rayon::Scope as ParallelScope;
 use rayon::ThreadPoolBuilder;
+use std::cmp::max;
 use std::collections::VecDeque;
 use std::fmt::Debug;
 use std::fmt::Display;
@@ -48,6 +49,8 @@ macro_rules! current_thread_name {
     () => { current_thread().name().unwrap_or("main") }
 }
 */
+
+const GROWTH_FACTOR: usize = 4;
 
 const RIGHT_ARROW: &str = "&#8594;";
 
@@ -280,6 +283,12 @@ impl<T: KeyLike, I: IndexLike> Memoize<T, I> {
                 }
             },
         }
+    }
+
+    /// Reserve space for some amount of additional values.
+    pub fn reserve(&mut self, additional: usize) {
+        self.value_by_id.reserve(additional);
+        self.id_by_value.reserve(additional);
     }
 
     /// The number of allocated identifiers.
@@ -1430,6 +1439,9 @@ pub struct Model<
     /// For each configuration, which configuration can reach it.
     pub incomings: RwLock<Vec<RwLock<Vec<<Self as MetaModel>::Incoming>>>>,
 
+    /// How many additional slots we have reserved in the per-configuration data structures.
+    pub reserved: RwLock<usize>,
+
     /// The maximal message string size we have seen so far.
     pub max_message_string_size: RwLock<usize>,
 
@@ -1900,6 +1912,7 @@ impl<
             invalids: RwLock::new(Memoize::new(true)),
             outgoings: RwLock::new(Vec::new()),
             incomings: RwLock::new(Vec::new()),
+            reserved: RwLock::new(0),
             max_message_string_size: RwLock::new(0),
             max_invalid_string_size: RwLock::new(0),
             max_configuration_string_size: RwLock::new(0),
@@ -2113,6 +2126,17 @@ impl<
             };
             agent_labels.push(Arc::new(agent_label));
         }
+    }
+
+    /// Reserve space for some amount of additional configurations.
+    pub fn reserve(&self, additional: usize) {
+        let mut reserved = self.reserved.write().unwrap();
+        self.configurations.write().unwrap().reserve(additional);
+        if self.ensure_init_is_reachable {
+            self.incomings.write().unwrap().reserve(additional); // NOT TESTED
+        }
+        self.outgoings.write().unwrap().reserve(additional);
+        *reserved += 1;
     }
 
     /// Compute all the configurations of the model, if needed.
@@ -2928,20 +2952,38 @@ impl<
                 is_new: false,
             };
         }
+
         let mut configurations = self.configurations.write().unwrap();
         let stored = configurations.store(configuration, None);
+
         if stored.is_new {
-            if self.ensure_init_is_reachable {
-                self.incomings
-                    .write()
-                    .unwrap()
-                    .push(RwLock::new(Vec::new()));
+            let additional = if *self.reserved.read().unwrap() == 0 {
+                max(self.outgoings.read().unwrap().len() / GROWTH_FACTOR, 1)
+            } else {
+                0
             };
-            self.outgoings
-                .write()
-                .unwrap()
-                .push(RwLock::new(Vec::new()));
+
+            if additional > 0 {
+                configurations.reserve(additional);
+                if self.ensure_init_is_reachable {
+                    self.incomings.write().unwrap().reserve(additional);
+                }
+                self.outgoings.write().unwrap().reserve(additional);
+                *self.reserved.write().unwrap() += additional - 1;
+            } else {
+                *self.reserved.write().unwrap() -= 1;
+            }
+
+            if self.ensure_init_is_reachable {
+                let mut incomings = self.incomings.write().unwrap();
+                debug_assert!(incomings.len() == stored.id.to_usize());
+                incomings.push(RwLock::new(vec![]));
+            }
+            let mut outgoings = self.outgoings.write().unwrap();
+            debug_assert!(outgoings.len() == stored.id.to_usize());
+            outgoings.push(RwLock::new(vec![]));
         }
+
         stored
     }
 
@@ -3167,6 +3209,9 @@ impl<
     }
 
     fn do_compute(&mut self, arg_matches: &ArgMatches) {
+        let size = usize::from_str(arg_matches.value_of("size").unwrap()).unwrap();
+        self.reserve(max(size, GROWTH_FACTOR));
+
         let threads = arg_matches.value_of("threads").unwrap();
         self.threads = if threads == "PHYSICAL" {
             Threads::Physical // NOT TESTED
@@ -3177,6 +3222,11 @@ impl<
         };
         self.eprint_progress = arg_matches.is_present("progress");
         self.ensure_init_is_reachable = arg_matches.is_present("reachable");
+        if self.ensure_init_is_reachable {
+            let mut incomings = self.incomings.write().unwrap();
+            let incomings_capacity = incomings.capacity();
+            incomings.reserve(self.outgoings.read().unwrap().capacity() - incomings_capacity);
+        }
         self.compute();
     }
 
@@ -4422,6 +4472,16 @@ pub fn add_clap<'a, 'b>(app: App<'a, 'b>) -> App<'a, 'b> {
             .short("p")
             .long("progress")
             .help("print configurations as they are reached"),
+    )
+    .arg(
+        Arg::with_name("size")
+            .short("s")
+            .long("size")
+            .value_name("COUNT")
+            .help(
+                "pre-allocate arrays to cover this number of configurations, for faster operation",
+            )
+            .default_value("1000000"),
     )
     .arg(
         Arg::with_name("threads")
