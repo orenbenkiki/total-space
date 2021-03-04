@@ -3800,7 +3800,7 @@ impl<
                 state_transition_index,
                 None,
                 agent_index,
-                *delivered_message_id,
+                Some(*delivered_message_id),
                 stdout,
             );
             self.print_message_transition_edge(
@@ -3833,18 +3833,36 @@ impl<
             // END NOT TESTED
         }
 
-        for sent_message_id in sent_message_ids.iter() {
+        if alternative_index.is_some() && sent_message_ids.is_empty() {
+            // BEGIN NOT TESTED
             self.print_message_node(
                 state_transition_index,
                 alternative_index,
                 agent_index,
-                *sent_message_id,
+                None,
                 stdout,
             );
             self.print_transition_message_edge(
                 state_transition_index,
                 alternative_index,
-                *sent_message_id,
+                None,
+                stdout,
+            );
+            // END NOT TESTED
+        }
+
+        for sent_message_id in sent_message_ids.iter() {
+            self.print_message_node(
+                state_transition_index,
+                alternative_index,
+                agent_index,
+                Some(*sent_message_id),
+                stdout,
+            );
+            self.print_transition_message_edge(
+                state_transition_index,
+                alternative_index,
+                Some(*sent_message_id),
                 stdout,
             );
         }
@@ -3901,9 +3919,24 @@ impl<
         state_transition_index: usize,
         alternative_index: Option<usize>,
         agent_index: usize,
-        message_id: MessageId,
+        message_id: Option<MessageId>,
         stdout: &mut dyn Write,
     ) {
+        if message_id.is_none() {
+            // BEGIN NOT TESTED
+            writeln!(
+                stdout,
+                "M_{}_{} [ label=\" \", shape=plain ];",
+                state_transition_index,
+                alternative_index.unwrap_or(usize::max_value()),
+            )
+            .unwrap();
+            return;
+            // END NOT TESTED
+        }
+
+        let message_id = message_id.unwrap();
+
         if !message_id.is_valid() {
             writeln!(
                 stdout,
@@ -4043,9 +4076,26 @@ impl<
         &self,
         from_state_transition_index: usize,
         from_alternative_index: Option<usize>,
-        to_message_id: MessageId,
+        to_message_id: Option<MessageId>,
         stdout: &mut dyn Write,
     ) {
+        if to_message_id.is_none() {
+            // BEGIN NOT TESTED
+            writeln!(
+                stdout,
+                "T_{}_{} -> M_{}_{} [ arrowhead=dot, direction=forward, style=dashed ];",
+                from_state_transition_index,
+                from_alternative_index.unwrap_or(usize::max_value()),
+                from_state_transition_index,
+                from_alternative_index.unwrap_or(usize::max_value()),
+            )
+            .unwrap();
+            return;
+            // END NOT TESTED
+        }
+
+        let to_message_id = to_message_id.unwrap();
+
         let is_immediate = to_message_id.is_valid()
             && self.messages.get(to_message_id).order == MessageOrder::Immediate;
         let arrowhead = if is_immediate {
