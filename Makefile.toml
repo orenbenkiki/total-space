@@ -2,6 +2,3 @@ extend = "Makefile.scmf.toml"
 
 [config]
 load_script = ["curl -s https://raw.githubusercontent.com/orenbenkiki/scmf/master/Makefile.scmf.toml > Makefile.scmf.toml"]
-
-[env]
-RUST_TEST_THREADS = "1"

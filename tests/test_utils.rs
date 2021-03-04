@@ -12,112 +12,80 @@ struct Data {
     pub value: usize,
 }
 
+impl_default_by_value! { Data = Data { value: usize::max_value() } }
+impl_display_by_patched_debug! { Data }
+
 index_type! { DataId, u8 }
 
 #[test]
 fn test_memoize_value() {
-    let mut memoize = Memoize::<Data, DataId>::new(false);
+    let memoize = Memoize::<Data, DataId>::new(2, 2);
 
     let first = Data { value: 17 };
     assert_eq!(first.value, 17);
     assert_eq!(
-        memoize.store(first, None),
+        memoize.store(first),
         Stored {
             id: DataId::from_usize(0),
             is_new: true
         }
     );
-    assert_eq!(first, *memoize.get(DataId::from_usize(0)));
+    assert_eq!(first, memoize.get(DataId::from_usize(0)));
 
     let second = Data { value: 11 };
     assert_eq!(second.value, 11);
     assert_eq!(
-        memoize.store(second, None),
+        memoize.store(second),
         Stored {
             id: DataId::from_usize(1),
             is_new: true
         }
     );
-    assert_eq!(first, *memoize.get(DataId::from_usize(0)));
-    assert_eq!(second, *memoize.get(DataId::from_usize(1)));
+    assert_eq!(first, memoize.get(DataId::from_usize(0)));
+    assert_eq!(second, memoize.get(DataId::from_usize(1)));
 
     assert_eq!(
-        memoize.store(second, None),
+        memoize.store(second),
         Stored {
             id: DataId::from_usize(1),
             is_new: false
         }
     );
     assert_eq!(
-        memoize.store(first, None),
+        memoize.store(first),
         Stored {
             id: DataId::from_usize(0),
             is_new: false
         }
     );
-    assert_eq!(first, *memoize.get(DataId::from_usize(0)));
-    assert_eq!(second, *memoize.get(DataId::from_usize(1)));
+    assert_eq!(first, memoize.get(DataId::from_usize(0)));
+    assert_eq!(second, memoize.get(DataId::from_usize(1)));
 }
 
 #[test]
-fn test_memoize_display() {
-    let mut memoize = Memoize::<Data, DataId>::new(true);
-
-    let first = Data { value: 17 };
-    assert_eq!(first.value, 17);
-    assert_eq!(
-        memoize.store(first, Some("17!".to_string())).id,
-        DataId::from_usize(0)
-    );
-    assert_eq!(first, *memoize.get(DataId::from_usize(0)));
-    assert_eq!("17!", memoize.display(DataId::from_usize(0)));
-
-    let second = Data { value: 11 };
-    assert_eq!(second.value, 11);
-    assert_eq!(
-        memoize.store(second, Some("11!".to_string())).id,
-        DataId::from_usize(1)
-    );
-    assert_eq!(first, *memoize.get(DataId::from_usize(0)));
-    assert_eq!(second, *memoize.get(DataId::from_usize(1)));
-    assert_eq!("17!", memoize.display(DataId::from_usize(0)));
-    assert_eq!("11!", memoize.display(DataId::from_usize(1)));
-
-    assert_eq!(*memoize.lookup(&second).unwrap(), DataId::from_usize(1));
-    assert_eq!(*memoize.lookup(&first).unwrap(), DataId::from_usize(0));
-    assert_eq!(first, *memoize.get(DataId::from_usize(0)));
-    assert_eq!(second, *memoize.get(DataId::from_usize(1)));
-    assert_eq!("17!", memoize.display(DataId::from_usize(0)));
-    assert_eq!("11!", memoize.display(DataId::from_usize(1)));
-}
-
-#[test]
-#[should_panic(expected = "too many (256) memoized objects")]
+#[should_panic(expected = "too many (5) memoized objects")]
 fn test_memoize_limit() {
-    let mut memoize = Memoize::<Data, DataId>::new(false);
+    let memoize = Memoize::<Data, DataId>::new(2, 4);
 
-    for value in 0..256 {
+    for value in 0..5 {
         let data = Data { value: value };
         assert_eq!(data.value, value);
-        assert_eq!(memoize.store(data, None).id, DataId::from_usize(value));
-        assert_eq!(data, *memoize.get(DataId::from_usize(value)));
+        assert_eq!(memoize.store(data).id, DataId::from_usize(value));
+        assert_eq!(data, memoize.get(DataId::from_usize(value)));
     }
 }
 
 #[derive(PartialEq, Eq, Hash, Copy, Clone, Debug)]
 struct Payload(u8);
 
+impl_default_by_value! { Payload = Payload(255u8) }
+impl_display_by_patched_debug! { Payload }
+
 impl Validated for Payload {}
 
 impl Name for Payload {
     fn name(&self) -> &'static str {
         "payload"
-    }
-}
-
-impl Display for Payload {
-    fn fmt(&self, formatter: &mut Formatter<'_>) -> FormatterResult {
-        write!(formatter, "payload")
     }
 }
 

@@ -1,4 +1,5 @@
 use clap::App;
+use clap::ArgMatches;
 use lazy_static::*;
 use num_traits::cast::FromPrimitive;
 use num_traits::cast::ToPrimitive;
@@ -22,8 +23,8 @@ enum Payload {
     Request { client: usize },
     Response,
 }
-impl_message_payload! {
-    Payload,
+impl_data_like! {
+    Payload = Self::Confirm,
     "Check" => "CHK",
     "Confirm" => "CNF",
     "Request" => "REQ",
@@ -39,7 +40,7 @@ impl Validated for Payload {}
 enum ManagerState {
     Fixed,
 }
-impl_agent_state! {
+impl_data_like! {
     ManagerState = Self::Fixed,
     "Fixed" => ""
 }
@@ -82,7 +83,7 @@ enum ClientState {
     Check,
     Wait,
 }
-impl_agent_state! {
+impl_data_like! {
     ClientState = Self::Idle,
     "Idle" => "IDL",
     "Wait" => "WAT",
@@ -128,7 +129,7 @@ enum ServerState {
     Listen,
     Work { client: usize },
 }
-impl_agent_state! {
+impl_data_like! {
     ServerState = Self::Listen,
     "client" => "C",
     "Listen" => "LST",
@@ -183,7 +184,7 @@ type TestModel = Model<
     14, // MAX_MESSAGES
 >;
 
-fn test_model() -> TestModel {
+fn test_model(arg_matches: &ArgMatches) -> TestModel {
     const CLIENTS_COUNT: usize = 2;
     let client_type = Arc::new(AgentTypeData::<ClientState, StateId, Payload>::new(
         "C",
@@ -207,7 +208,7 @@ fn test_model() -> TestModel {
         Instances::Singleton,
         Some(manager_type.clone()),
     ));
-    let model = TestModel::new(server_type, vec![]);
+    let model = TestModel::new(model_size(arg_matches, 1), server_type, vec![]);
     init_global_agent_indices!(CLIENTS, "C", model);
     init_global_agent_index!(MANAGER, "MGR", model);
     init_global_agent_index!(SERVER, "SRV", model);
@@ -216,9 +217,9 @@ fn test_model() -> TestModel {
 
 #[test]
 fn test_agents() {
-    let mut model = test_model();
     let app = add_clap(App::new("agents"));
     let arg_matches = app.get_matches_from(vec!["test", "agents"].iter());
+    let mut model = test_model(&arg_matches);
     let mut stdout_bytes = Vec::new();
     model.do_clap(&arg_matches, &mut stdout_bytes);
     let stdout = str::from_utf8(&stdout_bytes).unwrap();
@@ -235,10 +236,10 @@ fn test_agents() {
 
 #[test]
 fn test_configurations() {
-    let mut model = test_model();
     let app = add_clap(App::new("configurations"));
     let arg_matches = app
         .get_matches_from(vec!["test", "-r", "-p", "-s", "1", "-t", "1", "configurations"].iter());
+    let mut model = test_model(&arg_matches);
     let mut stdout_bytes = Vec::new();
     model.do_clap(&arg_matches, &mut stdout_bytes);
     let stdout = str::from_utf8(&stdout_bytes).unwrap();
@@ -285,7 +286,6 @@ fn test_configurations() {
 
 #[test]
 fn test_sequence() {
-    let mut model = test_model();
     let app = add_clap(App::new("sequence"));
     let arg_matches = app.get_matches_from(
         vec![
@@ -293,6 +293,7 @@ fn test_sequence() {
         ]
         .iter(),
     );
+    let mut model = test_model(&arg_matches);
     let mut stdout_bytes = Vec::new();
     model.do_clap(&arg_matches, &mut stdout_bytes);
     let stdout = str::from_utf8(&stdout_bytes).unwrap();

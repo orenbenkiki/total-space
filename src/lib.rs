@@ -22,14 +22,16 @@ use clap::App;
 use clap::Arg;
 use clap::ArgMatches;
 use clap::SubCommand;
-use hashbrown::HashMap;
 use num_traits::FromPrimitive;
 use num_traits::ToPrimitive;
 use rayon::prelude::*;
 use rayon::scope;
 use rayon::Scope as ParallelScope;
 use rayon::ThreadPoolBuilder;
+use scc::HashMap;
 use std::cmp::max;
+use std::cmp::min;
+use std::collections::hash_map::RandomState;
 use std::collections::VecDeque;
 use std::fmt::Debug;
 use std::fmt::Display;
@@ -39,6 +41,8 @@ use std::hash::Hash;
 use std::io::Write;
 use std::marker::PhantomData;
 use std::str::FromStr;
+use std::sync::atomic::AtomicUsize;
+use std::sync::atomic::Ordering;
 use std::sync::Arc;
 
 /*
@@ -62,6 +66,9 @@ const RIGHT_DOUBLE_ARROW: &str = "&#8658;";
 
 /// A trait for anything we use as a key in a HashMap.
 pub trait KeyLike = Eq + Hash + Copy + Debug + Sized + Send + Sync;
+
+/// A trait for data we pass around in the model.
+pub trait DataLike = KeyLike + Validated + Named + Default;
 
 /// A trait for anything we use as a zero-based index.
 pub trait IndexLike: KeyLike + PartialOrd + Ord {
@@ -102,18 +109,9 @@ pub trait Name {
 
 // BEGIN MAYBE TESTED
 
-/// A macro for implementing a simple message payload.
+/// A macro for implementing data-like (states, payload).
 #[macro_export]
-macro_rules! impl_message_payload {
-    ($name:ident $(, $from:literal => $to:literal)* $(,)?) => {
-        impl_name_for_into_static_str! { $name }
-        impl_display_by_patched_debug! { $name $(, $from => $to)* }
-    };
-}
-
-/// A macro for implementing a simple agent state.
-#[macro_export]
-macro_rules! impl_agent_state {
+macro_rules! impl_data_like {
     ($name:ident = $value:expr $(, $from:literal => $to:literal)* $(,)?) => {
         impl_default_by_value! { $name = $value }
         impl_name_for_into_static_str! { $name }
@@ -240,7 +238,7 @@ pub trait Named = Display + Name;
 
 /// Result of a memoization store operation.
 #[derive(PartialEq, Eq, Hash, Copy, Clone, Debug)]
-pub struct Stored<I> {
+pub struct Stored<I: IndexLike> {
     /// The short identifier the data is stored under.
     pub id: I,
 
@@ -251,7 +249,7 @@ pub struct Stored<I> {
 /// Memoize values and, optionally, display strings.
 ///
 /// This assigns each unique value a (short) integer identifier. This identifier can be later used
-/// to retrieve the value or the display string.
+/// to retrieve the value.
 ///
 /// This is used extensively by the library for performance.
 ///
@@ -259,95 +257,118 @@ pub struct Stored<I> {
 /// keys in the HashMap and also as values in the vector. In principle, with clever use of
 /// RawEntryBuilder it might be possible to replace the HashMap key size to the size of an index of
 /// the vector.
-#[derive(Debug)]
-pub struct Memoize<T, I> {
+pub struct Memoize<T: KeyLike, I: IndexLike> {
     /// Lookup the memoized identifier for a value.
-    id_by_value: HashMap<T, I>,
+    id_by_value: HashMap<T, I, RandomState>,
+
+    /// The maximal number of identifiers to generate.
+    max_count: usize,
+
+    /// The next unused identifier.
+    next_id: AtomicUsize,
 
     /// Convert a memoized identifier to the value.
-    value_by_id: Vec<T>,
-
-    /// Optionally convert a memoized identifier to the display string.
-    display_by_id: Option<Vec<String>>,
+    value_by_id: RwLock<Vec<RwLock<T>>>,
 }
 
 // END MAYBE TESTED
 
-impl<T: KeyLike, I: IndexLike> Memoize<T, I> {
+impl<T: KeyLike + Default, I: IndexLike> Memoize<T, I> {
     /// Create a new memoization store.
-    ///
-    /// If `display`, will also memoize the display strings of the values.
-    pub fn new(display: bool) -> Self {
+    pub fn new(capacity: usize, max_count: usize) -> Self {
+        let capacity = min(capacity, max_count);
+
+        let mut value_by_id = Vec::with_capacity(capacity);
+        for _ in 0..capacity {
+            value_by_id.push(RwLock::new(Default::default()));
+        }
+
         Memoize {
-            id_by_value: HashMap::new(),
-            value_by_id: Vec::new(),
-            display_by_id: {
-                if display {
-                    Some(Vec::new())
-                } else {
-                    None
-                }
-            },
+            max_count,
+            next_id: AtomicUsize::new(0),
+            id_by_value: HashMap::new(capacity, RandomState::new()),
+            value_by_id: RwLock::new(value_by_id),
         }
     }
 
     /// Reserve space for some amount of additional values.
-    pub fn reserve(&mut self, additional: usize) {
-        self.value_by_id.reserve(additional);
-        self.id_by_value.reserve(additional);
+    pub fn reserve(&self, additional: usize) {
+        let mut value_by_id = self.value_by_id.write();
+        for _ in 0..additional {
+            value_by_id.push(RwLock::new(Default::default()));
+        }
+
+        // Not supported by scc::HashMap:
+        // self.id_by_value.reserve(additional);
     }
 
     /// The number of allocated identifiers.
     pub fn len(&self) -> usize {
-        self.id_by_value.len()
+        self.next_id.load(Ordering::Relaxed)
+    }
+
+    /// The allowed number of allocated identifiers.
+    pub fn capacity(&self) -> usize {
+        self.value_by_id.read().len()
     }
 
     /// Whether we have no identifiers stored at all.
     pub fn is_empty(&self) -> bool {
-        self.id_by_value.is_empty()
+        self.len() == 0
     }
 
     /// Given a value, look it up in the memory.
-    pub fn lookup(&self, value: &T) -> Option<&I> {
-        self.id_by_value.get(value)
+    pub fn lookup(&self, value: &T) -> Option<I> {
+        self.id_by_value.read(value, |_value, id| *id)
     }
 
     /// Given a value that may or may not exist in the memory, ensure it exists it and return its
     /// short identifier.
-    pub fn store(&mut self, value: T, display: Option<String>) -> Stored<I> {
-        match self.lookup(&value) {
-            Some(id) => Stored {
-                id: *id,
+    pub fn store(&self, value: T) -> Stored<I> {
+        match self.id_by_value.insert(value, I::from_usize(0)) {
+            Err(result) => Stored {
+                id: *result.0.get().1,
                 is_new: false,
             },
-            None => {
-                if self.len() >= I::invalid().to_usize() {
-                    panic!("too many ({}) memoized objects", self.len() + 1);
+            Ok(result) => {
+                let id = self.next_id.fetch_add(1, Ordering::Relaxed);
+                assert!(
+                    id < self.max_count,
+                    "too many ({}) memoized objects",
+                    id + 1
+                );
+
+                debug_assert!(*result.get().1 == I::from_usize(0));
+                *result.get().1 = I::from_usize(id);
+
+                if id >= self.value_by_id.read().len() {
+                    let mut value_by_id = self.value_by_id.write();
+                    if id >= value_by_id.len() {
+                        let additional = max(
+                            value_by_id.len() / GROWTH_FACTOR,
+                            1 + id - value_by_id.len(),
+                        );
+                        for _ in 0..additional {
+                            value_by_id.push(RwLock::new(Default::default()));
+                        }
+                    }
                 }
 
-                let id = I::from_usize(self.len());
-                self.id_by_value.insert(value, id);
-                self.value_by_id.push(value);
-                if let Some(ref mut display_by_id) = &mut self.display_by_id {
-                    display_by_id.push(display.unwrap());
-                } else {
-                    debug_assert!(display.is_none());
-                }
+                let value_by_id = self.value_by_id.read();
+                *value_by_id[id].write() = value;
 
-                Stored { id, is_new: true }
+                Stored {
+                    id: I::from_usize(id),
+                    is_new: true,
+                }
             }
         }
     }
 
     /// Given a short identifier previously returned by `store`, return the full value.
-    pub fn get(&self, id: I) -> &T {
-        &self.value_by_id[id.to_usize()]
-    }
-
-    /// Given a short identifier previously returned by `store`, return the display string (only if
-    /// memoizing the display strings).
-    pub fn display(&self, id: I) -> &str {
-        &self.display_by_id.as_ref().unwrap()[id.to_usize()]
+    pub fn get(&self, id: I) -> T {
+        debug_assert!(id.to_usize() < self.len());
+        *self.value_by_id.read()[id.to_usize()].read()
     }
 }
 
@@ -355,7 +376,7 @@ impl<T: KeyLike, I: IndexLike> Memoize<T, I> {
 
 /// A message sent by an agent as part of an alternative action triggered by some event.
 #[derive(PartialEq, Eq, Debug)]
-pub enum Emit<Payload> {
+pub enum Emit<Payload: DataLike> {
     /// Send a message that will be delivered immediately, before any other message is delivered.
     Immediate(Payload, usize),
 
@@ -382,7 +403,7 @@ pub enum Emit<Payload> {
 
 /// Specify an action the agent may take when handling an event.
 #[derive(PartialEq, Eq, Debug)]
-pub enum Action<State, Payload> {
+pub enum Action<State: KeyLike, Payload: DataLike> {
     /// Defer the event, keep the state the same, do not send any messages.
     ///
     /// This is only useful if it is needed to be listed as an alternative with other actions;
@@ -434,7 +455,7 @@ pub enum Action<State, Payload> {
 
 /// The reaction of an agent to an event.
 #[derive(PartialEq, Eq, Debug)]
-pub enum Reaction<State, Payload> {
+pub enum Reaction<State: KeyLike, Payload: DataLike> {
     /// Indicate an unexpected event.
     Unexpected,
 
@@ -482,7 +503,7 @@ pub enum Instances {
 // END MAYBE TESTED
 
 /// A trait partially describing some agent instances of the same type.
-pub trait AgentInstances<StateId, Payload>: Name {
+pub trait AgentInstances<StateId: IndexLike, Payload: DataLike>: Name {
     /// Return the previous agent type in the chain, if any.
     fn prev_agent_type(&self) -> Option<Arc<dyn AgentType<StateId, Payload> + Send + Sync>>;
 
@@ -516,7 +537,9 @@ pub trait AgentInstances<StateId, Payload>: Name {
 }
 
 /// A trait fully describing some agent instances of the same type.
-pub trait AgentType<StateId, Payload>: AgentInstances<StateId, Payload> {
+pub trait AgentType<StateId: IndexLike, Payload: DataLike>:
+    AgentInstances<StateId, Payload>
+{
     /// Return the actions that may be taken by an agent instance with some state when receiving a
     /// message.
     fn receive_message(
@@ -542,7 +565,7 @@ pub trait AgentType<StateId, Payload>: AgentInstances<StateId, Payload> {
 }
 
 /// Allow access to state of parts.
-pub trait PartType<State, StateId> {
+pub trait PartType<State: DataLike, StateId: IndexLike> {
     /// Access the part state by the state identifier.
     fn part_state_by_id(&self, state_id: StateId) -> State;
 
@@ -558,9 +581,9 @@ pub trait PartType<State, StateId> {
 /// The data we need to implement an agent type.
 ///
 /// This should be placed in a `Singleton` to allow the agent states to get services from it.
-pub struct AgentTypeData<State, StateId, Payload> {
+pub struct AgentTypeData<State: DataLike, StateId: IndexLike, Payload: DataLike> {
     /// Memoization of the agent states.
-    states: RwLock<Memoize<State, StateId>>,
+    states: Memoize<State, StateId>,
 
     /// The index of the first agent of this type.
     first_index: usize,
@@ -584,7 +607,13 @@ pub struct AgentTypeData<State, StateId, Payload> {
 /// The data we need to implement an agent type.
 ///
 /// This should be placed in a `Singleton` to allow the agent states to get services from it.
-pub struct ContainerTypeData<State, Part, StateId, Payload, const MAX_PARTS: usize> {
+pub struct ContainerTypeData<
+    State: DataLike,
+    Part: DataLike,
+    StateId: IndexLike,
+    Payload: DataLike,
+    const MAX_PARTS: usize,
+> {
     /// The basic agent type data.
     agent_type_data: AgentTypeData<State, StateId, Payload>,
 
@@ -594,11 +623,8 @@ pub struct ContainerTypeData<State, Part, StateId, Payload, const MAX_PARTS: usi
 
 // END MAYBE TESTED
 
-impl<
-        State: KeyLike + Validated + Named + Default,
-        StateId: IndexLike,
-        Payload: KeyLike + Validated + Named,
-    > AgentTypeData<State, StateId, Payload>
+impl<State: DataLike, StateId: IndexLike, Payload: DataLike>
+    AgentTypeData<State, StateId, Payload>
 {
     /// Create new agent type data with the specified name and number of instances.
     pub fn new(
@@ -619,10 +645,8 @@ impl<
         };
 
         let default_state: State = Default::default();
-        let states = RwLock::new(Memoize::new(true));
-        states
-            .write()
-            .store(default_state, Some(format!("{}", default_state)));
+        let states = Memoize::new(StateId::invalid().to_usize(), StateId::invalid().to_usize());
+        states.store(default_state);
 
         let instance_orders = vec![0; count];
 
@@ -641,10 +665,10 @@ impl<
 }
 
 impl<
-        State: KeyLike + Validated + Named + Default,
-        Part: KeyLike + Validated + Named + Default,
+        State: DataLike,
+        Part: DataLike,
         StateId: IndexLike,
-        Payload: KeyLike + Validated + Named,
+        Payload: DataLike,
         const MAX_PARTS: usize,
     > ContainerTypeData<State, Part, StateId, Payload, MAX_PARTS>
 {
@@ -662,14 +686,11 @@ impl<
     }
 }
 
-impl<
-        State: KeyLike + Validated + Named + Default,
-        StateId: IndexLike,
-        Payload: KeyLike + Validated + Named,
-    > PartType<State, StateId> for AgentTypeData<State, StateId, Payload>
+impl<State: DataLike, StateId: IndexLike, Payload: DataLike> PartType<State, StateId>
+    for AgentTypeData<State, StateId, Payload>
 {
     fn part_state_by_id(&self, state_id: StateId) -> State {
-        *self.states.read().get(state_id)
+        self.states.get(state_id)
     }
 
     fn part_first_index(&self) -> usize {
@@ -682,11 +703,7 @@ impl<
 }
 
 /// A trait for a single agent state.
-pub trait AgentState<
-    State: KeyLike + Validated + Named + Default,
-    Payload: KeyLike + Validated + Named,
->
-{
+pub trait AgentState<State: DataLike, Payload: DataLike> {
     /// Return the actions that may be taken by an agent instance with this state when receiving a
     /// message.
     fn receive_message(&self, instance: usize, payload: &Payload) -> Reaction<State, Payload>;
@@ -707,12 +724,7 @@ pub trait AgentState<
 }
 
 /// A trait for a container agent state.
-pub trait ContainerState<
-    State: KeyLike + Validated + Named + Default,
-    Part: KeyLike + Validated + Named + Default,
-    Payload: KeyLike + Validated + Named,
->
-{
+pub trait ContainerState<State: DataLike, Part: DataLike, Payload: DataLike> {
     /// Return the actions that may be taken by an agent instance with this state when receiving a
     /// message.
     fn receive_message(
@@ -744,11 +756,8 @@ pub trait Validated {
     }
 }
 
-impl<
-        State: KeyLike + Validated + Named,
-        StateId: IndexLike,
-        Payload: KeyLike + Validated + Named,
-    > AgentTypeData<State, StateId, Payload>
+impl<State: DataLike, StateId: IndexLike, Payload: DataLike>
+    AgentTypeData<State, StateId, Payload>
 {
     fn translate_reaction(&self, reaction: Reaction<State, Payload>) -> Reaction<StateId, Payload> {
         match reaction {
@@ -807,35 +816,33 @@ impl<
     }
 
     fn translate_state(&self, state: State) -> StateId {
-        if let Some(state_id) = self.states.read().lookup(&state) {
-            return *state_id;
-        }
-        self.states
-            .write()
-            .store(state, Some(format!("{}", state)))
-            .id
+        self.states.store(state).id
     }
 }
 
-impl<State, StateId, Payload> Name for AgentTypeData<State, StateId, Payload> {
+impl<State: DataLike, StateId: IndexLike, Payload: DataLike> Name
+    for AgentTypeData<State, StateId, Payload>
+{
     fn name(&self) -> &'static str {
         &self.name
     }
 }
 
-impl<State, Part, StateId, Payload, const MAX_PARTS: usize> Name
-    for ContainerTypeData<State, Part, StateId, Payload, MAX_PARTS>
+impl<
+        State: DataLike,
+        Part: DataLike,
+        StateId: IndexLike,
+        Payload: DataLike,
+        const MAX_PARTS: usize,
+    > Name for ContainerTypeData<State, Part, StateId, Payload, MAX_PARTS>
 {
     fn name(&self) -> &'static str {
         &self.agent_type_data.name()
     }
 }
 
-impl<
-        State: KeyLike + Validated + Named,
-        StateId: IndexLike,
-        Payload: KeyLike + Validated + Named,
-    > AgentInstances<StateId, Payload> for AgentTypeData<State, StateId, Payload>
+impl<State: DataLike, StateId: IndexLike, Payload: DataLike> AgentInstances<StateId, Payload>
+    for AgentTypeData<State, StateId, Payload>
 {
     fn prev_agent_type(&self) -> Option<Arc<dyn AgentType<StateId, Payload> + Send + Sync>> {
         self.prev_agent_type.clone()
@@ -862,21 +869,21 @@ impl<
     }
 
     fn state_display(&self, state_id: StateId) -> String {
-        self.states.read().display(state_id).to_string()
+        format!("{}", self.states.get(state_id))
     }
 
     // BEGIN NOT TESTED
     fn state_name(&self, state_id: StateId) -> &'static str {
-        self.states.read().get(state_id).name()
+        self.states.get(state_id).name()
     }
     // END NOT TESTED
 }
 
 impl<
-        State: KeyLike + Validated + Named + Default + ContainerState<State, Part, Payload>,
-        Part: KeyLike + Validated + Named + Default + AgentState<Part, Payload>,
+        State: DataLike + ContainerState<State, Part, Payload>,
+        Part: DataLike + AgentState<Part, Payload>,
         StateId: IndexLike,
-        Payload: KeyLike + Validated + Named,
+        Payload: DataLike,
         const MAX_PARTS: usize,
     > AgentInstances<StateId, Payload>
     for ContainerTypeData<State, Part, StateId, Payload, MAX_PARTS>
@@ -916,11 +923,8 @@ impl<
     // END NOT TESTED
 }
 
-impl<
-        State: KeyLike + Validated + Named + Default + AgentState<State, Payload>,
-        StateId: IndexLike,
-        Payload: KeyLike + Validated + Named,
-    > AgentType<StateId, Payload> for AgentTypeData<State, StateId, Payload>
+impl<State: DataLike + AgentState<State, Payload>, StateId: IndexLike, Payload: DataLike>
+    AgentType<StateId, Payload> for AgentTypeData<State, StateId, Payload>
 {
     fn receive_message(
         &self,
@@ -936,7 +940,6 @@ impl<
         );
         let reaction = self
             .states
-            .read()
             .get(state_ids[self.first_index + instance])
             .receive_message(instance, payload);
         self.translate_reaction(reaction)
@@ -951,7 +954,6 @@ impl<
         );
         let reaction = self
             .states
-            .read()
             .get(state_ids[self.first_index + instance])
             .pass_time(instance);
         self.translate_reaction(reaction)
@@ -965,7 +967,6 @@ impl<
             self.instances_count() // NOT TESTED
         );
         self.states
-            .read()
             .get(state_ids[self.first_index + instance])
             .is_deferring()
     }
@@ -982,21 +983,20 @@ impl<
             self.instances_count() // NOT TESTED
         );
         self.states
-            .read()
             .get(state_ids[self.first_index + instance])
             .max_in_flight_messages()
     }
 
     fn states_count(&self) -> usize {
-        self.states.read().len()
+        self.states.len()
     }
 }
 
 impl<
-        State: KeyLike + Validated + Named + Default + ContainerState<State, Part, Payload>,
-        Part: KeyLike + Validated + Named + Default + AgentState<Part, Payload>,
+        State: DataLike + ContainerState<State, Part, Payload>,
+        Part: DataLike + AgentState<Part, Payload>,
         StateId: IndexLike,
-        Payload: KeyLike + Validated + Named,
+        Payload: DataLike,
         const MAX_PARTS: usize,
     > ContainerTypeData<State, Part, StateId, Payload, MAX_PARTS>
 {
@@ -1010,10 +1010,10 @@ impl<
 }
 
 impl<
-        State: KeyLike + Validated + Named + Default + ContainerState<State, Part, Payload>,
-        Part: KeyLike + Validated + Named + Default + AgentState<Part, Payload>,
+        State: DataLike + ContainerState<State, Part, Payload>,
+        Part: DataLike + AgentState<Part, Payload>,
         StateId: IndexLike,
-        Payload: KeyLike + Validated + Named,
+        Payload: DataLike,
         const MAX_PARTS: usize,
     > AgentType<StateId, Payload> for ContainerTypeData<State, Part, StateId, Payload, MAX_PARTS>
 {
@@ -1037,7 +1037,6 @@ impl<
         let reaction = self
             .agent_type_data
             .states
-            .read()
             .get(state_ids[self.agent_type_data.first_index + instance])
             .receive_message(instance, payload, parts);
         self.agent_type_data.translate_reaction(reaction)
@@ -1058,7 +1057,6 @@ impl<
         let reaction = self
             .agent_type_data
             .states
-            .read()
             .get(state_ids[self.agent_type_data.first_index + instance])
             .pass_time(instance, parts);
         self.agent_type_data.translate_reaction(reaction)
@@ -1078,7 +1076,6 @@ impl<
 
         self.agent_type_data
             .states
-            .read()
             .get(state_ids[self.agent_type_data.first_index + instance])
             .is_deferring(parts)
     }
@@ -1101,14 +1098,13 @@ impl<
 
         self.agent_type_data
             .states
-            .read()
             .get(state_ids[self.agent_type_data.first_index + instance])
             .max_in_flight_messages(parts)
     }
 
     // BEGIN NOT TESTED
     fn states_count(&self) -> usize {
-        self.agent_type_data.states.read().len()
+        self.agent_type_data.states.len()
     }
     // END NOT TESTED
 }
@@ -1196,7 +1192,7 @@ pub enum MessageOrder {
 
 /// A message in-flight between agents.
 #[derive(PartialEq, Eq, PartialOrd, Ord, Hash, Copy, Clone, Debug)]
-pub struct Message<Payload> {
+pub struct Message<Payload: DataLike> {
     /// How the message is ordered.
     pub order: MessageOrder,
 
@@ -1213,12 +1209,30 @@ pub struct Message<Payload> {
     pub replaced: Option<Payload>,
 }
 
+impl<Payload: DataLike> Default for Message<Payload> {
+    fn default() -> Self {
+        Message {
+            order: MessageOrder::Unordered,
+            source_index: usize::max_value(),
+            target_index: usize::max_value(),
+            payload: Default::default(),
+            replaced: None,
+        }
+    }
+}
+
 /// An indicator that something is invalid.
 #[derive(PartialEq, Eq, Hash, Copy, Clone, Debug)]
-pub enum Invalid<MessageId> {
+pub enum Invalid<MessageId: IndexLike> {
     Configuration(&'static str),
     Agent(usize, &'static str),
     Message(MessageId, &'static str),
+}
+
+impl<MessageId: IndexLike> Default for Invalid<MessageId> {
+    fn default() -> Self {
+        Invalid::Configuration("you should not be seeing this")
+    }
 }
 
 /// A complete system configuration.
@@ -1229,9 +1243,9 @@ pub enum Invalid<MessageId> {
 /// cache-friendly when placed inside a hash table.
 #[derive(PartialEq, Eq, Hash, Copy, Clone, Debug)]
 pub struct Configuration<
-    StateId,
-    MessageId,
-    InvalidId,
+    StateId: IndexLike,
+    MessageId: IndexLike,
+    InvalidId: IndexLike,
     const MAX_AGENTS: usize,
     const MAX_MESSAGES: usize,
 > {
@@ -1252,6 +1266,25 @@ pub struct Configuration<
 }
 
 // END MAYBE TESTED
+
+impl<
+        StateId: IndexLike,
+        MessageId: IndexLike,
+        InvalidId: IndexLike,
+        const MAX_AGENTS: usize,
+        const MAX_MESSAGES: usize,
+    > Default for Configuration<StateId, MessageId, InvalidId, MAX_AGENTS, MAX_MESSAGES>
+{
+    fn default() -> Self {
+        Configuration {
+            state_ids: [StateId::invalid(); MAX_AGENTS],
+            message_counts: [MessageIndex::invalid(); MAX_AGENTS],
+            message_ids: [MessageId::invalid(); MAX_MESSAGES],
+            invalid_id: InvalidId::invalid(),
+            immediate_index: MessageIndex::invalid(),
+        }
+    }
+}
 
 impl<
         StateId: IndexLike,
@@ -1352,7 +1385,7 @@ impl<
 
 /// A transition from a given configuration.
 #[derive(Copy, Clone, Debug)]
-pub struct Outgoing<ConfigurationId> {
+pub struct Outgoing<ConfigurationId: IndexLike> {
     /// The identifier of the target configuration.
     pub to_configuration_id: ConfigurationId,
 
@@ -1363,7 +1396,7 @@ pub struct Outgoing<ConfigurationId> {
 
 /// A transition to a given configuration.
 #[derive(Copy, Clone, Debug)]
-pub struct Incoming<ConfigurationId> {
+pub struct Incoming<ConfigurationId: IndexLike> {
     /// The identifier of the source configuration.
     pub from_configuration_id: ConfigurationId,
 
@@ -1401,7 +1434,7 @@ pub struct Model<
     MessageId: IndexLike,
     InvalidId: IndexLike,
     ConfigurationId: IndexLike,
-    Payload: KeyLike + Validated + Named,
+    Payload: DataLike,
     const MAX_AGENTS: usize,
     const MAX_MESSAGES: usize,
 > {
@@ -1418,25 +1451,22 @@ pub struct Model<
     pub validators: Vec<<Self as MetaModel>::Validator>,
 
     /// Memoization of the configurations.
-    pub configurations: RwLock<Memoize<<Self as MetaModel>::Configuration, ConfigurationId>>,
+    pub configurations: Memoize<<Self as MetaModel>::Configuration, ConfigurationId>,
 
     /// Memoization of the in-flight messages.
-    pub messages: RwLock<Memoize<Message<Payload>, MessageId>>,
+    pub messages: Memoize<Message<Payload>, MessageId>,
 
     /// Map ordered message identifiers to their earlier order.
-    pub decr_order_messages: RwLock<HashMap<MessageId, MessageId>>,
+    pub decr_order_messages: HashMap<MessageId, MessageId, RandomState>,
 
     /// Memoization of the invalid conditions.
-    pub invalids: RwLock<Memoize<<Self as MetaModel>::Invalid, InvalidId>>,
+    pub invalids: Memoize<<Self as MetaModel>::Invalid, InvalidId>,
 
     /// For each configuration, which configuration is reachable from it.
     pub outgoings: RwLock<Vec<RwLock<Vec<<Self as MetaModel>::Outgoing>>>>,
 
     /// For each configuration, which configuration can reach it.
     pub incomings: RwLock<Vec<RwLock<Vec<<Self as MetaModel>::Incoming>>>>,
-
-    /// How many additional slots we have reserved in the per-configuration data structures.
-    pub reserved: RwLock<usize>,
 
     /// The maximal message string size we have seen so far.
     pub max_message_string_size: RwLock<usize>,
@@ -1462,7 +1492,7 @@ pub struct Model<
     pub threads: Threads,
 
     /// Named conditions on a configuration.
-    pub conditions: RwLock<HashMap<&'static str, (<Self as MetaModel>::Condition, &'static str)>>,
+    pub conditions: HashMap<String, (<Self as MetaModel>::Condition, &'static str), RandomState>,
 }
 
 /// How a message relates to the previous configuration.
@@ -1526,7 +1556,11 @@ pub struct SequenceState<const MAX_AGENTS: usize, const MAX_MESSAGES: usize> {
 
 /// A transition between configurations along a path.
 #[derive(Debug)]
-pub struct PathTransition<MessageId, ConfigurationId, const MAX_MESSAGES: usize> {
+pub struct PathTransition<
+    MessageId: IndexLike,
+    ConfigurationId: IndexLike,
+    const MAX_MESSAGES: usize,
+> {
     /// The source configuration identifier.
     pub from_configuration_id: ConfigurationId,
 
@@ -1556,7 +1590,8 @@ pub struct PathTransition<MessageId, ConfigurationId, const MAX_MESSAGES: usize>
 
 /// A transition between agent states in the diagram.
 #[derive(PartialEq, Eq, PartialOrd, Ord, Hash, Copy, Clone, Debug)]
-pub struct AgentStateTransition<StateId, MessageId, const MAX_MESSAGES: usize> {
+pub struct AgentStateTransition<StateId: IndexLike, MessageId: IndexLike, const MAX_MESSAGES: usize>
+{
     /// The state the agent started at.
     pub from_state_id: StateId,
 
@@ -1680,7 +1715,7 @@ pub struct Context<
     MessageId: IndexLike,
     InvalidId: IndexLike,
     ConfigurationId: IndexLike,
-    Payload: KeyLike + Validated + Named,
+    Payload: DataLike,
     const MAX_AGENTS: usize,
     const MAX_MESSAGES: usize,
 > {
@@ -1720,7 +1755,7 @@ impl<
         MessageId: IndexLike,
         InvalidId: IndexLike,
         ConfigurationId: IndexLike,
-        Payload: KeyLike + Validated + Named,
+        Payload: DataLike,
         const MAX_AGENTS: usize,
         const MAX_MESSAGES: usize,
     > MetaModel
@@ -1751,8 +1786,11 @@ impl<
     type Condition = fn(&Self, ConfigurationId) -> bool;
     type PathTransition = PathTransition<MessageId, ConfigurationId, MAX_MESSAGES>;
     type AgentStateTransition = AgentStateTransition<StateId, MessageId, MAX_MESSAGES>;
-    type AgentStateTransitions =
-        HashMap<AgentStateTransition<StateId, MessageId, MAX_MESSAGES>, Vec<MessageId>>;
+    type AgentStateTransitions = HashMap<
+        AgentStateTransition<StateId, MessageId, MAX_MESSAGES>,
+        Vec<MessageId>,
+        RandomState,
+    >;
     type SequenceState = SequenceState<MAX_AGENTS, MAX_MESSAGES>;
 }
 
@@ -1769,7 +1807,7 @@ fn is_valid<
     MessageId: IndexLike,
     InvalidId: IndexLike,
     ConfigurationId: IndexLike,
-    Payload: KeyLike + Validated + Named,
+    Payload: DataLike,
     const MAX_AGENTS: usize,
     const MAX_MESSAGES: usize,
 >(
@@ -1786,7 +1824,6 @@ fn is_valid<
 ) -> bool {
     !model
         .configurations
-        .read()
         .get(configuration_id)
         .invalid_id
         .is_valid()
@@ -1799,7 +1836,7 @@ fn has_replacement<
     MessageId: IndexLike,
     InvalidId: IndexLike,
     ConfigurationId: IndexLike,
-    Payload: KeyLike + Validated + Named,
+    Payload: DataLike,
     const MAX_AGENTS: usize,
     const MAX_MESSAGES: usize,
 >(
@@ -1814,15 +1851,13 @@ fn has_replacement<
     >,
     configuration_id: ConfigurationId,
 ) -> bool {
-    let messages = model.messages.read();
     model
         .configurations
-        .read()
         .get(configuration_id)
         .message_ids
         .iter()
         .take_while(|message_id| message_id.is_valid())
-        .map(|message_id| messages.get(*message_id))
+        .map(|message_id| model.messages.get(*message_id))
         .any(|message| message.replaced.is_some())
 }
 
@@ -1831,7 +1866,7 @@ fn has_messages_count<
     MessageId: IndexLike,
     InvalidId: IndexLike,
     ConfigurationId: IndexLike,
-    Payload: KeyLike + Validated + Named,
+    Payload: DataLike,
     const MAX_AGENTS: usize,
     const MAX_MESSAGES: usize,
     const MESSAGES_COUNT: usize,
@@ -1849,7 +1884,6 @@ fn has_messages_count<
 ) -> bool {
     model
         .configurations
-        .read()
         .get(configuration_id)
         .message_ids
         .iter()
@@ -1863,7 +1897,7 @@ impl<
         MessageId: IndexLike,
         InvalidId: IndexLike,
         ConfigurationId: IndexLike,
-        Payload: KeyLike + Validated + Named,
+        Payload: DataLike,
         const MAX_AGENTS: usize,
         const MAX_MESSAGES: usize,
     > Model<StateId, MessageId, InvalidId, ConfigurationId, Payload, MAX_AGENTS, MAX_MESSAGES>
@@ -1873,6 +1907,7 @@ impl<
     /// This allows querying the model for the `agent_index` of all the agents to use the results as
     /// a target for messages.
     pub fn new(
+        size: usize,
         last_agent_type: Arc<dyn AgentType<StateId, Payload> + Send + Sync>,
         validators: Vec<<Self as MetaModel>::Validator>,
     ) -> Self {
@@ -1899,13 +1934,18 @@ impl<
             agent_labels,
             first_indices,
             validators,
-            configurations: RwLock::new(Memoize::new(false)),
-            messages: RwLock::new(Memoize::new(true)),
-            decr_order_messages: RwLock::new(HashMap::new()),
-            invalids: RwLock::new(Memoize::new(true)),
+            configurations: Memoize::new(size, usize::max_value()),
+            messages: Memoize::new(
+                MessageId::invalid().to_usize(),
+                MessageId::invalid().to_usize(),
+            ),
+            decr_order_messages: HashMap::new(MessageId::invalid().to_usize(), RandomState::new()),
+            invalids: Memoize::new(
+                InvalidId::invalid().to_usize(),
+                InvalidId::invalid().to_usize(),
+            ),
             outgoings: RwLock::new(Vec::new()),
             incomings: RwLock::new(Vec::new()),
-            reserved: RwLock::new(0),
             max_message_string_size: RwLock::new(0),
             max_invalid_string_size: RwLock::new(0),
             max_configuration_string_size: RwLock::new(0),
@@ -1913,21 +1953,27 @@ impl<
             ensure_init_is_reachable: false,
             allow_invalid_configurations: false,
             threads: Threads::Physical,
-            conditions: RwLock::new(HashMap::new()),
+            conditions: HashMap::new(128, RandomState::new()),
         };
 
-        model.add_condition("INIT", is_init, "matches the initial configuration");
-        model.add_condition(
+        model.add_conditions();
+
+        model
+    }
+
+    fn add_conditions(&self) {
+        self.add_condition("INIT", is_init, "matches the initial configuration");
+        self.add_condition(
             "VALID",
             is_valid,
             "matches any valid configuration (is typically negated)",
         );
-        model.add_condition(
+        self.add_condition(
             "REPLACE",
             has_replacement,
             "matches a configuration with a replaced message",
         );
-        model.add_condition(
+        self.add_condition(
             "0MSG",
             has_messages_count::<
                 StateId,
@@ -1941,7 +1987,7 @@ impl<
             >,
             "matches any configuration with no in-flight messages",
         );
-        model.add_condition(
+        self.add_condition(
             "1MSG",
             has_messages_count::<
                 StateId,
@@ -1955,7 +2001,7 @@ impl<
             >,
             "matches any configuration with a single in-flight message",
         );
-        model.add_condition(
+        self.add_condition(
             "2MSG",
             has_messages_count::<
                 StateId,
@@ -1969,7 +2015,7 @@ impl<
             >,
             "matches any configuration with 2 in-flight messages",
         );
-        model.add_condition(
+        self.add_condition(
             "3MSG",
             has_messages_count::<
                 StateId,
@@ -1983,7 +2029,7 @@ impl<
             >,
             "matches any configuration with 3 in-flight messages",
         );
-        model.add_condition(
+        self.add_condition(
             "4MSG",
             has_messages_count::<
                 StateId,
@@ -1997,7 +2043,7 @@ impl<
             >,
             "matches any configuration with 4 in-flight messages",
         );
-        model.add_condition(
+        self.add_condition(
             "5MSG",
             has_messages_count::<
                 StateId,
@@ -2011,7 +2057,7 @@ impl<
             >,
             "matches any configuration with 5 in-flight messages",
         );
-        model.add_condition(
+        self.add_condition(
             "6MSG",
             has_messages_count::<
                 StateId,
@@ -2025,7 +2071,7 @@ impl<
             >,
             "matches any configuration with 6 in-flight messages",
         );
-        model.add_condition(
+        self.add_condition(
             "7MSG",
             has_messages_count::<
                 StateId,
@@ -2039,7 +2085,7 @@ impl<
             >,
             "matches any configuration with 7 in-flight messages",
         );
-        model.add_condition(
+        self.add_condition(
             "8MSG",
             has_messages_count::<
                 StateId,
@@ -2053,7 +2099,7 @@ impl<
             >,
             "matches any configuration with 8 in-flight messages",
         );
-        model.add_condition(
+        self.add_condition(
             "9MSG",
             has_messages_count::<
                 StateId,
@@ -2067,8 +2113,6 @@ impl<
             >,
             "matches any configuration with 9 in-flight messages",
         );
-
-        model
     }
 
     pub fn add_condition(
@@ -2077,7 +2121,7 @@ impl<
         condition: <Self as MetaModel>::Condition,
         help: &'static str,
     ) {
-        self.conditions.write().insert(name, (condition, help));
+        self.conditions.upsert(name.to_string(), (condition, help));
     }
 
     fn collect_agent_types(
@@ -2118,20 +2162,9 @@ impl<
         }
     }
 
-    /// Reserve space for some amount of additional configurations.
-    pub fn reserve(&self, additional: usize) {
-        let mut reserved = self.reserved.write();
-        self.configurations.write().reserve(additional);
-        if self.ensure_init_is_reachable {
-            self.incomings.write().reserve(additional); // NOT TESTED
-        }
-        self.outgoings.write().reserve(additional);
-        *reserved += 1;
-    }
-
     /// Compute all the configurations of the model, if needed.
     pub fn compute(&self) {
-        if self.outgoings.read().len() > 0 {
+        if !self.configurations.is_empty() {
             return;
         }
 
@@ -2207,9 +2240,13 @@ impl<
         parallel_scope: &ParallelScope<'a>,
         configuration_id: ConfigurationId,
     ) {
-        let configuration = *self.configurations.read().get(configuration_id);
+        let configuration = self.configurations.get(configuration_id);
         if self.eprint_progress {
-            eprintln!("REACH {}", self.display_configuration(&configuration));
+            eprintln!(
+                "{} - {}",
+                configuration_id.to_usize(),
+                self.display_configuration(&configuration)
+            );
         }
 
         let messages_count = if configuration.has_immediate() {
@@ -2301,8 +2338,7 @@ impl<
         let message_id = from_configuration.message_ids[message_index];
 
         let (source_index, target_index, payload, is_immediate) = {
-            let messages = self.messages.read();
-            let message = messages.get(message_id);
+            let message = self.messages.get(message_id);
             if let MessageOrder::Ordered(order) = message.order {
                 if order.to_usize() > 0 {
                     return;
@@ -2548,12 +2584,11 @@ impl<
         replaced: Option<Payload>,
     ) -> <Self as MetaModel>::Message {
         let mut order = {
-            let messages = self.messages.read();
             to_configuration
                 .message_ids
                 .iter()
                 .take_while(|message_id| message_id.is_valid())
-                .map(|message_id| messages.get(*message_id))
+                .map(|message_id| self.messages.get(*message_id))
                 .filter(|message| {
                     message.source_index == source_index
                         && message.target_index == target_index
@@ -2570,38 +2605,21 @@ impl<
             replaced,
         };
 
-        let mut message_id = MessageId::invalid();
         let mut decr_message = message;
-        loop {
-            if let Some(next_message_id) = self.messages.read().lookup(&decr_message) {
-                if message_id.is_valid() {
-                    self.decr_order_messages
-                        .write()
-                        .insert(message_id, *next_message_id);
-                }
-                return message;
-            }
-
-            let stored = self
-                .messages
-                .write()
-                .store(message, Some(self.display_message(&decr_message)));
-
-            if message_id.is_valid() {
-                // BEGIN NOT TESTED
-                self.decr_order_messages
-                    .write()
-                    .insert(message_id, stored.id);
-                // END NOT TESTED
-            }
-
-            if !stored.is_new || order == 0 {
-                break;
-            }
-
+        let mut decr_message_id = self.messages.store(message).id;
+        while order > 0 {
             order -= 1;
-            decr_message.order = MessageOrder::Ordered(MessageIndex::from_usize(order));
-            message_id = stored.id;
+            match self
+                .decr_order_messages
+                .insert(decr_message_id, MessageId::from_usize(0))
+            {
+                Ok(result) => {
+                    decr_message.order = MessageOrder::Ordered(MessageIndex::from_usize(order));
+                    decr_message_id = self.messages.store(decr_message).id;
+                    *result.get().1 = decr_message_id;
+                }
+                Err(_) => break,
+            }
         }
 
         message
@@ -2615,14 +2633,13 @@ impl<
         target_index: usize,
     ) -> Option<Payload> {
         let replaced = {
-            let messages = self.messages.read();
             context
                 .to_configuration
                 .message_ids
                 .iter()
                 .take_while(|message_id| message_id.is_valid())
                 .enumerate()
-                .map(|(message_index, message_id)| (message_index, messages.get(*message_id)))
+                .map(|(message_index, message_id)| (message_index, self.messages.get(*message_id)))
                 .filter(|(_, message)| {
                     message.source_index == context.agent_index
                         && message.target_index == target_index
@@ -2711,8 +2728,7 @@ impl<
     ) {
         let removed_message_id = configuration.message_ids[message_index];
         let (removed_source_index, removed_target_index, removed_order) = {
-            let messages = self.messages.read();
-            let removed_message = messages.get(removed_message_id);
+            let removed_message = self.messages.get(removed_message_id);
             if let MessageOrder::Ordered(removed_order) = removed_message.order {
                 (
                     removed_message.source_index,
@@ -2731,7 +2747,6 @@ impl<
         configuration.remove_message(source, message_index);
 
         if let Some(removed_message_order) = removed_order {
-            let messages = self.messages.read();
             let mut did_modify = false;
             for message_index in 0..MAX_MESSAGES {
                 let message_id = configuration.message_ids[message_index];
@@ -2743,7 +2758,7 @@ impl<
                     continue;
                 }
 
-                let message = messages.get(message_id);
+                let message = self.messages.get(message_id);
                 if message.source_index != removed_source_index
                     || message.target_index != removed_target_index
                 {
@@ -2752,8 +2767,10 @@ impl<
 
                 if let MessageOrder::Ordered(message_order) = message.order {
                     if message_order > removed_message_order {
-                        configuration.message_ids[message_index] =
-                            self.decr_order_messages.read()[&message_id];
+                        configuration.message_ids[message_index] = self
+                            .decr_order_messages
+                            .read(&message_id, |_message_id, message| *message)
+                            .unwrap();
                         did_modify = true;
                     }
                 }
@@ -2782,7 +2799,7 @@ impl<
             );
             // END NOT TESTED
         }
-        let message_id = self.store_message(message);
+        let message_id = self.messages.store(message).id;
         context
             .to_configuration
             .add_message(context.agent_index, message_id, is_immediate);
@@ -2896,75 +2913,50 @@ impl<
             // BEGIN NOT TESTED
             if let Some(reason) = validator(&context.to_configuration) {
                 let invalid = <Self as MetaModel>::Invalid::Configuration(reason);
-                context.to_configuration.invalid_id = self.store_invalid(invalid);
+                context.to_configuration.invalid_id = self.invalids.store(invalid).id;
                 return;
             }
             // END NOT TESTED
         }
     }
 
-    fn store_message(&self, message: <Self as MetaModel>::Message) -> MessageId {
-        if let Some(message_id) = self.messages.read().lookup(&message) {
-            return *message_id;
-        }
-        self.messages
-            .write()
-            .store(message, Some(self.display_message(&message)))
-            .id
-    }
-
-    // BEGIN NOT TESTED
-    fn store_invalid(&self, invalid: <Self as MetaModel>::Invalid) -> InvalidId {
-        if let Some(invalid_id) = self.invalids.read().lookup(&invalid) {
-            return *invalid_id;
-        }
-        self.invalids
-            .write()
-            .store(invalid, Some(self.display_invalid(&invalid)))
-            .id
-    }
-    // END NOT TESTED
-
     fn store_configuration(
         &self,
         configuration: <Self as MetaModel>::Configuration,
     ) -> Stored<ConfigurationId> {
-        if let Some(configuration_id) = self.configurations.read().lookup(&configuration) {
-            return Stored {
-                id: *configuration_id,
-                is_new: false,
-            };
-        }
-
-        let mut configurations = self.configurations.write();
-        let stored = configurations.store(configuration, None);
+        let stored = self.configurations.store(configuration);
 
         if stored.is_new {
-            let additional = if *self.reserved.read() == 0 {
-                max(self.outgoings.read().len() / GROWTH_FACTOR, 1)
-            } else {
-                0
-            };
+            let remaining = self.outgoings.read().len() - stored.id.to_usize();
+            if remaining < self.threads.count() {
+                let mut outgoings = self.outgoings.write();
 
-            if additional > 0 {
-                configurations.reserve(additional);
-                if self.ensure_init_is_reachable {
-                    self.incomings.write().reserve(additional);
+                let remaining = outgoings.len() - stored.id.to_usize();
+                if remaining < self.threads.count() {
+                    let additional = max(outgoings.len() / GROWTH_FACTOR, self.threads.count());
+
+                    eprintln!(
+                        "increasing size from {} to {}",
+                        outgoings.len(),
+                        outgoings.len() + additional
+                    );
+
+                    self.configurations.reserve(additional);
+
+                    outgoings.reserve(additional);
+                    for _ in 0..additional {
+                        outgoings.push(RwLock::new(vec![]));
+                    }
+
+                    if self.ensure_init_is_reachable {
+                        let mut incomings = self.incomings.write();
+                        incomings.reserve(additional);
+                        for _ in 0..additional {
+                            incomings.push(RwLock::new(vec![]));
+                        }
+                    }
                 }
-                self.outgoings.write().reserve(additional);
-                *self.reserved.write() += additional - 1;
-            } else {
-                *self.reserved.write() -= 1;
             }
-
-            if self.ensure_init_is_reachable {
-                let mut incomings = self.incomings.write();
-                debug_assert!(incomings.len() == stored.id.to_usize());
-                incomings.push(RwLock::new(vec![]));
-            }
-            let mut outgoings = self.outgoings.write();
-            debug_assert!(outgoings.len() == stored.id.to_usize());
-            outgoings.push(RwLock::new(vec![]));
         }
 
         stored
@@ -3012,17 +3004,21 @@ impl<
 
     /// Return whether all the reachable configurations are valid.
     pub fn is_valid(&self) -> bool {
-        self.invalids.read().len() == 0
+        self.invalids.is_empty()
     }
 
     fn event_label(&self, message_id: Option<MessageId>) -> String {
-        let messages = self.messages.read();
         match message_id // MAYBE TESTED
         {
             None => "time event".to_string(),
             Some(message_id) if !message_id.is_valid() => "time event".to_string(),
-            Some(message_id) => "message ".to_string() + messages.display(message_id),
+            Some(message_id) => format!("message {}", self.display_message_id(message_id))
         }
+    }
+
+    /// Display a message by its identifier.
+    pub fn display_message_id(&self, message_id: MessageId) -> String {
+        self.display_message(&self.messages.get(message_id))
     }
 
     /// Display a message.
@@ -3093,6 +3089,10 @@ impl<
     }
 
     // BEGIN NOT TESTED
+    /// Display an invalid condition by its identifier.
+    fn display_invalid_id(&self, invalid_id: InvalidId) -> String {
+        self.display_invalid(&self.invalids.get(invalid_id))
+    }
 
     /// Display an invalid condition.
     fn display_invalid(&self, invalid: &<Self as MetaModel>::Invalid) -> String {
@@ -3114,7 +3114,7 @@ impl<
 
             Invalid::Message(message_id, reason) => {
                 string.push_str("message ");
-                string.push_str(self.messages.read().display(*message_id));
+                string.push_str(&self.display_message_id(*message_id));
                 string.push_str(" because ");
                 string.push_str(reason);
             }
@@ -3135,8 +3135,7 @@ impl<
 
     /// Display a configuration by its identifier.
     pub fn display_configuration_id(&self, configuration_id: ConfigurationId) -> String {
-        let configurations = self.configurations.read();
-        self.display_configuration(configurations.get(configuration_id))
+        self.display_configuration(&self.configurations.get(configuration_id))
     }
 
     /// Display a configuration.
@@ -3163,14 +3162,14 @@ impl<
             .take_while(|message_id| message_id.is_valid())
             .for_each(|message_id| {
                 string.push_str(prefix);
-                string.push_str(self.messages.read().display(*message_id));
+                string.push_str(&self.display_message_id(*message_id));
                 prefix = " & ";
             });
 
         if configuration.invalid_id.is_valid() {
             // BEGIN NOT TESTED
             string.push_str(" ! ");
-            string.push_str(self.invalids.read().display(configuration.invalid_id));
+            string.push_str(&self.display_invalid_id(configuration.invalid_id));
             // END NOT TESTED
         }
 
@@ -3186,17 +3185,17 @@ impl<
     }
 
     fn do_compute(&mut self, arg_matches: &ArgMatches) {
-        let size = usize::from_str(arg_matches.value_of("size").unwrap()).unwrap();
-        self.reserve(max(size, GROWTH_FACTOR));
-
         let threads = arg_matches.value_of("threads").unwrap();
         self.threads = if threads == "PHYSICAL" {
             Threads::Physical // NOT TESTED
         } else if threads == "LOGICAL" {
             Threads::Logical // NOT TESTED
         } else {
-            Threads::Count(usize::from_str(threads).unwrap())
+            Threads::Count(usize::from_str(threads).expect("invalid threads count"))
         };
+        if self.threads.count() == 0 {
+            self.threads = Threads::Count(1); // NOT TESTED
+        }
         self.eprint_progress = arg_matches.is_present("progress");
         self.ensure_init_is_reachable = arg_matches.is_present("reachable");
         if self.ensure_init_is_reachable {
@@ -3204,11 +3203,36 @@ impl<
             let incomings_capacity = incomings.capacity();
             incomings.reserve(self.outgoings.read().capacity() - incomings_capacity);
         }
+
+        let size = self.configurations.capacity();
+
+        if self.ensure_init_is_reachable {
+            let mut incomings = self.incomings.write();
+            if incomings.len() < size {
+                let additional = size - incomings.len();
+                incomings.reserve(additional);
+                for _ in 0..additional {
+                    incomings.push(RwLock::new(vec![]));
+                }
+            }
+        }
+
+        {
+            let mut outgoings = self.outgoings.write();
+            if outgoings.len() < size {
+                let additional = size - outgoings.len();
+                outgoings.reserve(additional);
+                for _ in 0..additional {
+                    outgoings.push(RwLock::new(vec![]));
+                }
+            }
+        }
+
         self.compute();
     }
 
     fn assert_init_is_reachable(&self) {
-        let mut reached_configurations_mask = vec![false; self.configurations.read().len()];
+        let mut reached_configurations_mask = vec![false; self.configurations.len()];
         let mut pending_configuration_ids: VecDeque<usize> = VecDeque::new();
         pending_configuration_ids.push_back(0);
 
@@ -3307,9 +3331,7 @@ impl<
         subcommand_name: &str,
         matches: &ArgMatches,
     ) -> Vec<<Self as MetaModel>::PathTransition> {
-        let conditions = self.conditions.read();
-
-        let mut steps: Vec<(&<Self as MetaModel>::Condition, bool, &str)> = matches
+        let mut steps: Vec<(<Self as MetaModel>::Condition, bool, String)> = matches
             .values_of("CONDITION")
             .unwrap_or_else(|| {
                 // BEGIN NOT TESTED
@@ -3324,10 +3346,10 @@ impl<
                     None => (name, false),
                     Some(suffix) => (suffix, true), // NOT TESTED
                 };
-                if let Some((condition, _)) = conditions.get(key) {
-                    (condition, negated, name)
+                if let Some(result) = self.conditions.get(&key.to_string()) {
+                    (result.get().1 .0, negated, name.to_string())
                 } else {
-                    panic!("unknown configuration condition {}", key); // NOT TESTED
+                    panic!("unknown configuration condition {}", name); // NOT TESTED
                 }
             })
             .collect();
@@ -3339,20 +3361,20 @@ impl<
         );
 
         let mut prev_configuration_ids =
-            vec![ConfigurationId::invalid(); self.configurations.read().len()];
+            vec![ConfigurationId::invalid(); self.configurations.len()];
 
         let mut pending_configuration_ids: VecDeque<ConfigurationId> = VecDeque::new();
 
         let initial_configuration_id = ConfigurationId::from_usize(0);
 
-        let (first_condition, first_negated, first_name) = steps[0];
+        let (first_condition, first_negated, first_name) = steps[0].clone();
         let mut start_at_init = first_condition(self, initial_configuration_id);
         if first_negated {
             start_at_init = !start_at_init; // NOT TESTED
         }
 
         let mut current_configuration_id = initial_configuration_id;
-        let mut current_name = first_name;
+        let mut current_name = first_name.to_string();
 
         if start_at_init {
             steps.remove(0);
@@ -3360,9 +3382,9 @@ impl<
             current_configuration_id = self.find_closest_configuration_id(
                 initial_configuration_id,
                 "INIT",
-                *first_condition,
+                first_condition,
                 first_negated,
-                first_name,
+                &first_name,
                 &mut pending_configuration_ids,
                 &mut prev_configuration_ids,
             );
@@ -3384,8 +3406,8 @@ impl<
             .for_each(|(next_condition, next_negated, next_name)| {
                 let next_configuration_id = self.find_closest_configuration_id(
                     current_configuration_id,
-                    current_name,
-                    **next_condition,
+                    &current_name,
+                    *next_condition,
                     *next_negated,
                     next_name,
                     &mut pending_configuration_ids,
@@ -3399,7 +3421,7 @@ impl<
                     &mut path,
                 );
                 current_configuration_id = next_configuration_id;
-                current_name = next_name;
+                current_name = next_name.to_string();
             });
 
         path
@@ -3435,11 +3457,8 @@ impl<
             .unwrap();
         let outgoing = from_outgoings[outgoing_index];
 
-        let configurations = self.configurations.read();
-        let from_configuration = configurations.get(from_configuration_id);
-        let to_configuration = configurations.get(to_configuration_id);
-
-        let messages = self.messages.read();
+        let from_configuration = self.configurations.get(from_configuration_id);
+        let to_configuration = self.configurations.get(to_configuration_id);
 
         let mut agent_index: Option<usize> = None;
         let mut delivered_message_id: Option<MessageId> = None;
@@ -3453,22 +3472,22 @@ impl<
                 from_next_messages[from_message_index] = if from_message_index
                     == outgoing.delivered_message_index.to_usize()
                 {
-                    let from_message = messages.get(*from_message_id);
+                    let from_message = self.messages.get(*from_message_id);
                     agent_index = Some(from_message.target_index);
                     delivered_message_id = Some(*from_message_id);
                     NextMessage::Delivered
                 } else if let Some(to_message_index) =
-                    self.message_exists_in_configuration(from_message_id, to_configuration, None)
+                    self.message_exists_in_configuration(*from_message_id, &to_configuration, None)
                 {
                     NextMessage::Kept(to_message_index)
                 } else {
-                    let from_message = messages.get(*from_message_id);
+                    let from_message = self.messages.get(*from_message_id);
                     let to_message_index = to_configuration
                         .message_ids
                         .iter()
                         .take_while(|to_message_id| to_message_id.is_valid())
                         .position(|to_message_id| {
-                            let to_message = messages.get(*to_message_id);
+                            let to_message = self.messages.get(*to_message_id);
                             to_message.source_index == from_message.source_index
                                 && to_message.target_index == from_message.target_index
                                 && to_message.replaced == Some(from_message.payload)
@@ -3486,11 +3505,11 @@ impl<
             .enumerate()
             .for_each(|(to_message_index, to_message_id)| {
                 to_prev_messages[to_message_index] = if let Some(from_message_index) =
-                    self.message_exists_in_configuration(to_message_id, from_configuration, None)
+                    self.message_exists_in_configuration(*to_message_id, &from_configuration, None)
                 {
                     PrevMessage::Kept(from_message_index)
                 } else {
-                    let to_message = messages.get(*to_message_id);
+                    let to_message = self.messages.get(*to_message_id);
                     assert!(agent_index.is_none() || agent_index == Some(to_message.source_index));
                     agent_index = Some(to_message.source_index);
                     if let Some(replaced) = to_message.replaced {
@@ -3499,7 +3518,7 @@ impl<
                             .iter()
                             .take_while(|from_message_id| from_message_id.is_valid())
                             .position(|from_message_id| {
-                                let from_message = messages.get(*from_message_id);
+                                let from_message = self.messages.get(*from_message_id);
                                 from_message.source_index == to_message.source_index
                                     && from_message.target_index == to_message.target_index
                                     && from_message.payload == replaced
@@ -3577,7 +3596,7 @@ impl<
         MessageId: IndexLike,
         InvalidId: IndexLike,
         ConfigurationId: IndexLike,
-        Payload: KeyLike + Validated + Named,
+        Payload: DataLike,
         const MAX_AGENTS: usize,
         const MAX_MESSAGES: usize,
     > Model<StateId, MessageId, InvalidId, ConfigurationId, Payload, MAX_AGENTS, MAX_MESSAGES>
@@ -3594,94 +3613,90 @@ impl<
         writeln!(stdout, "edge [ fontname=\"sans-serif\" ];").unwrap();
 
         let mut keys: Vec<&<Self as MetaModel>::AgentStateTransition> =
-            state_transitions.keys().collect();
+            state_transitions.iter().map(|(key, _value)| key).collect();
         keys.sort();
-        keys.iter()
-            .enumerate()
-            .map(|(state_transition_index, state_transition)| {
-                (
-                    state_transition_index,
+        for (state_transition_index, state_transition) in keys.iter().enumerate() {
+            state_transitions
+                .read(
                     state_transition,
-                    &state_transitions[state_transition],
-                )
-            })
-            .for_each(
-                |(state_transition_index, state_transition, delivered_message_ids)| {
-                    if !emitted_states[state_transition.from_state_id.to_usize()] {
-                        self.print_agent_state_node(
-                            agent_index,
+                    |_state_transition, delivered_message_ids| {
+                        if !emitted_states[state_transition.from_state_id.to_usize()] {
+                            self.print_agent_state_node(
+                                agent_index,
+                                state_transition.from_state_id,
+                                state_transition.from_is_deferring,
+                                stdout,
+                            );
+                            emitted_states[state_transition.from_state_id.to_usize()] = true;
+                        }
+
+                        if !emitted_states[state_transition.to_state_id.to_usize()] {
+                            self.print_agent_state_node(
+                                agent_index,
+                                state_transition.to_state_id,
+                                state_transition.to_is_deferring,
+                                stdout,
+                            );
+                            emitted_states[state_transition.to_state_id.to_usize()] = true;
+                        }
+
+                        writeln!(stdout, "subgraph cluster_{} {{", state_transition_index).unwrap();
+
+                        Self::print_state_transition_node(state_transition_index, stdout);
+
+                        state_transition
+                            .sent_message_ids
+                            .iter()
+                            .take_while(|sent_message_id| sent_message_id.is_valid())
+                            .for_each(|sent_message_id| {
+                                self.print_message_node(
+                                    state_transition_index,
+                                    agent_index,
+                                    *sent_message_id,
+                                    stdout,
+                                );
+                                self.print_transition_message_edge(
+                                    state_transition_index,
+                                    *sent_message_id,
+                                    stdout,
+                                );
+                            });
+
+                        delivered_message_ids
+                            .iter()
+                            .for_each(|delivered_message_id| {
+                                self.print_message_node(
+                                    state_transition_index,
+                                    agent_index,
+                                    *delivered_message_id,
+                                    stdout,
+                                );
+                                self.print_message_transition_edge(
+                                    *delivered_message_id,
+                                    state_transition_index,
+                                    stdout,
+                                );
+                            });
+
+                        writeln!(stdout, "}}").unwrap();
+
+                        Self::print_state_transition_edge(
                             state_transition.from_state_id,
                             state_transition.from_is_deferring,
+                            state_transition_index,
                             stdout,
                         );
-                        emitted_states[state_transition.from_state_id.to_usize()] = true;
-                    }
 
-                    if !emitted_states[state_transition.to_state_id.to_usize()] {
-                        self.print_agent_state_node(
-                            agent_index,
+                        Self::print_transition_state_edge(
+                            state_transition_index,
                             state_transition.to_state_id,
                             state_transition.to_is_deferring,
                             stdout,
                         );
-                        emitted_states[state_transition.to_state_id.to_usize()] = true;
-                    }
-
-                    writeln!(stdout, "subgraph cluster_{} {{", state_transition_index).unwrap();
-
-                    Self::print_state_transition_node(state_transition_index, stdout);
-
-                    state_transition
-                        .sent_message_ids
-                        .iter()
-                        .take_while(|sent_message_id| sent_message_id.is_valid())
-                        .for_each(|sent_message_id| {
-                            self.print_message_node(
-                                state_transition_index,
-                                agent_index,
-                                *sent_message_id,
-                                stdout,
-                            );
-                            self.print_transition_message_edge(
-                                state_transition_index,
-                                *sent_message_id,
-                                stdout,
-                            );
-                        });
-
-                    delivered_message_ids
-                        .iter()
-                        .for_each(|delivered_message_id| {
-                            self.print_message_node(
-                                state_transition_index,
-                                agent_index,
-                                *delivered_message_id,
-                                stdout,
-                            );
-                            self.print_message_transition_edge(
-                                *delivered_message_id,
-                                state_transition_index,
-                                stdout,
-                            );
-                        });
-
-                    writeln!(stdout, "}}").unwrap();
-
-                    Self::print_state_transition_edge(
-                        state_transition.from_state_id,
-                        state_transition.from_is_deferring,
-                        state_transition_index,
-                        stdout,
-                    );
-
-                    Self::print_transition_state_edge(
-                        state_transition_index,
-                        state_transition.to_state_id,
-                        state_transition.to_is_deferring,
-                        stdout,
-                    );
-                },
-            );
+                    },
+                )
+                .unwrap();
+        }
 
         writeln!(stdout, "}}").unwrap();
     }
@@ -3742,8 +3757,7 @@ impl<
         )
         .unwrap();
 
-        let messages = self.messages.read();
-        let message = messages.get(message_id);
+        let message = self.messages.get(message_id);
         if message.source_index != agent_index {
             write!(
                 stdout,
@@ -3810,7 +3824,7 @@ impl<
         stdout: &mut dyn Write,
     ) {
         let is_immediate = from_message_id.is_valid()
-            && self.messages.read().get(from_message_id).order == MessageOrder::Immediate;
+            && self.messages.get(from_message_id).order == MessageOrder::Immediate;
         let arrowhead = if is_immediate {
             "normalnormal" // NOT TESTED
         } else {
@@ -3835,7 +3849,7 @@ impl<
         stdout: &mut dyn Write,
     ) {
         let is_immediate = to_message_id.is_valid()
-            && self.messages.read().get(to_message_id).order == MessageOrder::Immediate;
+            && self.messages.get(to_message_id).order == MessageOrder::Immediate;
         let arrowhead = if is_immediate {
             "normalnormal" // NOT TESTED
         } else {
@@ -3883,12 +3897,11 @@ impl<
             ],
         };
 
-        let configurations = self.configurations.read();
-        let first_configuration = configurations.get(path[0].from_configuration_id);
+        let first_configuration = self.configurations.get(path[0].from_configuration_id);
 
-        self.print_sequence_participants(first_configuration, stdout);
-        self.print_first_timelines(&mut sequence_state, first_configuration, stdout);
-        self.print_sequence_first_notes(&sequence_state, first_configuration, stdout);
+        self.print_sequence_participants(&first_configuration, stdout);
+        self.print_first_timelines(&mut sequence_state, &first_configuration, stdout);
+        self.print_sequence_first_notes(&sequence_state, &first_configuration, stdout);
 
         path.iter()
             .enumerate()
@@ -3909,7 +3922,9 @@ impl<
                 );
             });
 
-        let last_configuration = configurations.get(path.last().unwrap().to_configuration_id);
+        let last_configuration = self
+            .configurations
+            .get(path.last().unwrap().to_configuration_id);
         if last_configuration.invalid_id.is_valid() {}
 
         writeln!(stdout, "@enduml").unwrap();
@@ -3950,16 +3965,19 @@ impl<
         first_configuration: &<Self as MetaModel>::Configuration,
         stdout: &mut dyn Write,
     ) {
-        let messages = self.messages.read();
         first_configuration
             .message_ids
             .iter()
             .take_while(|message_id| message_id.is_valid())
             .enumerate()
             .for_each(|(message_index, message_id)| {
-                let message = messages.get(*message_id);
-                let timeline_index =
-                    self.add_sequence_timeline(&mut sequence_state, message_index, message, stdout);
+                let message = self.messages.get(*message_id);
+                let timeline_index = self.add_sequence_timeline(
+                    &mut sequence_state,
+                    message_index,
+                    &message,
+                    stdout,
+                );
                 writeln!(stdout, "activate T{} #Silver", timeline_index).unwrap();
             });
     }
@@ -4040,19 +4058,18 @@ impl<
                 writeln!(stdout, "rnote over A{} : {}", agent_index, agent_state,).unwrap();
             });
 
-        let messages = self.messages.read();
         sequence_state
             .timelines
             .iter()
             .enumerate()
             .for_each(|(timeline_index, message_index)| {
                 let message_id = first_configuration.message_ids[message_index.unwrap()];
-                let message = messages.get(message_id);
+                let message = self.messages.get(message_id);
                 writeln!(
                     stdout,
                     "/ rnote over T{} : {}",
                     timeline_index,
-                    self.display_sequence_message(message, false)
+                    self.display_sequence_message(&message, false)
                 )
                 .unwrap();
             });
@@ -4065,26 +4082,25 @@ impl<
         next_transition: Option<&<Self as MetaModel>::PathTransition>,
         stdout: &mut dyn Write,
     ) {
-        let configurations = self.configurations.read();
-        let from_configuration = configurations.get(transition.from_configuration_id);
-        let to_configuration = configurations.get(transition.to_configuration_id);
+        let from_configuration = self.configurations.get(transition.from_configuration_id);
+        let to_configuration = self.configurations.get(transition.to_configuration_id);
 
         let did_send_messages = self.print_sequence_send_messages(
             &mut sequence_state,
             transition,
             next_transition,
-            from_configuration,
-            to_configuration,
+            &from_configuration,
+            &to_configuration,
             stdout,
         );
         self.print_sequence_changed_notes(
             transition,
             did_send_messages,
-            from_configuration,
-            to_configuration,
+            &from_configuration,
+            &to_configuration,
             stdout,
         );
-        self.print_sequence_activate_changed(from_configuration, to_configuration, stdout);
+        self.print_sequence_activate_changed(&from_configuration, &to_configuration, stdout);
     }
 
     fn print_sequence_send_messages(
@@ -4096,11 +4112,9 @@ impl<
         to_configuration: &<Self as MetaModel>::Configuration,
         stdout: &mut dyn Write,
     ) -> bool {
-        let messages = self.messages.read();
-
         if let Some(delivered_message_index) = transition.delivered_message_index {
             let delivered_message_id = transition.delivered_message_id.unwrap();
-            let delivered_message = messages.get(delivered_message_id);
+            let delivered_message = self.messages.get(delivered_message_id);
             if let Some(timeline_index) =
                 sequence_state.message_timelines[delivered_message_index.to_usize()]
             {
@@ -4109,7 +4123,7 @@ impl<
                     "T{} -> A{} : {}",
                     timeline_index,
                     delivered_message.target_index,
-                    self.display_sequence_message(delivered_message, true)
+                    self.display_sequence_message(&delivered_message, true)
                 )
                 .unwrap();
                 writeln!(stdout, "deactivate T{}", timeline_index).unwrap();
@@ -4147,13 +4161,13 @@ impl<
                 PrevMessage::Replaced(from_message_index) => {
                     let timeline_index = from_message_timelines[*from_message_index].unwrap();
                     let to_message_id = to_configuration.message_ids[to_message_index];
-                    let to_message = messages.get(to_message_id);
+                    let to_message = self.messages.get(to_message_id);
                     writeln!(
                         stdout,
                         "A{} -> T{} : {}",
                         to_message.source_index,
                         timeline_index,
-                        self.display_sequence_message(to_message, false)
+                        self.display_sequence_message(&to_message, false)
                     )
                     .unwrap();
                     sequence_state.message_timelines[to_message_index] = Some(timeline_index);
@@ -4170,7 +4184,7 @@ impl<
             .filter(|(_, prev_message)| **prev_message == PrevMessage::NotThere)
             .for_each(|(to_message_index, _prev_message)| {
                 let to_message_id = to_configuration.message_ids[to_message_index];
-                let to_message = messages.get(to_message_id);
+                let to_message = self.messages.get(to_message_id);
                 debug_assert!(to_message.source_index == transition.agent_index);
                 match next_transition {
                     Some(next_transition)
@@ -4188,12 +4202,11 @@ impl<
                             to_message.source_index,
                             color,
                             to_message.target_index,
-                            self.display_sequence_message(to_message, false),
+                            self.display_sequence_message(&to_message, false),
                         )
                         .unwrap();
-                        let configurations = self.configurations.read();
                         let next_to_configuration =
-                            configurations.get(next_transition.to_configuration_id);
+                            self.configurations.get(next_transition.to_configuration_id);
                         if next_to_configuration.state_ids[to_message.target_index]
                             != from_configuration.state_ids[to_message.target_index]
                         {
@@ -4204,7 +4217,7 @@ impl<
                     _ => {
                         let agent_timelines =
                             &sequence_state.agents_timelines[to_message.source_index];
-                        let side_timelines = if self.is_rightwards_message(to_message) {
+                        let side_timelines = if self.is_rightwards_message(&to_message) {
                             &agent_timelines.right
                         } else {
                             &agent_timelines.left
@@ -4231,7 +4244,7 @@ impl<
                                 self.add_sequence_timeline(
                                     &mut sequence_state,
                                     to_message_index,
-                                    to_message,
+                                    &to_message,
                                     stdout,
                                 )
                             };
@@ -4240,7 +4253,7 @@ impl<
                             "A{} -> T{} : {}",
                             to_message.source_index,
                             timeline_index,
-                            self.display_sequence_message(to_message, false)
+                            self.display_sequence_message(&to_message, false)
                         )
                         .unwrap();
                         writeln!(stdout, "activate T{} #Silver", timeline_index).unwrap();
@@ -4314,20 +4327,20 @@ impl<
         agent_index: usize,
     ) -> <Self as MetaModel>::AgentStateTransitions {
         let mut state_transitions = <Self as MetaModel>::AgentStateTransitions::default();
-        let configurations = self.configurations.read();
         self.outgoings
             .read()
             .iter()
             .enumerate()
             .for_each(|(from_configuration_id, outgoings)| {
-                let from_configuration =
-                    configurations.get(ConfigurationId::from_usize(from_configuration_id));
+                let from_configuration = self
+                    .configurations
+                    .get(ConfigurationId::from_usize(from_configuration_id));
                 outgoings.read().iter().for_each(|outgoing| {
-                    let to_configuration = configurations.get(outgoing.to_configuration_id);
+                    let to_configuration = self.configurations.get(outgoing.to_configuration_id);
                     self.collect_agent_state_transition(
                         agent_index,
-                        from_configuration,
-                        to_configuration,
+                        &from_configuration,
+                        &to_configuration,
                         outgoing.delivered_message_index.to_usize(),
                         &mut state_transitions,
                     );
@@ -4344,8 +4357,6 @@ impl<
         delivered_message_index: usize,
         state_transitions: &mut <Self as MetaModel>::AgentStateTransitions,
     ) {
-        let messages = self.messages.read();
-
         let mut sent_messages_count = 0;
         let agent_type = &self.agent_types[agent_index];
         let agent_instance = self.agent_instance(agent_index);
@@ -4361,12 +4372,12 @@ impl<
             .message_ids
             .iter()
             .take_while(|to_message_id| to_message_id.is_valid())
-            .map(|to_message_id| (to_message_id, messages.get(*to_message_id)))
+            .map(|to_message_id| (to_message_id, self.messages.get(*to_message_id)))
             .filter(|(_, to_message)| to_message.source_index == agent_index)
             .for_each(|(to_message_id, _)| {
                 if self
                     .message_exists_in_configuration(
-                        to_message_id,
+                        *to_message_id,
                         &from_configuration,
                         Some(delivered_message_index),
                     )
@@ -4382,7 +4393,7 @@ impl<
                 (MessageId::invalid(), false)
             } else {
                 let delivered_message_id = from_configuration.message_ids[delivered_message_index];
-                let delivered_message = messages.get(delivered_message_id);
+                let delivered_message = self.messages.get(delivered_message_id);
                 (
                     delivered_message_id,
                     delivered_message.target_index == agent_index,
@@ -4396,8 +4407,9 @@ impl<
             return;
         }
 
-        match state_transitions.get_mut(&state_transition) {
-            Some(delivered_message_ids) => {
+        match state_transitions.insert(state_transition, vec![]) {
+            Err(result) => {
+                let delivered_message_ids = result.0.get().1;
                 if !delivered_message_ids
                     .iter()
                     .any(|message_id| *message_id == delivered_message_id)
@@ -4405,19 +4417,16 @@ impl<
                     delivered_message_ids.push(delivered_message_id); // NOT TESTED
                 }
             }
-            None => {
-                state_transitions.insert(state_transition, vec![delivered_message_id]);
-            }
+            Ok(result) => result.get().1.push(delivered_message_id),
         }
     }
 
     fn message_exists_in_configuration(
         &self,
-        message_id: &MessageId,
+        message_id: MessageId,
         configuration: &<Self as MetaModel>::Configuration,
         delivered_message_index: Option<usize>,
     ) -> Option<usize> {
-        let decr_order_messages = self.decr_order_messages.read();
         configuration
             .message_ids
             .iter()
@@ -4427,11 +4436,19 @@ impl<
                 delivered_message_index != Some(*configuration_message_index)
             })
             .position(|(_, configuration_message_id)| {
-                configuration_message_id == message_id
+                *configuration_message_id == message_id
                     || (delivered_message_index.is_some()
-                        && decr_order_messages.get(message_id) == Some(configuration_message_id))
+                        && self
+                            .decr_order_messages
+                            .get(&message_id)
+                            .map(|result| *result.get().1) // NOT TESTED
+                            == Some(*configuration_message_id))
                     || (delivered_message_index.is_none()
-                        && decr_order_messages.get(configuration_message_id) == Some(message_id))
+                        && self
+                            .decr_order_messages
+                            .get(configuration_message_id)
+                            .map(|result| *result.get().1) // NOT TESTED
+                            == Some(message_id))
             })
     }
 }
@@ -4445,6 +4462,14 @@ pub fn add_clap<'a, 'b>(app: App<'a, 'b>) -> App<'a, 'b> {
             .help("print configurations as they are reached"),
     )
     .arg(
+        Arg::with_name("threads")
+            .short("t")
+            .long("threads")
+            .value_name("COUNT")
+            .help("set the number of threads to use (may also specify PHYSICAL or LOGICAL)")
+            .default_value("PHYSICAL"),
+    )
+    .arg(
         Arg::with_name("size")
             .short("s")
             .long("size")
@@ -4452,15 +4477,7 @@ pub fn add_clap<'a, 'b>(app: App<'a, 'b>) -> App<'a, 'b> {
             .help(
                 "pre-allocate arrays to cover this number of configurations, for faster operation",
             )
-            .default_value("1000000"),
-    )
-    .arg(
-        Arg::with_name("threads")
-            .short("t")
-            .long("threads")
-            .value_name("COUNT")
-            .help("set the number of threads to use (may also specify PHYSICAL or LOGICAL)")
-            .default_value("PHYSICAL"),
+            .default_value("AUTO"),
     )
     .arg(
         Arg::with_name("reachable")
@@ -4565,7 +4582,7 @@ impl<
         MessageId: IndexLike,
         InvalidId: IndexLike,
         ConfigurationId: IndexLike,
-        Payload: KeyLike + Validated + Named,
+        Payload: DataLike,
         const MAX_AGENTS: usize,
         const MAX_MESSAGES: usize,
     > ClapModel
@@ -4586,12 +4603,12 @@ impl<
     fn do_clap_conditions(&mut self, arg_matches: &ArgMatches, stdout: &mut dyn Write) -> bool {
         match arg_matches.subcommand_matches("conditions") {
             Some(_) => {
-                let conditions = self.conditions.read();
-                let mut names: Vec<&&'static str> = conditions.keys().collect();
+                let mut names: Vec<&String> =
+                    self.conditions.iter().map(|(key, _value)| key).collect();
                 names.sort();
                 names
                     .iter()
-                    .map(|name| (*name, conditions[*name].1))
+                    .map(|name| (*name, self.conditions.get(*name).unwrap().get().1 .1))
                     .for_each(|(name, about)| {
                         writeln!(stdout, "{}: {}", name, about).unwrap();
                     });
@@ -4606,7 +4623,7 @@ impl<
             Some(_) => {
                 self.do_compute(arg_matches);
 
-                (0..self.configurations.read().len())
+                (0..self.configurations.len())
                     .map(ConfigurationId::from_usize)
                     .for_each(|configuration_id| {
                         writeln!(
@@ -4627,12 +4644,15 @@ impl<
             Some(_) => {
                 self.do_compute(arg_matches);
 
-                let configurations = self.configurations.read();
-                self.outgoings.read().iter().enumerate().for_each(
-                    |(from_configuration_id, outgoings)| {
+                self.outgoings
+                    .read()
+                    .iter()
+                    .enumerate()
+                    .take(self.configurations.len())
+                    .for_each(|(from_configuration_id, outgoings)| {
                         let from_configuration_id =
                             ConfigurationId::from_usize(from_configuration_id);
-                        let from_configuration = configurations.get(from_configuration_id);
+                        let from_configuration = self.configurations.get(from_configuration_id);
                         writeln!(
                             stdout,
                             "FROM {}",
@@ -4659,8 +4679,7 @@ impl<
                             )
                             .unwrap();
                         });
-                    },
-                );
+                    });
                 true
             }
             None => false,
@@ -4710,5 +4729,15 @@ impl<
             }
             None => false, // NOT TESTED
         }
+    }
+}
+
+/// Parse the model size parameter.
+pub fn model_size(arg_matches: &ArgMatches, auto: usize) -> usize {
+    let size = arg_matches.value_of("size").unwrap();
+    if size == "AUTO" {
+        auto
+    } else {
+        usize::from_str(size).expect("invalid model size")
     }
 }

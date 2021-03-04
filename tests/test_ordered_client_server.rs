@@ -1,4 +1,5 @@
 use clap::App;
+use clap::ArgMatches;
 use num_traits::cast::FromPrimitive;
 use num_traits::cast::ToPrimitive;
 use std::fmt::Display;
@@ -18,7 +19,7 @@ enum Payload {
     Request,
     Response,
 }
-impl_message_payload! {Payload}
+impl_data_like! { Payload = Self::Request }
 // END MAYBE TESTED
 
 impl Validated for Payload {}
@@ -30,7 +31,7 @@ enum ClientState {
     Wait1,
     Wait2,
 }
-impl_agent_state! { ClientState = Self::Idle }
+impl_data_like! { ClientState = Self::Idle }
 // END MAYBE TESTED
 
 impl Validated for ClientState {}
@@ -69,7 +70,7 @@ enum ServerState {
     Listen,
     Work,
 }
-impl_agent_state! { ServerState = Self::Listen }
+impl_data_like! { ServerState = Self::Listen }
 // END MAYBE TESTED
 
 impl Validated for ServerState {}
@@ -117,7 +118,7 @@ type TestModel = Model<
     14, // MAX_MESSAGES
 >;
 
-fn test_model() -> TestModel {
+fn test_model(arg_matches: &ArgMatches) -> TestModel {
     let client_type = Arc::new(AgentTypeData::<
         ClientState,
         <TestModel as MetaModel>::StateId,
@@ -131,7 +132,7 @@ fn test_model() -> TestModel {
         "Server", Instances::Singleton, Some(client_type.clone())
     ));
 
-    let model = TestModel::new(server_type, vec![]);
+    let model = TestModel::new(model_size(arg_matches, 1), server_type, vec![]);
     init_global_agent_index!(CLIENT, "Client", model);
     init_global_agent_index!(SERVER, "Server", model);
     model
@@ -139,9 +140,9 @@ fn test_model() -> TestModel {
 
 #[test]
 fn test_agents() {
-    let mut model = test_model();
     let app = add_clap(App::new("agents"));
     let arg_matches = app.get_matches_from(vec!["test", "agents"].iter());
+    let mut model = test_model(&arg_matches);
     let mut stdout_bytes = Vec::new();
     model.do_clap(&arg_matches, &mut stdout_bytes);
     let stdout = str::from_utf8(&stdout_bytes).unwrap();
@@ -156,10 +157,10 @@ fn test_agents() {
 
 #[test]
 fn test_configurations() {
-    let mut model = test_model();
     let app = add_clap(App::new("configurations"));
-    let arg_matches = app
-        .get_matches_from(vec!["test", "-r", "-p", "-s", "1", "-t", "1", "configurations"].iter());
+    let arg_matches =
+        app.get_matches_from(vec!["test", "-r", "-p", "-t", "1", "configurations"].iter());
+    let mut model = test_model(&arg_matches);
     let mut stdout_bytes = Vec::new();
     model.do_clap(&arg_matches, &mut stdout_bytes);
     let stdout = str::from_utf8(&stdout_bytes).unwrap();
@@ -181,10 +182,10 @@ fn test_configurations() {
 
 #[test]
 fn test_transitions() {
-    let mut model = test_model();
     let app = add_clap(App::new("transitions"));
     let arg_matches =
-        app.get_matches_from(vec!["test", "-r", "-p", "-s", "1", "-t", "1", "transitions"].iter());
+        app.get_matches_from(vec!["test", "-r", "-p", "-t", "1", "transitions"].iter());
+    let mut model = test_model(&arg_matches);
     let mut stdout_bytes = Vec::new();
     model.do_clap(&arg_matches, &mut stdout_bytes);
     let stdout = str::from_utf8(&stdout_bytes).unwrap();
