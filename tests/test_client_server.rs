@@ -384,3 +384,112 @@ fn test_sequence() {
         "
     );
 }
+
+#[test]
+fn test_client_states() {
+    let app = add_clap(App::new("states"));
+    let arg_matches =
+        app.get_matches_from(vec!["test", "-p", "-t", "1", "states", "Client"].iter());
+    let mut model = test_model(&arg_matches);
+    let mut stdout_bytes = Vec::new();
+    model.do_clap(&arg_matches, &mut stdout_bytes);
+    let stdout = str::from_utf8(&stdout_bytes).unwrap();
+    assert_eq!(
+        stdout,
+        "\
+        digraph {\n\
+            color=white;\n\
+            graph [ fontname=\"sans-serif\" ];\n\
+            node [ fontname=\"sans-serif\" ];\n\
+            edge [ fontname=\"sans-serif\" ];\n\
+            A_0_false [ label=\"Idle\", shape=ellipse ];\n\
+            subgraph cluster_0 {\n\
+                T_0_18446744073709551615 [ shape=diamond, label=\"\", fontsize=0, width=0.15, height=0.15, style=filled, color=black ];\n\
+                A_0_false -> T_0_18446744073709551615 [ arrowhead=none, direction=forward ];\n\
+                T_0_18446744073709551615 -> A_0_false;\n\
+                M_0_18446744073709551615_255 [ label=\"Time\", shape=plain ];\n\
+                M_0_18446744073709551615_255 -> T_0_18446744073709551615 [ arrowhead=normal, direction=forward, style=dashed ];\n\
+                M_0_18446744073709551615_1 [ label=\"Ping\\n&#8594; Server\", shape=plain ];\n\
+                T_0_18446744073709551615 -> M_0_18446744073709551615_1 [ arrowhead=normal, direction=forward, style=dashed ];\n\
+                M_0_18446744073709551615_2 [ label=\"Ping &#8658;\\nPing\\n&#8594; Server\", shape=plain ];\n\
+                T_0_18446744073709551615 -> M_0_18446744073709551615_2 [ arrowhead=normal, direction=forward, style=dashed ];\n\
+            }\n\
+            A_1_false [ label=\"Wait\", shape=ellipse ];\n\
+            subgraph cluster_1 {\n\
+                T_1_18446744073709551615 [ shape=point, height=0.015, width=0.015 ];\n\
+                A_0_false -> T_1_18446744073709551615 [ arrowhead=none, direction=forward ];\n\
+                T_1_18446744073709551615 -> A_1_false;\n\
+                M_1_18446744073709551615_255 [ label=\"Time\", shape=plain ];\n\
+                M_1_18446744073709551615_255 -> T_1_18446744073709551615 [ arrowhead=normal, direction=forward, style=dashed ];\n\
+                M_1_18446744073709551615_0 [ label=\"Request\\n&#8594; Server\", shape=plain ];\n\
+                T_1_18446744073709551615 -> M_1_18446744073709551615_0 [ arrowhead=normal, direction=forward, style=dashed ];\n\
+            }\n\
+            subgraph cluster_2 {\n\
+                T_2_18446744073709551615 [ shape=point, height=0.015, width=0.015 ];\n\
+                A_1_false -> T_2_18446744073709551615 [ arrowhead=none, direction=forward ];\n\
+                T_2_18446744073709551615 -> A_0_false;\n\
+                M_2_18446744073709551615_3 [ label=\"Server &#8594;\\nResponse\", shape=plain ];\n\
+                M_2_18446744073709551615_3 -> T_2_18446744073709551615 [ arrowhead=normal, direction=forward, style=dashed ];\n\
+            }\n\
+        }\n\
+        "
+    );
+}
+
+#[test]
+fn test_server_states() {
+    let app = add_clap(App::new("states"));
+    let arg_matches =
+        app.get_matches_from(vec!["test", "-p", "-t", "1", "states", "Server"].iter());
+    let mut model = test_model(&arg_matches);
+    let mut stdout_bytes = Vec::new();
+    model.do_clap(&arg_matches, &mut stdout_bytes);
+    let stdout = str::from_utf8(&stdout_bytes).unwrap();
+    assert_eq!(
+        stdout,
+        "\
+        digraph {\n\
+            color=white;\n\
+                graph [ fontname=\"sans-serif\" ];\n\
+                node [ fontname=\"sans-serif\" ];\n\
+                edge [ fontname=\"sans-serif\" ];\n\
+                A_0_false [ label=\"Listen\", shape=ellipse ];\n\
+                subgraph cluster_0 {\n\
+                    T_0_18446744073709551615 [ shape=point, height=0.015, width=0.015 ];\n\
+                        A_0_false -> T_0_18446744073709551615 [ arrowhead=none, direction=forward ];\n\
+                        T_0_18446744073709551615 -> A_0_false;\n\
+                        M_0_18446744073709551615_1 [ label=\"Client &#8594;\\nPing\", shape=plain ];\n\
+                        M_0_18446744073709551615_1 -> T_0_18446744073709551615 [ arrowhead=normal, direction=forward, style=dashed ];\n\
+                        M_0_18446744073709551615_2 [ label=\"Client &#8594;\\nPing &#8658;\\nPing\", shape=plain ];\n\
+                        M_0_18446744073709551615_2 -> T_0_18446744073709551615 [ arrowhead=normal, direction=forward, style=dashed ];\n\
+                }\n\
+            A_1_true [ label=\"Work\", shape=octagon ];\n\
+                subgraph cluster_1 {\n\
+                    T_1_18446744073709551615 [ shape=point, height=0.015, width=0.015 ];\n\
+                        A_0_false -> T_1_18446744073709551615 [ arrowhead=none, direction=forward ];\n\
+                        T_1_18446744073709551615 -> A_1_true;\n\
+                        M_1_18446744073709551615_0 [ label=\"Client &#8594;\\nRequest\", shape=plain ];\n\
+                        M_1_18446744073709551615_0 -> T_1_18446744073709551615 [ arrowhead=normal, direction=forward, style=dashed ];\n\
+                }\n\
+            subgraph cluster_2 {\n\
+                T_2_18446744073709551615 [ shape=point, height=0.015, width=0.015 ];\n\
+                    A_1_true -> T_2_18446744073709551615 [ arrowhead=none, direction=forward ];\n\
+                    T_2_18446744073709551615 -> A_0_false;\n\
+                    M_2_18446744073709551615_255 [ label=\"Time\", shape=plain ];\n\
+                    M_2_18446744073709551615_255 -> T_2_18446744073709551615 [ arrowhead=normal, direction=forward, style=dashed ];\n\
+                    M_2_18446744073709551615_3 [ label=\"Response\\n&#8594; Client\", shape=plain ];\n\
+                    T_2_18446744073709551615 -> M_2_18446744073709551615_3 [ arrowhead=normal, direction=forward, style=dashed ];\n\
+            }\n\
+            subgraph cluster_3 {\n\
+                T_3_18446744073709551615 [ shape=point, height=0.015, width=0.015 ];\n\
+                    A_1_true -> T_3_18446744073709551615 [ arrowhead=none, direction=forward ];\n\
+                    T_3_18446744073709551615 -> A_1_true;\n\
+                    M_3_18446744073709551615_1 [ label=\"Client &#8594;\\nPing\", shape=plain ];\n\
+                    M_3_18446744073709551615_1 -> T_3_18446744073709551615 [ arrowhead=normal, direction=forward, style=dashed ];\n\
+                    M_3_18446744073709551615_2 [ label=\"Client &#8594;\\nPing &#8658;\\nPing\", shape=plain ];\n\
+                    M_3_18446744073709551615_2 -> T_3_18446744073709551615 [ arrowhead=normal, direction=forward, style=dashed ];\n\
+            }\n\
+        }\n\
+        "
+    );
+}

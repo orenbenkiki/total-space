@@ -284,67 +284,6 @@ fn test_transitions() {
 }
 
 #[test]
-fn test_states() {
-    let app = add_clap(App::new("states"));
-    let arg_matches = app
-        .get_matches_from(vec!["test", "-r", "-p", "-s", "1", "-t", "1", "states", "SRV"].iter());
-    let mut model = test_model(&arg_matches);
-    let mut stdout_bytes = Vec::new();
-    model.do_clap(&arg_matches, &mut stdout_bytes);
-    let stdout = str::from_utf8(&stdout_bytes).unwrap();
-    assert_eq!(
-        stdout,
-        "\
-        digraph {\n\
-        color=white;\n\
-        graph [ fontname=\"sans-serif\" ];\n\
-        node [ fontname=\"sans-serif\" ];\n\
-        edge [ fontname=\"sans-serif\" ];\n\
-        A_0_false [ label=\"LST\", shape=ellipse ];\n\
-        A_1_true [ label=\"WRK(C=0)\", shape=octagon ];\n\
-        subgraph cluster_0 {\n\
-        T_0 [ shape=point, height=0.015, width=0.015 ];\n\
-        M_0_0 [ label=\"C(0) &#8594;\\n\
-        REQ(C=0)\", shape=plain ];\n\
-        M_0_0 -> T_0 [ arrowhead=normal, direction=forward, style=dashed ];\n\
-        }\n\
-        A_0_false -> T_0 [ arrowhead=none, direction=forward ];\n\
-        T_0 -> A_1_true;\n\
-        A_2_true [ label=\"WRK(C=1)\", shape=octagon ];\n\
-        subgraph cluster_1 {\n\
-        T_1 [ shape=point, height=0.015, width=0.015 ];\n\
-        M_1_1 [ label=\"C(1) &#8594;\\n\
-        REQ(C=1)\", shape=plain ];\n\
-        M_1_1 -> T_1 [ arrowhead=normal, direction=forward, style=dashed ];\n\
-        }\n\
-        A_0_false -> T_1 [ arrowhead=none, direction=forward ];\n\
-        T_1 -> A_2_true;\n\
-        subgraph cluster_2 {\n\
-        T_2 [ shape=point, height=0.015, width=0.015 ];\n\
-        M_2_3 [ label=\"RSP\\n\
-        &#8594; C(0)\", shape=plain ];\n\
-        T_2 -> M_2_3 [ arrowhead=normal, direction=forward, style=dashed ];\n\
-        M_2_255 [ label=\"Time\", shape=plain ];\n\
-        M_2_255 -> T_2 [ arrowhead=normal, direction=forward, style=dashed ];\n\
-        }\n\
-        A_1_true -> T_2 [ arrowhead=none, direction=forward ];\n\
-        T_2 -> A_0_false;\n\
-        subgraph cluster_3 {\n\
-        T_3 [ shape=point, height=0.015, width=0.015 ];\n\
-        M_3_2 [ label=\"RSP\\n\
-        &#8594; C(1)\", shape=plain ];\n\
-        T_3 -> M_3_2 [ arrowhead=normal, direction=forward, style=dashed ];\n\
-        M_3_255 [ label=\"Time\", shape=plain ];\n\
-        M_3_255 -> T_3 [ arrowhead=normal, direction=forward, style=dashed ];\n\
-        }\n\
-        A_2_true -> T_3 [ arrowhead=none, direction=forward ];\n\
-        T_3 -> A_0_false;\n\
-        }\n\
-        "
-    );
-}
-
-#[test]
 fn test_path() {
     let app = add_clap(App::new("path"));
     let arg_matches = app.get_matches_from(
