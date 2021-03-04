@@ -3650,6 +3650,7 @@ impl<
                     if delivered_message_ids == other_delivered_message_ids {
                         continue;
                     }
+                    // BEGIN NOT TESTED
                     for delivered_message_id in delivered_message_ids {
                         if other_delivered_message_ids
                             .iter()
@@ -3664,10 +3665,13 @@ impl<
                             .push(other_delivered_message_ids.to_vec());
                         break;
                     }
+                    // END NOT TESTED
                 }
 
                 if is_intersecting {
+                    // BEGIN NOT TESTED
                     intersecting_delivered_message_ids.push(delivered_message_ids.to_vec());
+                    // END NOT TESTED
                 } else {
                     distinct_delivered_message_ids.push(delivered_message_ids.to_vec());
                 }
@@ -3743,12 +3747,13 @@ impl<
         writeln!(stdout, "}}").unwrap();
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn print_agent_transition_cluster(
         &self,
         emitted_states: &mut [bool],
         agent_index: usize,
         context: &<Self as MetaModel>::AgentStateTransitionContext,
-        delivered_message_ids: &Vec<MessageId>,
+        delivered_message_ids: &[MessageId],
         state_transition_index: usize,
         has_alternatives: bool,
         stdout: &mut dyn Write,
@@ -3809,7 +3814,7 @@ impl<
     fn print_agent_transition_sent_edges(
         &self,
         agent_index: usize,
-        sent_message_ids: &Vec<MessageId>,
+        sent_message_ids: &[MessageId],
         state_transition_index: usize,
         mut alternative_index: Option<usize>,
         stdout: &mut dyn Write,
@@ -3819,11 +3824,13 @@ impl<
         }
 
         if let Some(alternative_index) = alternative_index {
+            // BEGIN NOT TESTED
             Self::print_state_alternative_node_and_edge(
                 state_transition_index,
                 alternative_index,
                 stdout,
             );
+            // END NOT TESTED
         }
 
         for sent_message_id in sent_message_ids.iter() {
@@ -3929,7 +3936,7 @@ impl<
         }
 
         if let Some(replaced) = message.replaced {
-            write!(stdout, "{} {}\\n", replaced, RIGHT_DOUBLE_ARROW).unwrap(); // NOT TESTED
+            write!(stdout, "{} {}\\n", replaced, RIGHT_DOUBLE_ARROW).unwrap();
         }
 
         write!(stdout, "{}", message.payload).unwrap();
@@ -4007,6 +4014,7 @@ impl<
         .unwrap();
     }
 
+    // BEGIN NOT TESTED
     fn print_state_alternative_node_and_edge(
         state_transition_index: usize,
         alternative_index: usize,
@@ -4029,6 +4037,7 @@ impl<
         )
         .unwrap();
     }
+    // END NOT TESTED
 
     fn print_transition_message_edge(
         &self,
@@ -4577,7 +4586,7 @@ impl<
                     )
                     .is_none()
                 {
-                    sent_message_ids.push(*to_message_id); // TODOX
+                    sent_message_ids.push(*to_message_id);
                     sent_message_ids.sort();
                 }
             });
@@ -4601,16 +4610,16 @@ impl<
             return;
         }
 
-        if !state_transitions.contains_key(&context) {
-            state_transitions.insert(context, StdHashMap::new());
-        }
+        state_transitions
+            .entry(context)
+            .or_insert_with(StdHashMap::new);
 
         let state_delivered_message_ids: &mut StdHashMap<Vec<MessageId>, Vec<MessageId>> =
             state_transitions.get_mut(&context).unwrap();
 
-        if !state_delivered_message_ids.contains_key(&sent_message_ids) {
-            state_delivered_message_ids.insert(sent_message_ids.to_vec(), vec![]);
-        }
+        state_delivered_message_ids
+            .entry(sent_message_ids.to_vec())
+            .or_insert_with(Vec::new);
 
         let delivered_message_ids: &mut Vec<MessageId> = state_delivered_message_ids
             .get_mut(&sent_message_ids.to_vec())
