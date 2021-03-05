@@ -105,7 +105,7 @@ pub trait IndexLike: KeyLike + PartialOrd + Ord {
 
 /// A trait for data having a short name.
 pub trait Name {
-    fn name(&self) -> &'static str;
+    fn name(&self) -> String;
 }
 
 // BEGIN MAYBE TESTED
@@ -115,7 +115,7 @@ pub trait Name {
 macro_rules! impl_data_like {
     ($name:ident = $value:expr $(, $from:literal => $to:literal)* $(,)?) => {
         impl_default_by_value! { $name = $value }
-        impl_name_for_into_static_str! { $name }
+        impl_name_for_into_static_str! { $name $(, $from => $to)* }
         impl_display_by_patched_debug! { $name $(, $from => $to)* }
     };
 }
@@ -138,10 +138,15 @@ macro_rules! impl_default_by_value {
 /// string, see `<https://github.com/Peternator7/strum/issues/142>`.
 #[macro_export]
 macro_rules! impl_name_for_into_static_str {
-    ($name:ident) => {
+    ($name:ident $(, $from:literal => $to:literal)* $(,)?) => {
         impl total_space::Name for $name {
-            fn name(&self) -> &'static str {
-                self.into()
+            fn name(&self) -> String {
+                let static_str: &'static str = self.into();
+                let string = static_str.to_string();
+                $(
+                    let string = string.replace($from, $to);
+                )*
+                string
             }
         }
     };
@@ -534,7 +539,7 @@ pub trait AgentInstances<StateId: IndexLike, Payload: DataLike>: Name {
     fn state_display(&self, state_id: StateId) -> String;
 
     /// Return the short state name.
-    fn state_name(&self, state_id: StateId) -> &'static str;
+    fn state_name(&self, state_id: StateId) -> String;
 }
 
 /// A trait fully describing some agent instances of the same type.
@@ -824,8 +829,8 @@ impl<State: DataLike, StateId: IndexLike, Payload: DataLike>
 impl<State: DataLike, StateId: IndexLike, Payload: DataLike> Name
     for AgentTypeData<State, StateId, Payload>
 {
-    fn name(&self) -> &'static str {
-        &self.name
+    fn name(&self) -> String {
+        self.name.to_string()
     }
 }
 
@@ -837,8 +842,8 @@ impl<
         const MAX_PARTS: usize,
     > Name for ContainerTypeData<State, Part, StateId, Payload, MAX_PARTS>
 {
-    fn name(&self) -> &'static str {
-        &self.agent_type_data.name()
+    fn name(&self) -> String {
+        self.agent_type_data.name()
     }
 }
 
@@ -874,7 +879,7 @@ impl<State: DataLike, StateId: IndexLike, Payload: DataLike> AgentInstances<Stat
     }
 
     // BEGIN NOT TESTED
-    fn state_name(&self, state_id: StateId) -> &'static str {
+    fn state_name(&self, state_id: StateId) -> String {
         self.states.get(state_id).name()
     }
     // END NOT TESTED
@@ -918,7 +923,7 @@ impl<
     }
 
     // BEGIN NOT TESTED
-    fn state_name(&self, state_id: StateId) -> &'static str {
+    fn state_name(&self, state_id: StateId) -> String {
         self.agent_type_data.state_name(state_id)
     }
     // END NOT TESTED

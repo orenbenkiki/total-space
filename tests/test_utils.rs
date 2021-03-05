@@ -84,8 +84,8 @@ impl_display_by_patched_debug! { Payload }
 impl Validated for Payload {}
 
 impl Name for Payload {
-    fn name(&self) -> &'static str {
-        "payload"
+    fn name(&self) -> String {
+        "payload".to_string()
     }
 }
 
