@@ -3771,6 +3771,7 @@ impl<
     pub fn print_agent_states_diagram(
         &self,
         only_use_names: bool,
+        show_final_replaced: bool,
         agent_index: usize,
         stdout: &mut dyn Write,
     ) {
@@ -3788,7 +3789,8 @@ impl<
             self.compute_terse();
         }
 
-        let state_transitions = self.collect_agent_state_transitions(agent_index, only_use_names);
+        let state_transitions =
+            self.collect_agent_state_transitions(agent_index, only_use_names, show_final_replaced);
         let mut contexts: Vec<&<Self as MetaModel>::AgentStateTransitionContext> =
             state_transitions.keys().collect();
         contexts.sort();
@@ -4812,6 +4814,7 @@ impl<
         &self,
         agent_index: usize,
         only_use_names: bool,
+        show_final_replaced: bool,
     ) -> <Self as MetaModel>::AgentStateTransitions {
         let mut state_transitions = <Self as MetaModel>::AgentStateTransitions::default();
         self.outgoings
@@ -4828,6 +4831,7 @@ impl<
                     self.collect_agent_state_transition(
                         agent_index,
                         only_use_names,
+                        show_final_replaced,
                         &from_configuration,
                         &to_configuration,
                         outgoing.delivered_message_index,
@@ -4842,6 +4846,7 @@ impl<
         &self,
         agent_index: usize,
         only_use_names: bool,
+        show_final_replaced: bool,
         from_configuration: &<Self as MetaModel>::Configuration,
         to_configuration: &<Self as MetaModel>::Configuration,
         delivered_message_index: MessageIndex,
@@ -4895,13 +4900,17 @@ impl<
         if delivered_message_index != MessageIndex::invalid() {
             delivered_message_id =
                 from_configuration.message_ids[delivered_message_index.to_usize()];
-            let delivered_message = self.messages.get(delivered_message_id);
+            let mut delivered_message = self.messages.get(delivered_message_id);
             if delivered_message.target_index == agent_index {
+                is_delivered_to_us = true;
+                if show_final_replaced && delivered_message.replaced.is_some() {
+                    delivered_message.replaced = None;
+                    delivered_message_id = self.messages.store(delivered_message).id;
+                }
                 if only_use_names {
                     delivered_message_id =
                         self.terse_of_message_id.read()[delivered_message_id.to_usize()];
                 }
-                is_delivered_to_us = true;
             }
         }
 
@@ -5004,7 +5013,7 @@ pub fn add_clap<'a, 'b>(app: App<'a, 'b>) -> App<'a, 'b> {
     app.arg(
         Arg::with_name("progress")
             .short("p")
-            .long("progress")
+            .long("progress-every")
             .default_value("1000")
             .help("print configurations as they are reached"),
     )
@@ -5078,8 +5087,14 @@ pub fn add_clap<'a, 'b>(app: App<'a, 'b>) -> App<'a, 'b> {
             .arg(
                 Arg::with_name("names")
                     .short("n")
-                    .long("names")
+                    .long("names-only")
                     .help("condense graph nodes considering only the state & payload names"),
+            )
+            .arg(
+                Arg::with_name("final")
+                    .short("f")
+                    .long("final-replaced")
+                    .help("condense graph nodes considering only the final (replaced) payload"),
             ),
     )
 }
@@ -5264,6 +5279,7 @@ impl<
                     .value_of("AGENT")
                     .expect("the states command requires a single agent name, none were given");
                 let only_use_names = matches.is_present("names");
+                let show_final_replaced = matches.is_present("final");
                 let agent_index = self
                     .agent_labels
                     .iter()
@@ -5271,7 +5287,12 @@ impl<
                     .unwrap_or_else(|| panic!("unknown agent {}", agent_label));
 
                 self.do_compute(arg_matches);
-                self.print_agent_states_diagram(only_use_names, agent_index, stdout);
+                self.print_agent_states_diagram(
+                    only_use_names,
+                    show_final_replaced,
+                    agent_index,
+                    stdout,
+                );
 
                 true
             }

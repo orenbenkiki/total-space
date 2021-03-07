@@ -165,5 +165,9 @@ test_case! { path, "txt", vec!["test", "-p", "1", "-t", "1", "path", "INIT", "RE
 test_case! { sequence, "uml", vec!["test", "-p", "1", "-t", "1", "sequence", "INIT", "REPLACE", "2MSG", "INIT"] }
 test_case! { client_states, "dot", vec!["test", "-p", "1", "-t", "1", "states", "C"] }
 test_case! { client_states_names, "dot", vec!["test", "-p", "1", "-t", "1", "states", "C", "-n"] }
+test_case! { client_states_names_final, "dot", vec!["test", "-p", "1", "-t", "1", "states", "C", "-n", "-f"] }
+test_case! { client_states_final, "dot", vec!["test", "-p", "1", "-t", "1", "states", "C", "-f"] }
 test_case! { server_states, "dot", vec!["test", "-p", "1", "-t", "1", "states", "S"] }
 test_case! { server_states_names, "dot", vec!["test", "-p", "1", "-t", "1", "states", "S", "-n"] }
+test_case! { server_states_names_final, "dot", vec!["test", "-p", "1", "-t", "1", "states", "S", "-n", "-f"] }
+test_case! { server_states_final, "dot", vec!["test", "-p", "1", "-t", "1", "states", "S", "-f"] }
