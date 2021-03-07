@@ -145,56 +145,12 @@ fn test_model(arg_matches: &ArgMatches) -> TestModel {
     model
 }
 
-#[test]
-fn test_agents() {
-    let app = add_clap(App::new(test_name!()));
-    let arg_matches = app.get_matches_from(vec!["test", "agents"].iter());
-    let mut model = test_model(&arg_matches);
-    let mut stdout = Vec::new();
-    model.do_clap(&arg_matches, &mut stdout);
-    assert_output!(stdout, "txt");
-}
-
-#[test]
-fn test_configurations() {
-    let app = add_clap(App::new(test_name!()));
-    let arg_matches =
-        app.get_matches_from(vec!["test", "-r", "-p", "-t", "1", "configurations"].iter());
-    let mut model = test_model(&arg_matches);
-    let mut stdout = Vec::new();
-    model.do_clap(&arg_matches, &mut stdout);
-    assert_output!(stdout, "txt");
-}
-
-#[test]
-fn test_transitions() {
-    let app = add_clap(App::new(test_name!()));
-    let arg_matches =
-        app.get_matches_from(vec!["test", "-r", "-p", "-t", "1", "transitions"].iter());
-    let mut model = test_model(&arg_matches);
-    let mut stdout = Vec::new();
-    model.do_clap(&arg_matches, &mut stdout);
-    assert_output!(stdout, "txt");
-}
-
-#[test]
-fn test_states() {
-    let app = add_clap(App::new(test_name!()));
-    let arg_matches =
-        app.get_matches_from(vec!["test", "-r", "-p", "-t", "1", "states", "Client"].iter());
-    let mut model = test_model(&arg_matches);
-    let mut stdout = Vec::new();
-    model.do_clap(&arg_matches, &mut stdout);
-    assert_output!(stdout, "dot");
-}
-
-#[test]
-fn test_states_names() {
-    let app = add_clap(App::new(test_name!()));
-    let arg_matches =
-        app.get_matches_from(vec!["test", "-r", "-p", "-t", "1", "states", "-n", "Client"].iter());
-    let mut model = test_model(&arg_matches);
-    let mut stdout = Vec::new();
-    model.do_clap(&arg_matches, &mut stdout);
-    assert_output!(stdout, "dot");
-}
+test_case! { agents, "txt", vec!["test", "agents"] }
+test_case! { configurations, "txt", vec!["test", "-r", "-t", "1", "configurations"] }
+test_case! { transitions, "txt", vec!["test", "-t", "1", "transitions"] }
+test_case! { path, "txt", vec!["test", "-t", "1", "path", "INIT", "2MSG", "INIT"] }
+test_case! { sequence, "uml", vec!["test", "-t", "1", "sequence", "INIT", "2MSG", "INIT"] }
+test_case! { client_states, "dot", vec!["test", "-t", "1", "states", "Client"] }
+test_case! { client_states_names, "dot", vec!["test", "-t", "1", "states", "Client", "-n"] }
+test_case! { server_states, "dot", vec!["test", "-t", "1", "states", "Server"] }
+test_case! { server_states_names, "dot", vec!["test", "-t", "1", "states", "Server", "-n"] }

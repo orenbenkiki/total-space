@@ -1,0 +1,13 @@
+0MSG: matches any configuration with no in-flight messages
+1MSG: matches any configuration with a single in-flight message
+2MSG: matches any configuration with 2 in-flight messages
+3MSG: matches any configuration with 3 in-flight messages
+4MSG: matches any configuration with 4 in-flight messages
+5MSG: matches any configuration with 5 in-flight messages
+6MSG: matches any configuration with 6 in-flight messages
+7MSG: matches any configuration with 7 in-flight messages
+8MSG: matches any configuration with 8 in-flight messages
+9MSG: matches any configuration with 9 in-flight messages
+INIT: matches the initial configuration
+REPLACE: matches a configuration with a replaced message
+VALID: matches any valid configuration (is typically negated)

@@ -1,0 +1,78 @@
+@startuml
+autonumber " <b>#</b> "
+skinparam shadowing false
+skinparam sequence {
+ArrowColor Black
+ActorBorderColor Black
+LifeLineBorderColor Black
+LifeLineBackgroundColor Black
+ParticipantBorderColor Black
+}
+skinparam ControlBorderColor White
+skinparam ControlBackgroundColor White
+participant "C(0)" as A0 order 10100
+activate A0 #CadetBlue
+participant "C(1)" as A1 order 10200
+activate A1 #CadetBlue
+participant "SRV" as A2 order 10300
+activate A2 #CadetBlue
+rnote over A0 : IDL
+/ rnote over A1 : IDL
+/ rnote over A2 : LST
+?o-> A0
+deactivate A0
+control " " as T0 order 10101
+A0 -> T0 : REQ(C=0)
+activate T0 #Silver
+rnote over A0 : WAT
+activate A0 #MediumPurple
+?o-> A1
+deactivate A1
+control " " as T1 order 10201
+A1 -> T1 : REQ(C=1)
+activate T1 #Silver
+rnote over A1 : WAT
+activate A1 #MediumPurple
+T0 -> A2 : REQ(C=0)
+deactivate T0
+deactivate A2
+autonumber stop
+?-[#White]\ A2
+autonumber resume
+rnote over A2 : WRK(C=0)
+activate A2 #CadetBlue
+?o-> A2
+deactivate A2
+control " " as T2 order 10299
+A2 -> T2 : RSP
+activate T2 #Silver
+rnote over A2 : LST
+activate A2 #MediumPurple
+T1 -> A2 : REQ(C=1)
+deactivate T1
+deactivate A2
+autonumber stop
+?-[#White]\ A2
+autonumber resume
+rnote over A2 : WRK(C=1)
+activate A2 #CadetBlue
+?o-> A2
+deactivate A2
+A2 -> A1 : RSP
+deactivate A1
+rnote over A2 : LST
+activate A2 #MediumPurple
+autonumber stop
+?-[#White]\ A1
+autonumber resume
+rnote over A1 : IDL
+activate A1 #MediumPurple
+T2 -> A0 : RSP
+deactivate T2
+deactivate A0
+autonumber stop
+?-[#White]\ A0
+autonumber resume
+rnote over A0 : IDL
+activate A0 #MediumPurple
+@enduml

@@ -1,0 +1,15 @@
+C(0):IDL & C(1):IDL & SRV:LST
+C(0):WAT & C(1):IDL & SRV:LST | C(0) -> REQ(C=0) -> SRV
+C(0):WAT & C(1):WAT & SRV:LST | C(0) -> REQ(C=0) -> SRV & C(1) -> REQ(C=1) -> SRV
+C(0):WAT & C(1):WAT & SRV:WRK(C=0) | C(1) -> REQ(C=1) -> SRV
+C(0):WAT & C(1):WAT & SRV:WRK(C=1) | C(0) -> REQ(C=0) -> SRV
+C(0):WAT & C(1):WAT & SRV:LST | C(0) -> REQ(C=0) -> SRV & SRV -> RSP -> C(1)
+C(0):WAT & C(1):WAT & SRV:WRK(C=0) | SRV -> RSP -> C(1)
+C(0):WAT & C(1):WAT & SRV:LST | SRV -> RSP -> C(1) & SRV -> RSP -> C(0)
+C(0):WAT & C(1):IDL & SRV:WRK(C=0)
+C(0):WAT & C(1):IDL & SRV:LST | SRV -> RSP -> C(0)
+C(0):WAT & C(1):WAT & SRV:LST | C(1) -> REQ(C=1) -> SRV & SRV -> RSP -> C(0)
+C(0):WAT & C(1):WAT & SRV:WRK(C=1) | SRV -> RSP -> C(0)
+C(0):IDL & C(1):WAT & SRV:LST | C(1) -> REQ(C=1) -> SRV
+C(0):IDL & C(1):WAT & SRV:WRK(C=1)
+C(0):IDL & C(1):WAT & SRV:LST | SRV -> RSP -> C(1)

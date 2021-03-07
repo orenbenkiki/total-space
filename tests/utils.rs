@@ -18,7 +18,7 @@ impl_display_by_patched_debug! { Data }
 index_type! { DataId, u8 }
 
 #[test]
-fn test_memoize_value() {
+fn memoize_value() {
     let memoize = Memoize::<Data, DataId>::new(2, 2);
 
     let first = Data { value: 17 };
@@ -64,7 +64,7 @@ fn test_memoize_value() {
 
 #[test]
 #[should_panic(expected = "too many (5) memoized objects")]
-fn test_memoize_limit() {
+fn memoize_limit() {
     let memoize = Memoize::<Data, DataId>::new(2, 4);
 
     for value in 0..5 {
@@ -117,7 +117,7 @@ type SmallModel = Model<
 >;
 
 #[test]
-fn test_sizes() {
+fn sizes() {
     assert_eq!(
         32,
         size_of::<(

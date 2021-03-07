@@ -1,0 +1,17 @@
+INIT C(0):IDL & C(1):IDL & MGR: & SRV:LST
+BY time event
+TO C(0):WAT & C(1):IDL & MGR: & SRV:LST | C(0) -> REQ(C=0) -> SRV
+BY time event
+2MSG C(0):WAT & C(1):WAT & MGR: & SRV:LST | C(0) -> REQ(C=0) -> SRV & C(1) -> REQ(C=1) -> SRV
+BY message C(0) -> REQ(C=0) -> SRV
+TO C(0):WAT & C(1):WAT & MGR: & SRV:WRK(C=0) | C(1) -> REQ(C=1) -> SRV
+BY time event
+TO C(0):WAT & C(1):WAT & MGR: & SRV:LST | C(1) -> REQ(C=1) -> SRV & SRV -> RSP -> C(0)
+BY message C(1) -> REQ(C=1) -> SRV
+TO C(0):WAT & C(1):WAT & MGR: & SRV:WRK(C=1) | SRV -> RSP -> C(0)
+BY time event
+TO C(0):WAT & C(1):WAT & MGR: & SRV:LST | SRV -> RSP -> C(0) & SRV -> RSP -> C(1)
+BY message SRV -> RSP -> C(0)
+TO C(0):IDL & C(1):WAT & MGR: & SRV:LST | SRV -> RSP -> C(1)
+BY message SRV -> RSP -> C(1)
+INIT C(0):IDL & C(1):IDL & MGR: & SRV:LST

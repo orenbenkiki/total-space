@@ -1,0 +1,15 @@
+Client:Idle & Server:Listen
+Client:Wait(1) & Server:Listen | Client -> @0 Request(1) -> Server
+Client:Wait(3) & Server:Listen | Client -> @0 Request(1) -> Server & Client -> @0 Request(2) -> Server
+Client:Wait(3) & Server:Work(1) | Client -> @0 Request(2) -> Server
+Client:Wait(3) & Server:Work(2) | Client -> @0 Request(1) -> Server
+Client:Wait(3) & Server:Listen | Client -> @0 Request(1) -> Server & Server -> @0 Response(2) -> Client
+Client:Wait(3) & Server:Work(1) | Server -> @0 Response(2) -> Client
+Client:Wait(3) & Server:Listen | Server -> @0 Response(2) -> Client & Server -> @0 Response(1) -> Client
+Client:Wait(1) & Server:Work(1)
+Client:Wait(1) & Server:Listen | Server -> @0 Response(1) -> Client
+Client:Wait(3) & Server:Listen | Client -> @0 Request(2) -> Server & Server -> @0 Response(1) -> Client
+Client:Wait(3) & Server:Work(2) | Server -> @0 Response(1) -> Client
+Client:Wait(2) & Server:Listen | Client -> @0 Request(2) -> Server
+Client:Wait(2) & Server:Work(2)
+Client:Wait(2) & Server:Listen | Server -> @0 Response(2) -> Client

@@ -17,11 +17,19 @@ macro_rules! test_name {
     }};
 }
 
-/// Assert that the output of a test is as specified in the expected results file.
+/// A complete test case.
 #[macro_export]
-macro_rules! assert_output {
-    ($actual_bytes:expr, $suffix:literal) => {
-        common::impl_assert_output(module_path!(), test_name!(), $suffix, &$actual_bytes)
+macro_rules! test_case {
+    ($name:ident, $suffix:literal, $flags:expr) => {
+        #[test]
+        fn $name() {
+            let app = add_clap(App::new(test_name!()));
+            let arg_matches = app.get_matches_from($flags.iter());
+            let mut model = test_model(&arg_matches);
+            let mut stdout = Vec::new();
+            model.do_clap(&arg_matches, &mut stdout);
+            common::impl_assert_output(module_path!(), test_name!(), $suffix, &stdout);
+        }
     };
 }
 
@@ -63,6 +71,3 @@ pub fn impl_assert_output(module_name: &str, test_name: &str, suffix: &str, actu
         actual_path
     );
 }
-
-/// Test standard operations on a model.
-pub fn test_standard(

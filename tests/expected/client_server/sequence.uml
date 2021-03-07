@@ -1,0 +1,53 @@
+@startuml
+autonumber " <b>#</b> "
+skinparam shadowing false
+skinparam sequence {
+ArrowColor Black
+ActorBorderColor Black
+LifeLineBorderColor Black
+LifeLineBackgroundColor Black
+ParticipantBorderColor Black
+}
+skinparam ControlBorderColor White
+skinparam ControlBackgroundColor White
+participant "C" as A0 order 10100
+activate A0 #CadetBlue
+participant "S" as A1 order 10200
+activate A1 #CadetBlue
+rnote over A0 : IDL
+/ rnote over A1 : LST
+?o-> A0
+control " " as T0 order 10101
+A0 -> T0 : PNG
+activate T0 #Silver
+?o-> A0
+A0 -> T0 : &#8658; PNG
+?o-> A0
+deactivate A0
+A0 -> A1 : REQ
+deactivate A1
+rnote over A0 : WAT
+activate A0 #MediumPurple
+autonumber stop
+?-[#White]\ A1
+autonumber resume
+rnote over A1 : WRK
+activate A1 #CadetBlue
+?o-> A1
+deactivate A1
+control " " as T1 order 10199
+A1 -> T1 : RSP
+activate T1 #Silver
+rnote over A1 : LST
+activate A1 #MediumPurple
+T0 -> A1 : PNG
+deactivate T0
+T1 -> A0 : RSP
+deactivate T1
+deactivate A0
+autonumber stop
+?-[#White]\ A0
+autonumber resume
+rnote over A0 : IDL
+activate A0 #MediumPurple
+@enduml

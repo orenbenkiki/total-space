@@ -1630,14 +1630,14 @@ pub struct AgentTimelines {
 
 /// The current state of a sequence diagram.
 #[derive(Clone, Debug)]
-pub struct SequenceState<const MAX_AGENTS: usize, const MAX_MESSAGES: usize> {
+pub struct SequenceState<MessageId: IndexLike, const MAX_AGENTS: usize, const MAX_MESSAGES: usize> {
     /// For each timeline, the index of the message it contains (in the current configuration).
     pub timelines: Vec<Option<usize>>,
 
     /// For each message in the current configuration, the timeline it is on.
     /// This may be `None` if the message was delivered in the very next transition
     /// (always true for immediate messages).
-    pub message_timelines: [Option<usize>; MAX_MESSAGES],
+    pub message_timelines: StdHashMap<MessageId, usize>,
 
     /// The additional control timelines of each agent.
     pub agents_timelines: Vec<AgentTimelines>,
@@ -1856,7 +1856,7 @@ impl<
         StdHashMap<Vec<MessageId>, Vec<MessageId>>,
     >;
     type AgentStateSentByDelivered = StdHashMap<Vec<MessageId>, Vec<Vec<MessageId>>>;
-    type SequenceState = SequenceState<MAX_AGENTS, MAX_MESSAGES>;
+    type SequenceState = SequenceState<MessageId, MAX_AGENTS, MAX_MESSAGES>;
 }
 
 fn is_init<Model, ConfigurationId: IndexLike>(
@@ -3620,10 +3620,11 @@ impl<
             .take_while(|to_message_id| to_message_id.is_valid())
             .enumerate()
             .for_each(|(to_message_index, to_message_id)| {
+                eprintln!("INTO MSG {}", self.display_message_id(*to_message_id));
                 to_prev_messages[to_message_index] = if let Some(from_message_index) = self
                     .to_message_kept_in_transition(
                         *to_message_id,
-                        &to_configuration,
+                        &from_configuration,
                         outgoing.delivered_message_index,
                     ) {
                     PrevMessage::Kept(from_message_index)
@@ -3631,6 +3632,7 @@ impl<
                     let to_message = self.messages.get(*to_message_id);
                     assert!(agent_index.is_none() || agent_index == Some(to_message.source_index));
                     agent_index = Some(to_message.source_index);
+
                     if let Some(replaced) = to_message.replaced {
                         let from_message_index = from_configuration
                             .message_ids
@@ -3660,6 +3662,12 @@ impl<
                 .position(|(from_state_id, to_state_id)| from_state_id != to_state_id)
             // END NOT TESTED
         }
+        assert!(
+            agent_index.is_some(),
+            "could not identify active agent transitioning from {} to {}",
+            self.display_configuration(&from_configuration),
+            self.display_configuration(&to_configuration)
+        );
 
         let delivered_message_index = if outgoing.delivered_message_index == MessageIndex::invalid()
         {
@@ -3778,13 +3786,11 @@ impl<
         }
 
         let state_transitions = self.collect_agent_state_transitions(agent_index, only_use_names);
-        eprintln!("TODOX {:?}", state_transitions);
         let mut contexts: Vec<&<Self as MetaModel>::AgentStateTransitionContext> =
             state_transitions.keys().collect();
         contexts.sort();
 
         for context in contexts.iter() {
-            eprintln!("TODOX CONTEXT {:?}", context);
             let related_state_transitions = &state_transitions[context];
             let mut sent_keys: Vec<&Vec<MessageId>> = related_state_transitions.keys().collect();
             sent_keys.sort();
@@ -3809,8 +3815,6 @@ impl<
 
             let mut delivered_keys: Vec<&Vec<MessageId>> = sent_by_delivered.keys().collect();
             delivered_keys.sort();
-
-            eprintln!("TODOX sent_by_delivered: {:?}", sent_by_delivered);
 
             let mut intersecting_delivered_message_ids: Vec<Vec<MessageId>> = vec![];
             let mut distinct_delivered_message_ids: Vec<Vec<MessageId>> = vec![];
@@ -3866,32 +3870,12 @@ impl<
                 }
             }
 
-            eprintln!(
-                "TODOX intersecting_delivered_message_ids: {:?}",
-                intersecting_delivered_message_ids,
-            );
-            eprintln!(
-                "TODOX distinct_delivered_message_ids: {:?}",
-                distinct_delivered_message_ids,
-            );
-
             for delivered_message_ids_key in intersecting_delivered_message_ids.iter() {
-                eprintln!(
-                    "TODOX - I delivered_message_ids_key {:?}",
-                    delivered_message_ids_key,
-                );
                 let delivered_message_ids: &Vec<MessageId> = delivered_message_ids_key;
-                /*
-                let mut delivered_sent_keys: Vec<&Vec<MessageId>> =
-                    related_state_transitions.keys().collect();
-                delivered_sent_keys.sort();
-                TODOX
-                */
                 let mut delivered_sent_keys = sent_by_delivered[delivered_message_ids].clone();
                 delivered_sent_keys.sort();
 
                 for sent_message_ids_key in delivered_sent_keys.iter() {
-                    eprintln!("TODOX     sent_message_ids_key {:?}", sent_message_ids_key);
                     let sent_message_ids: &Vec<MessageId> = sent_message_ids_key;
 
                     self.print_agent_transition_cluster(
@@ -3920,10 +3904,6 @@ impl<
             }
 
             for delivered_message_ids_key in distinct_delivered_message_ids.iter() {
-                eprintln!(
-                    "TODOX - D delivered_message_ids_key {:?}",
-                    delivered_message_ids_key,
-                );
                 let mut delivered_sent_keys: Vec<&Vec<MessageId>> =
                     related_state_transitions.keys().collect();
                 let delivered_message_ids: &Vec<MessageId> = delivered_message_ids_key;
@@ -3943,7 +3923,6 @@ impl<
                 for (alternative_index, sent_message_ids_key) in
                     delivered_sent_keys.iter().enumerate()
                 {
-                    eprintln!("TODOX     sent_message_ids_key {:?}", sent_message_ids_key);
                     let sent_message_ids: &Vec<MessageId> = sent_message_ids_key;
 
                     self.print_agent_transition_sent_edges(
@@ -3976,7 +3955,6 @@ impl<
         has_alternatives: bool,
         stdout: &mut dyn Write,
     ) {
-        eprintln!("TODOX CLUSTER {:?}", state_transition_index);
         if !emitted_states[context.from_state_id.to_usize()] {
             self.print_agent_state_node(
                 only_use_names,
@@ -4380,7 +4358,7 @@ impl<
 
         let mut sequence_state = SequenceState {
             timelines: vec![],
-            message_timelines: [None; MAX_MESSAGES],
+            message_timelines: StdHashMap::new(),
             agents_timelines: vec![
                 AgentTimelines {
                     left: vec![],
@@ -4468,6 +4446,7 @@ impl<
                 let timeline_index = self.add_sequence_timeline(
                     &mut sequence_state,
                     message_index,
+                    *message_id,
                     &message,
                     stdout,
                 );
@@ -4490,14 +4469,17 @@ impl<
 
     fn add_sequence_timeline(
         &self,
-        mut sequence_state: &mut <Self as MetaModel>::SequenceState,
+        sequence_state: &mut <Self as MetaModel>::SequenceState,
         message_index: usize,
+        message_id: MessageId,
         message: &<Self as MetaModel>::Message,
         stdout: &mut dyn Write,
     ) -> usize {
         let timeline_index = sequence_state.timelines.len();
         sequence_state.timelines.push(Some(message_index));
-        sequence_state.message_timelines[message_index] = Some(timeline_index);
+        sequence_state
+            .message_timelines
+            .insert(message_id, timeline_index);
 
         let timeline_order = if self.is_rightwards_message(message) {
             sequence_state.agents_timelines[message.source_index]
@@ -4605,11 +4587,11 @@ impl<
         to_configuration: &<Self as MetaModel>::Configuration,
         stdout: &mut dyn Write,
     ) -> bool {
-        if let Some(delivered_message_index) = transition.delivered_message_index {
+        if transition.delivered_message_index.is_some() {
             let delivered_message_id = transition.delivered_message_id.unwrap();
             let delivered_message = self.messages.get(delivered_message_id);
             if let Some(timeline_index) =
-                sequence_state.message_timelines[delivered_message_index.to_usize()]
+                sequence_state.message_timelines.get(&delivered_message_id)
             {
                 writeln!(
                     stdout,
@@ -4620,6 +4602,7 @@ impl<
                 )
                 .unwrap();
                 writeln!(stdout, "deactivate T{}", timeline_index).unwrap();
+                sequence_state.timelines[*timeline_index] = None;
                 if to_configuration.state_ids[transition.agent_index]
                     != from_configuration.state_ids[transition.agent_index]
                 {
@@ -4635,8 +4618,8 @@ impl<
             }
         }
 
-        let from_message_timelines = sequence_state.message_timelines;
-        sequence_state.message_timelines.fill(None);
+        let from_message_timelines = sequence_state.message_timelines.clone();
+        sequence_state.message_timelines.clear();
 
         let mut did_send_messages: bool = false;
 
@@ -4646,15 +4629,21 @@ impl<
             .take_while(|prev_message| **prev_message != PrevMessage::NotApplicable)
             .enumerate()
             .for_each(|(to_message_index, prev_message)| match prev_message {
-                PrevMessage::Kept(from_message_index) => {
-                    let timeline_index = from_message_timelines[*from_message_index];
-                    debug_assert!(timeline_index.is_some());
-                    sequence_state.message_timelines[to_message_index] = timeline_index;
+                PrevMessage::Kept(_) => {
+                    let to_message_id = to_configuration.message_ids[to_message_index];
+                    let timeline_index = from_message_timelines[&to_message_id];
+                    sequence_state
+                        .message_timelines
+                        .insert(to_message_id, timeline_index);
                 }
                 PrevMessage::Replaced(from_message_index) => {
-                    let timeline_index = from_message_timelines[*from_message_index].unwrap();
+                    let from_message_id = from_configuration.message_ids[*from_message_index];
+                    let timeline_index = from_message_timelines[&from_message_id];
                     let to_message_id = to_configuration.message_ids[to_message_index];
                     let to_message = self.messages.get(to_message_id);
+                    sequence_state
+                        .message_timelines
+                        .insert(to_message_id, timeline_index);
                     writeln!(
                         stdout,
                         "A{} -> T{} : {}",
@@ -4663,7 +4652,6 @@ impl<
                         self.display_sequence_message(&to_message, false)
                     )
                     .unwrap();
-                    sequence_state.message_timelines[to_message_index] = Some(timeline_index);
                     did_send_messages = true;
                 }
                 _ => {}
@@ -4729,14 +4717,16 @@ impl<
                                 debug_assert!(
                                     sequence_state.timelines[existing_timeline_index].is_none()
                                 );
-                                sequence_state.message_timelines[to_message_index] =
-                                    Some(existing_timeline_index);
+                                sequence_state
+                                    .message_timelines
+                                    .insert(to_message_id, existing_timeline_index);
                                 existing_timeline_index
                                 // END NOT TESTED
                             } else {
                                 self.add_sequence_timeline(
                                     &mut sequence_state,
                                     to_message_index,
+                                    to_message_id,
                                     &to_message,
                                     stdout,
                                 )
@@ -4857,18 +4847,6 @@ impl<
         let agent_type = &self.agent_types[agent_index];
         let agent_instance = self.agent_instance(agent_index);
 
-        /*
-        eprintln!();
-        eprintln!(
-            "TODOX FROM {:?}",
-            self.display_configuration(from_configuration)
-        );
-        eprintln!(
-            "TODOX INTO {:?}",
-            self.display_configuration(to_configuration)
-        );
-        */
-
         let mut context = AgentStateTransitionContext {
             from_state_id: from_configuration.state_ids[agent_index],
             from_is_deferring: agent_type
@@ -4904,7 +4882,6 @@ impl<
                     if only_use_names {
                         message_id = self.terse_of_message_id.read()[message_id.to_usize()];
                     }
-                    // eprintln!("TODOX sent {}", self.display_message_id(message_id));
                     sent_message_ids.push(message_id);
                     sent_message_ids.sort();
                 }
@@ -4925,23 +4902,12 @@ impl<
             }
         }
 
-        /*
-        eprintln!(
-            "TODOX ? is_delivered_to_us {} same {} empty {}",
-            is_delivered_to_us,
-            context.from_state_id == context.to_state_id,
-            sent_message_ids.is_empty()
-        );
-        */
         if !is_delivered_to_us
             && context.from_state_id == context.to_state_id
             && sent_message_ids.is_empty()
         {
-            //eprintln!("TODOX - NOPE");
             return;
         }
-
-        //eprintln!("TODOX + COLLECT");
 
         state_transitions
             .entry(context)
@@ -4965,8 +4931,6 @@ impl<
             delivered_message_ids.push(delivered_message_id);
             delivered_message_ids.sort();
         }
-
-        //eprintln!("TODOX {:?}", state_transitions);
     }
 
     fn from_message_kept_in_transition(
@@ -5238,12 +5202,6 @@ impl<
                         let from_configuration_id =
                             ConfigurationId::from_usize(from_configuration_id);
                         let from_configuration = self.configurations.get(from_configuration_id);
-                        writeln!(
-                            stdout,
-                            "FROM {}",
-                            self.display_configuration(&from_configuration)
-                        )
-                        .unwrap();
 
                         outgoings.read().iter().for_each(|outgoing| {
                             let event_label =

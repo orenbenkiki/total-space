@@ -1,0 +1,15 @@
+INIT C:IDL & S:LST
+BY time event
+TO C:IDL & S:LST | C -> PNG -> S
+BY time event
+REPLACE C:IDL & S:LST | C -> PNG => PNG -> S
+BY time event
+2MSG C:WAT & S:LST | C -> REQ -> S & C -> PNG => PNG -> S
+BY message C -> REQ -> S
+TO C:WAT & S:WRK | C -> PNG => PNG -> S
+BY time event
+TO C:WAT & S:LST | C -> PNG => PNG -> S & S -> RSP -> C
+BY message C -> PNG => PNG -> S
+TO C:WAT & S:LST | S -> RSP -> C
+BY message S -> RSP -> C
+INIT C:IDL & S:LST

@@ -1,0 +1,46 @@
+- BY time event
+  TO C:WAT & S:LST | C -> REQ -> S
+- BY time event
+  TO C:IDL & S:LST | C -> PNG -> S
+- BY message C -> REQ -> S
+  TO C:WAT & S:WRK
+- BY time event
+  TO C:WAT & S:LST | C -> REQ -> S & C -> PNG -> S
+- BY time event
+  TO C:IDL & S:LST | C -> PNG => PNG -> S
+- BY message C -> PNG -> S
+  TO C:IDL & S:LST
+- BY message C -> REQ -> S
+  TO C:WAT & S:WRK | C -> PNG -> S
+- BY message C -> PNG -> S
+  TO C:WAT & S:LST | C -> REQ -> S
+- BY time event
+  TO C:WAT & S:LST | C -> REQ -> S & C -> PNG => PNG -> S
+- BY time event
+  TO C:IDL & S:LST | C -> PNG => PNG -> S
+- BY message C -> PNG => PNG -> S
+  TO C:IDL & S:LST
+- BY message C -> REQ -> S
+  TO C:WAT & S:WRK | C -> PNG => PNG -> S
+- BY message C -> PNG => PNG -> S
+  TO C:WAT & S:LST | C -> REQ -> S
+- BY time event
+  TO C:WAT & S:LST | C -> PNG => PNG -> S & S -> RSP -> C
+- BY message C -> PNG => PNG -> S
+  TO C:WAT & S:WRK
+- BY message C -> PNG => PNG -> S
+  TO C:WAT & S:LST | S -> RSP -> C
+- BY message S -> RSP -> C
+  TO C:IDL & S:LST | C -> PNG => PNG -> S
+- BY time event
+  TO C:WAT & S:LST | S -> RSP -> C
+- BY message S -> RSP -> C
+  TO C:IDL & S:LST
+- BY time event
+  TO C:WAT & S:LST | C -> PNG -> S & S -> RSP -> C
+- BY message C -> PNG -> S
+  TO C:WAT & S:WRK
+- BY message C -> PNG -> S
+  TO C:WAT & S:LST | S -> RSP -> C
+- BY message S -> RSP -> C
+  TO C:IDL & S:LST | C -> PNG -> S

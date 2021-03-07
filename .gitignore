@@ -3,6 +3,7 @@ cobertura.xml
 /docs/
 *junk*
 Makefile.scmf.toml
+plantuml.jar
 **/*.rs.bk
 .*.sw*
 tags
