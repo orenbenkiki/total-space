@@ -1567,7 +1567,7 @@ pub struct Model<
     pub max_configuration_string_size: RwLock<usize>,
 
     /// Whether to print each new configuration as we reach it.
-    pub eprint_progress: bool,
+    pub print_progress_every: usize,
 
     /// Whether we'll be testing if the initial configuration is reachable from every configuration.
     pub ensure_init_is_reachable: bool,
@@ -2023,7 +2023,7 @@ impl<
             max_message_string_size: RwLock::new(0),
             max_invalid_string_size: RwLock::new(0),
             max_configuration_string_size: RwLock::new(0),
-            eprint_progress: false,
+            print_progress_every: 0,
             ensure_init_is_reachable: false,
             allow_invalid_configurations: false,
             threads: Threads::Physical,
@@ -2315,7 +2315,9 @@ impl<
         configuration_id: ConfigurationId,
     ) {
         let configuration = self.configurations.get(configuration_id);
-        if self.eprint_progress {
+        if self.print_progress_every > 0
+            && configuration_id.to_usize() % self.print_progress_every == 0
+        {
             eprintln!(
                 "{} - {}",
                 configuration_id.to_usize(),
@@ -3311,7 +3313,8 @@ impl<
             self.threads = Threads::Count(1); // NOT TESTED
         }
 
-        self.eprint_progress = arg_matches.is_present("progress");
+        let threads = arg_matches.value_of("progress").unwrap();
+        self.print_progress_every = usize::from_str(threads).expect("invalid progress rate");
         self.allow_invalid_configurations = arg_matches.is_present("invalid");
 
         self.ensure_init_is_reachable = arg_matches.is_present("reachable");
@@ -5002,6 +5005,7 @@ pub fn add_clap<'a, 'b>(app: App<'a, 'b>) -> App<'a, 'b> {
         Arg::with_name("progress")
             .short("p")
             .long("progress")
+            .default_value("1000")
             .help("print configurations as they are reached"),
     )
     .arg(

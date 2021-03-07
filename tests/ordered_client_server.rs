@@ -146,11 +146,11 @@ fn test_model(arg_matches: &ArgMatches) -> TestModel {
 }
 
 test_case! { agents, "txt", vec!["test", "agents"] }
-test_case! { configurations, "txt", vec!["test", "-r", "-t", "1", "configurations"] }
-test_case! { transitions, "txt", vec!["test", "-t", "1", "transitions"] }
-test_case! { path, "txt", vec!["test", "-t", "1", "path", "INIT", "2MSG", "INIT"] }
-test_case! { sequence, "uml", vec!["test", "-t", "1", "sequence", "INIT", "2MSG", "INIT"] }
-test_case! { client_states, "dot", vec!["test", "-t", "1", "states", "Client"] }
-test_case! { client_states_names, "dot", vec!["test", "-t", "1", "states", "Client", "-n"] }
-test_case! { server_states, "dot", vec!["test", "-t", "1", "states", "Server"] }
-test_case! { server_states_names, "dot", vec!["test", "-t", "1", "states", "Server", "-n"] }
+test_case! { configurations, "txt", vec!["test", "-r", "-p", "1", "-t", "1", "configurations"] }
+test_case! { transitions, "txt", vec!["test", "-p", "1", "-t", "1", "transitions"] }
+test_case! { path, "txt", vec!["test", "-p", "1", "-t", "1", "path", "INIT", "2MSG", "INIT"] }
+test_case! { sequence, "uml", vec!["test", "-p", "1", "-t", "1", "sequence", "INIT", "2MSG", "INIT"] }
+test_case! { client_states, "dot", vec!["test", "-p", "1", "-t", "1", "states", "Client"] }
+test_case! { client_states_names, "dot", vec!["test", "-p", "1", "-t", "1", "states", "Client", "-n"] }
+test_case! { server_states, "dot", vec!["test", "-p", "1", "-t", "1", "states", "Server"] }
+test_case! { server_states_names, "dot", vec!["test", "-p", "1", "-t", "1", "states", "Server", "-n"] }
