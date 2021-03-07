@@ -1677,6 +1677,26 @@ pub struct PathTransition<
     pub to_condition_name: Option<String>,
 }
 
+/// Control appearence of state graphs.
+#[derive(Debug)]
+pub struct Condense {
+    /// Only use names, ignore details of state and payload.
+    names_only: bool,
+
+    /// Merge all agent instances.
+    merge_instances: bool,
+
+    /// Only consider the final value of a replaced message.
+    final_replaced: bool,
+}
+
+impl Condense {
+    /// Test whether we are condensing anything.
+    pub fn is_active(&self) -> bool {
+        self.names_only || self.merge_instances || self.final_replaced
+    }
+}
+
 /// Identify related set of transition between agent states in the diagram.
 #[derive(PartialEq, Eq, PartialOrd, Ord, Hash, Copy, Clone, Debug)]
 pub struct AgentStateTransitionContext<StateId: IndexLike> {
@@ -3623,7 +3643,6 @@ impl<
             .take_while(|to_message_id| to_message_id.is_valid())
             .enumerate()
             .for_each(|(to_message_index, to_message_id)| {
-                eprintln!("INTO MSG {}", self.display_message_id(*to_message_id));
                 to_prev_messages[to_message_index] = if let Some(from_message_index) = self
                     .to_message_kept_in_transition(
                         *to_message_id,
@@ -3672,8 +3691,7 @@ impl<
             self.display_configuration(&to_configuration)
         );
 
-        let delivered_message_index = if outgoing.delivered_message_index == MessageIndex::invalid()
-        {
+        let delivered_message_index = if !outgoing.delivered_message_index.is_valid() {
             None
         } else {
             Some(outgoing.delivered_message_index)
@@ -3731,15 +3749,17 @@ impl<
         const MAX_MESSAGES: usize,
     > Model<StateId, MessageId, InvalidId, ConfigurationId, Payload, MAX_AGENTS, MAX_MESSAGES>
 {
-    fn compute_terse(&self) {
+    fn compute_terse(&self, condense: &Condense) {
         let mut terse_of_message_id = self.terse_of_message_id.write();
         let mut message_of_terse_id = self.message_of_terse_id.write();
         assert!(terse_of_message_id.is_empty());
         assert!(message_of_terse_id.is_empty());
 
-        for (agent_index, agent_type) in self.agent_types.iter().enumerate() {
-            if agent_index == agent_type.first_index() {
-                agent_type.compute_terse();
+        if condense.names_only {
+            for (agent_index, agent_type) in self.agent_types.iter().enumerate() {
+                if agent_index == agent_type.first_index() {
+                    agent_type.compute_terse();
+                }
             }
         }
 
@@ -3750,18 +3770,56 @@ impl<
 
         for message_id in 0..self.messages.len() {
             let message = self.messages.get(MessageId::from_usize(message_id));
+
+            let source_index = if condense.merge_instances {
+                self.agent_types[message.source_index].first_index()
+            } else {
+                message.source_index
+            };
+
+            let target_index = if condense.merge_instances {
+                self.agent_types[message.target_index].first_index()
+            } else {
+                message.target_index
+            };
+
+            let payload = if condense.names_only {
+                message.payload.name()
+            } else {
+                message.payload.to_string()
+            };
+
+            let replaced = if message.replaced.is_none() || condense.final_replaced {
+                None
+            } else if condense.names_only {
+                Some(message.replaced.unwrap().name())
+            } else {
+                Some(message.replaced.unwrap().to_string())
+            };
+
             let terse_message = TerseMessage {
                 is_immediate: message.order == MessageOrder::Immediate,
-                source_index: message.source_index,
-                target_index: message.target_index,
-                payload: message.payload.name(),
-                replaced: message.replaced.map(|replaced| replaced.name()),
+                source_index,
+                target_index,
+                payload,
+                replaced,
             };
+
+            let todox = terse_message.clone();
+
             let terse_id = *seen_messages.entry(terse_message).or_insert_with(|| {
                 let next_terse_id = message_of_terse_id.len();
                 message_of_terse_id.push(MessageId::from_usize(message_id));
                 next_terse_id
             });
+
+            eprintln!(
+                "TODOX TERSE OF {:?} MSG {} DATA {:?} IS {:?}",
+                message_id,
+                self.display_message(&message),
+                todox,
+                terse_id
+            );
             terse_of_message_id.push(MessageId::from_usize(terse_id));
         }
 
@@ -3770,8 +3828,7 @@ impl<
 
     pub fn print_agent_states_diagram(
         &self,
-        only_use_names: bool,
-        show_final_replaced: bool,
+        condense: &Condense,
         agent_index: usize,
         stdout: &mut dyn Write,
     ) {
@@ -3785,12 +3842,11 @@ impl<
 
         let mut state_transition_index: usize = 0;
 
-        if only_use_names {
-            self.compute_terse();
+        if condense.is_active() {
+            self.compute_terse(condense);
         }
 
-        let state_transitions =
-            self.collect_agent_state_transitions(agent_index, only_use_names, show_final_replaced);
+        let state_transitions = self.collect_agent_state_transitions(condense, agent_index);
         let mut contexts: Vec<&<Self as MetaModel>::AgentStateTransitionContext> =
             state_transitions.keys().collect();
         contexts.sort();
@@ -3884,7 +3940,7 @@ impl<
                     let sent_message_ids: &Vec<MessageId> = sent_message_ids_key;
 
                     self.print_agent_transition_cluster(
-                        only_use_names,
+                        condense,
                         &mut emitted_states,
                         agent_index,
                         context,
@@ -3895,7 +3951,7 @@ impl<
                     );
 
                     self.print_agent_transition_sent_edges(
-                        only_use_names,
+                        condense,
                         agent_index,
                         &sent_message_ids,
                         state_transition_index,
@@ -3915,7 +3971,7 @@ impl<
                 delivered_sent_keys.sort();
 
                 self.print_agent_transition_cluster(
-                    only_use_names,
+                    condense,
                     &mut emitted_states,
                     agent_index,
                     context,
@@ -3931,7 +3987,7 @@ impl<
                     let sent_message_ids: &Vec<MessageId> = sent_message_ids_key;
 
                     self.print_agent_transition_sent_edges(
-                        only_use_names,
+                        condense,
                         agent_index,
                         &sent_message_ids,
                         state_transition_index,
@@ -3951,7 +4007,7 @@ impl<
     #[allow(clippy::too_many_arguments)]
     fn print_agent_transition_cluster(
         &self,
-        only_use_names: bool,
+        condense: &Condense,
         emitted_states: &mut [bool],
         agent_index: usize,
         context: &<Self as MetaModel>::AgentStateTransitionContext,
@@ -3962,7 +4018,7 @@ impl<
     ) {
         if !emitted_states[context.from_state_id.to_usize()] {
             self.print_agent_state_node(
-                only_use_names,
+                condense,
                 agent_index,
                 context.from_state_id,
                 context.from_is_deferring,
@@ -3973,7 +4029,7 @@ impl<
 
         if !emitted_states[context.to_state_id.to_usize()] {
             self.print_agent_state_node(
-                only_use_names,
+                condense,
                 agent_index,
                 context.to_state_id,
                 context.to_is_deferring,
@@ -4001,7 +4057,7 @@ impl<
 
         for delivered_message_id in delivered_message_ids.iter() {
             self.print_message_node(
-                only_use_names,
+                condense,
                 state_transition_index,
                 None,
                 agent_index,
@@ -4019,7 +4075,7 @@ impl<
 
     fn print_agent_transition_sent_edges(
         &self,
-        only_use_names: bool,
+        condense: &Condense,
         agent_index: usize,
         sent_message_ids: &[MessageId],
         state_transition_index: usize,
@@ -4038,7 +4094,7 @@ impl<
 
         if alternative_index.is_some() && sent_message_ids.is_empty() {
             self.print_message_node(
-                only_use_names,
+                condense,
                 state_transition_index,
                 None,
                 agent_index,
@@ -4055,7 +4111,7 @@ impl<
 
         for sent_message_id in sent_message_ids.iter() {
             self.print_message_node(
-                only_use_names,
+                condense,
                 state_transition_index,
                 alternative_index,
                 agent_index,
@@ -4074,14 +4130,14 @@ impl<
 
     fn print_agent_state_node(
         &self,
-        only_use_names: bool,
+        condense: &Condense,
         agent_index: usize,
         state_id: StateId,
         is_deferring: bool,
         stdout: &mut dyn Write,
     ) {
         let shape = if is_deferring { "octagon" } else { "ellipse" };
-        let state = if only_use_names {
+        let state = if condense.names_only {
             self.agent_types[agent_index].display_terse(state_id)
         } else {
             self.agent_types[agent_index].display_state(state_id)
@@ -4125,7 +4181,7 @@ impl<
 
     fn print_message_node(
         &self,
-        only_use_names: bool,
+        condense: &Condense,
         state_transition_index: usize,
         alternative_index: Option<usize>,
         agent_index: usize,
@@ -4172,41 +4228,43 @@ impl<
         )
         .unwrap();
 
-        if only_use_names {
+        if condense.names_only {
             message_id = self.message_of_terse_id.read()[message_id.to_usize()];
         }
 
         let message = self.messages.get(message_id);
         if message.source_index != agent_index {
-            write!(
-                stdout,
-                "{} {}\\n",
-                self.agent_labels[message.source_index], RIGHT_ARROW
-            )
-            .unwrap();
+            let source = if condense.merge_instances {
+                self.agent_types[message.source_index].name()
+            } else {
+                self.agent_labels[message.source_index].to_string()
+            };
+            write!(stdout, "{} {}\\n", source, RIGHT_ARROW).unwrap();
         }
 
-        if let Some(replaced) = message.replaced {
-            if only_use_names {
-                write!(stdout, "{} {}\\n", replaced.name(), RIGHT_DOUBLE_ARROW).unwrap();
-            } else {
-                write!(stdout, "{} {}\\n", replaced, RIGHT_DOUBLE_ARROW).unwrap();
+        if !condense.final_replaced {
+            if let Some(replaced) = message.replaced {
+                if condense.names_only {
+                    write!(stdout, "{} {}\\n", replaced.name(), RIGHT_DOUBLE_ARROW).unwrap();
+                } else {
+                    write!(stdout, "{} {}\\n", replaced, RIGHT_DOUBLE_ARROW).unwrap();
+                }
             }
         }
 
-        if only_use_names {
+        if condense.names_only {
             write!(stdout, "{}", message.payload.name()).unwrap();
         } else {
             write!(stdout, "{}", message.payload).unwrap();
         }
 
         if message.target_index != agent_index {
-            write!(
-                stdout,
-                "\\n{} {}",
-                RIGHT_ARROW, self.agent_labels[message.target_index]
-            )
-            .unwrap();
+            let target = if condense.merge_instances {
+                self.agent_types[message.target_index].name()
+            } else {
+                self.agent_labels[message.target_index].to_string()
+            };
+            write!(stdout, "\\n{} {}", RIGHT_ARROW, target).unwrap();
         }
 
         writeln!(stdout, "\", shape=plain ];").unwrap();
@@ -4812,9 +4870,8 @@ impl<
 
     fn collect_agent_state_transitions(
         &self,
+        condense: &Condense,
         agent_index: usize,
-        only_use_names: bool,
-        show_final_replaced: bool,
     ) -> <Self as MetaModel>::AgentStateTransitions {
         let mut state_transitions = <Self as MetaModel>::AgentStateTransitions::default();
         self.outgoings
@@ -4829,9 +4886,8 @@ impl<
                 outgoings.read().iter().for_each(|outgoing| {
                     let to_configuration = self.configurations.get(outgoing.to_configuration_id);
                     self.collect_agent_state_transition(
+                        condense,
                         agent_index,
-                        only_use_names,
-                        show_final_replaced,
                         &from_configuration,
                         &to_configuration,
                         outgoing.delivered_message_index,
@@ -4844,9 +4900,8 @@ impl<
 
     fn collect_agent_state_transition(
         &self,
+        condense: &Condense,
         agent_index: usize,
-        only_use_names: bool,
-        show_final_replaced: bool,
         from_configuration: &<Self as MetaModel>::Configuration,
         to_configuration: &<Self as MetaModel>::Configuration,
         delivered_message_index: MessageIndex,
@@ -4864,7 +4919,7 @@ impl<
                 .state_is_deferring(agent_instance, &to_configuration.state_ids),
         };
 
-        if only_use_names {
+        if condense.names_only {
             context.from_state_id = agent_type.terse_id(context.from_state_id);
             context.to_state_id = agent_type.terse_id(context.to_state_id);
         }
@@ -4886,10 +4941,11 @@ impl<
                     )
                     .is_none()
                 {
-                    let mut message_id = *to_message_id;
-                    if only_use_names {
-                        message_id = self.terse_of_message_id.read()[message_id.to_usize()];
-                    }
+                    let message_id = if condense.is_active() {
+                        self.terse_of_message_id.read()[to_message_id.to_usize()]
+                    } else {
+                        *to_message_id
+                    };
                     sent_message_ids.push(message_id);
                     sent_message_ids.sort();
                 }
@@ -4897,17 +4953,13 @@ impl<
 
         let mut delivered_message_id = MessageId::invalid();
         let mut is_delivered_to_us = false;
-        if delivered_message_index != MessageIndex::invalid() {
+        if delivered_message_index.is_valid() {
             delivered_message_id =
                 from_configuration.message_ids[delivered_message_index.to_usize()];
-            let mut delivered_message = self.messages.get(delivered_message_id);
+            let delivered_message = self.messages.get(delivered_message_id);
             if delivered_message.target_index == agent_index {
                 is_delivered_to_us = true;
-                if show_final_replaced && delivered_message.replaced.is_some() {
-                    delivered_message.replaced = None;
-                    delivered_message_id = self.messages.store(delivered_message).id;
-                }
-                if only_use_names {
+                if condense.is_active() {
                     delivered_message_id =
                         self.terse_of_message_id.read()[delivered_message_id.to_usize()];
                 }
@@ -5085,13 +5137,19 @@ pub fn add_clap<'a, 'b>(app: App<'a, 'b>) -> App<'a, 'b> {
                     .help("the name of the agent to generate a diagrams for the states of"),
             )
             .arg(
-                Arg::with_name("names")
+                Arg::with_name("names-only")
                     .short("n")
                     .long("names-only")
                     .help("condense graph nodes considering only the state & payload names"),
             )
             .arg(
-                Arg::with_name("final")
+                Arg::with_name("merge-instances")
+                    .short("m")
+                    .long("merge-instances")
+                    .help("condense graph nodes considering only the agent type"),
+            )
+            .arg(
+                Arg::with_name("final-replaced")
                     .short("f")
                     .long("final-replaced")
                     .help("condense graph nodes considering only the final (replaced) payload"),
@@ -5223,15 +5281,14 @@ impl<
                         let from_configuration = self.configurations.get(from_configuration_id);
 
                         outgoings.read().iter().for_each(|outgoing| {
-                            let event_label =
-                                if outgoing.delivered_message_index == MessageIndex::invalid() {
-                                    self.event_label(None)
-                                } else {
-                                    self.event_label(Some(
-                                        from_configuration.message_ids
-                                            [outgoing.delivered_message_index.to_usize()],
-                                    ))
-                                };
+                            let event_label = if outgoing.delivered_message_index.is_valid() {
+                                self.event_label(Some(
+                                    from_configuration.message_ids
+                                        [outgoing.delivered_message_index.to_usize()],
+                                ))
+                            } else {
+                                self.event_label(None)
+                            };
 
                             writeln!(
                                 stdout,
@@ -5278,8 +5335,11 @@ impl<
                 let agent_label = matches
                     .value_of("AGENT")
                     .expect("the states command requires a single agent name, none were given");
-                let only_use_names = matches.is_present("names");
-                let show_final_replaced = matches.is_present("final");
+                let condense = Condense {
+                    names_only: matches.is_present("names-only"),
+                    merge_instances: matches.is_present("merge-instances"),
+                    final_replaced: matches.is_present("final-replaced"),
+                };
                 let agent_index = self
                     .agent_labels
                     .iter()
@@ -5287,12 +5347,7 @@ impl<
                     .unwrap_or_else(|| panic!("unknown agent {}", agent_label));
 
                 self.do_compute(arg_matches);
-                self.print_agent_states_diagram(
-                    only_use_names,
-                    show_final_replaced,
-                    agent_index,
-                    stdout,
-                );
+                self.print_agent_states_diagram(&condense, agent_index, stdout);
 
                 true
             }

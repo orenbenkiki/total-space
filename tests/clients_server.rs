@@ -156,5 +156,9 @@ test_case! { path, "txt", vec!["test", "-r", "-p", "1", "-t", "1", "path", "1MSG
 test_case! { sequence, "uml", vec!["test", "-p", "1", "-t", "1", "sequence", "INIT", "1MSG", "2MSG", "INIT"] }
 test_case! { client_states, "dot", vec!["test", "-p", "1", "-t", "1", "states", "C(0)"] }
 test_case! { client_states_names, "dot", vec!["test", "-p", "1", "-t", "1", "states", "C(0)", "-n"] }
+test_case! { client_states_names_merge, "dot", vec!["test", "-p", "1", "-t", "1", "states", "C(0)", "-n", "-m"] }
+test_case! { client_states_merge, "dot", vec!["test", "-p", "1", "-t", "1", "states", "C(0)", "-m"] }
 test_case! { server_states, "dot", vec!["test", "-p", "1", "-t", "1", "states", "SRV"] }
 test_case! { server_states_names, "dot", vec!["test", "-p", "1", "-t", "1", "states", "SRV", "-n"] }
+test_case! { server_states_names_merge, "dot", vec!["test", "-p", "1", "-t", "1", "states", "SRV", "-n", "-m"] }
+test_case! { server_states_merge, "dot", vec!["test", "-p", "1", "-t", "1", "states", "SRV", "-m"] }

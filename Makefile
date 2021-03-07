@@ -27,3 +27,12 @@ actual_svgs: $(ACTUAL_SVGS)
 
 plantuml.jar:
 	wget http://sourceforge.net/projects/plantuml/files/plantuml.jar/download -O plantuml.jar
+
+build:
+	(cargo fmt && cargo build) 2>&1 | tee junk
+
+fast_test:
+	(cargo fmt && cargo test) 2>&1 | tee junk
+
+slow_test:
+	(cargo fmt && cargo test -- --test-threads 1 --nocapture) 2>&1 | tee junk
