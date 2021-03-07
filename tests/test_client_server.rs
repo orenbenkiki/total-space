@@ -1,5 +1,8 @@
+mod common;
+
 use clap::App;
 use clap::ArgMatches;
+use common::*;
 use num_traits::cast::FromPrimitive;
 use num_traits::cast::ToPrimitive;
 use std::fmt::Display;
@@ -157,30 +160,12 @@ fn test_model(arg_matches: &ArgMatches) -> TestModel {
 
 #[test]
 fn test_conditions() {
-    let app = add_clap(App::new("test_agents"));
+    let app = add_clap(App::new(test_name!()));
     let arg_matches = app.get_matches_from(vec!["test", "conditions"].iter());
     let mut model = test_model(&arg_matches);
-    let mut stdout_bytes = Vec::new();
-    model.do_clap(&arg_matches, &mut stdout_bytes);
-    let stdout = str::from_utf8(&stdout_bytes).unwrap();
-    assert_eq!(
-        stdout,
-        "\
-        0MSG: matches any configuration with no in-flight messages\n\
-        1MSG: matches any configuration with a single in-flight message\n\
-        2MSG: matches any configuration with 2 in-flight messages\n\
-        3MSG: matches any configuration with 3 in-flight messages\n\
-        4MSG: matches any configuration with 4 in-flight messages\n\
-        5MSG: matches any configuration with 5 in-flight messages\n\
-        6MSG: matches any configuration with 6 in-flight messages\n\
-        7MSG: matches any configuration with 7 in-flight messages\n\
-        8MSG: matches any configuration with 8 in-flight messages\n\
-        9MSG: matches any configuration with 9 in-flight messages\n\
-        INIT: matches the initial configuration\n\
-        REPLACE: matches a configuration with a replaced message\n\
-        VALID: matches any valid configuration (is typically negated)\n\
-        "
-    );
+    let mut stdout = Vec::new();
+    model.do_clap(&arg_matches, &mut stdout);
+    assert_output!(stdout, "txt");
 }
 
 #[test]
@@ -188,16 +173,9 @@ fn test_agents() {
     let app = add_clap(App::new("test_conditions"));
     let arg_matches = app.get_matches_from(vec!["test", "agents"].iter());
     let mut model = test_model(&arg_matches);
-    let mut stdout_bytes = Vec::new();
-    model.do_clap(&arg_matches, &mut stdout_bytes);
-    let stdout = str::from_utf8(&stdout_bytes).unwrap();
-    assert_eq!(
-        stdout,
-        "\
-        C\n\
-        S\n\
-        "
-    );
+    let mut stdout = Vec::new();
+    model.do_clap(&arg_matches, &mut stdout);
+    assert_output!(stdout, "txt");
 }
 
 #[test]
@@ -205,42 +183,9 @@ fn test_configurations() {
     let app = add_clap(App::new("test_configurations"));
     let arg_matches = app.get_matches_from(vec!["test", "-p", "-t", "1", "configurations"].iter());
     let mut model = test_model(&arg_matches);
-    let mut stdout_bytes = Vec::new();
-    model.do_clap(&arg_matches, &mut stdout_bytes);
-    let stdout = str::from_utf8(&stdout_bytes).unwrap();
-    assert_eq!(
-        stdout,
-        "\
-            C:IDL & S:LST\n\
-            C:WAT & S:LST | C -> REQ -> S\n\
-            C:IDL & S:LST | C -> PNG -> S\n\
-            C:WAT & S:LST | C -> REQ -> S & C -> PNG -> S\n\
-            C:IDL & S:LST | C -> PNG => PNG -> S\n\
-            C:WAT & S:LST | C -> REQ -> S & C -> PNG => PNG -> S\n\
-            C:WAT & S:WRK | C -> PNG => PNG -> S\n\
-            C:WAT & S:LST | C -> PNG => PNG -> S & S -> RSP -> C\n\
-            C:WAT & S:WRK\n\
-            C:WAT & S:LST | S -> RSP -> C\n\
-            C:WAT & S:WRK | C -> PNG -> S\n\
-            C:WAT & S:LST | C -> PNG -> S & S -> RSP -> C\n\
-            "
-    );
-    assert_eq!(
-        model.agent_types[agent_index!(CLIENT)].state_name(StateId::from_usize(0)),
-        "IDL"
-    );
-    assert_eq!(
-        model.agent_types[agent_index!(CLIENT)].state_name(StateId::from_usize(1)),
-        "WAT"
-    );
-    assert_eq!(
-        model.agent_types[agent_index!(SERVER)].state_name(StateId::from_usize(0)),
-        "LST"
-    );
-    assert_eq!(
-        model.agent_types[agent_index!(SERVER)].state_name(StateId::from_usize(1)),
-        "WRK"
-    );
+    let mut stdout = Vec::new();
+    model.do_clap(&arg_matches, &mut stdout);
+    assert_output!(stdout, "txt");
 }
 
 #[test]
@@ -248,72 +193,9 @@ fn test_transitions() {
     let app = add_clap(App::new("test_transitions"));
     let arg_matches = app.get_matches_from(vec!["test", "-p", "-t", "1", "transitions"].iter());
     let mut model = test_model(&arg_matches);
-    let mut stdout_bytes = Vec::new();
-    model.do_clap(&arg_matches, &mut stdout_bytes);
-    let stdout = str::from_utf8(&stdout_bytes).unwrap();
-    assert_eq!(
-        stdout,
-        "\
-            FROM C:IDL & S:LST\n\
-            - BY time event\n  \
-              TO C:WAT & S:LST | C -> REQ -> S\n\
-            - BY time event\n  \
-              TO C:IDL & S:LST | C -> PNG -> S\n\
-            FROM C:WAT & S:LST | C -> REQ -> S\n\
-            - BY message C -> REQ -> S\n  \
-              TO C:WAT & S:WRK\n\
-            FROM C:IDL & S:LST | C -> PNG -> S\n\
-            - BY time event\n  \
-              TO C:WAT & S:LST | C -> REQ -> S & C -> PNG -> S\n\
-            - BY time event\n  \
-              TO C:IDL & S:LST | C -> PNG => PNG -> S\n\
-            - BY message C -> PNG -> S\n  \
-              TO C:IDL & S:LST\n\
-            FROM C:WAT & S:LST | C -> REQ -> S & C -> PNG -> S\n\
-            - BY message C -> REQ -> S\n  \
-              TO C:WAT & S:WRK | C -> PNG -> S\n\
-            - BY message C -> PNG -> S\n  \
-              TO C:WAT & S:LST | C -> REQ -> S\n\
-            FROM C:IDL & S:LST | C -> PNG => PNG -> S\n\
-            - BY time event\n  \
-              TO C:WAT & S:LST | C -> REQ -> S & C -> PNG => PNG -> S\n\
-            - BY time event\n  \
-              TO C:IDL & S:LST | C -> PNG => PNG -> S\n\
-            - BY message C -> PNG => PNG -> S\n  \
-              TO C:IDL & S:LST\n\
-            FROM C:WAT & S:LST | C -> REQ -> S & C -> PNG => PNG -> S\n\
-            - BY message C -> REQ -> S\n  \
-              TO C:WAT & S:WRK | C -> PNG => PNG -> S\n\
-            - BY message C -> PNG => PNG -> S\n  \
-              TO C:WAT & S:LST | C -> REQ -> S\n\
-            FROM C:WAT & S:WRK | C -> PNG => PNG -> S\n\
-            - BY time event\n  \
-              TO C:WAT & S:LST | C -> PNG => PNG -> S & S -> RSP -> C\n\
-            - BY message C -> PNG => PNG -> S\n  \
-              TO C:WAT & S:WRK\n\
-            FROM C:WAT & S:LST | C -> PNG => PNG -> S & S -> RSP -> C\n\
-            - BY message C -> PNG => PNG -> S\n  \
-              TO C:WAT & S:LST | S -> RSP -> C\n\
-            - BY message S -> RSP -> C\n  \
-              TO C:IDL & S:LST | C -> PNG => PNG -> S\n\
-            FROM C:WAT & S:WRK\n\
-            - BY time event\n  \
-              TO C:WAT & S:LST | S -> RSP -> C\n\
-            FROM C:WAT & S:LST | S -> RSP -> C\n\
-            - BY message S -> RSP -> C\n  \
-              TO C:IDL & S:LST\n\
-            FROM C:WAT & S:WRK | C -> PNG -> S\n\
-            - BY time event\n  \
-              TO C:WAT & S:LST | C -> PNG -> S & S -> RSP -> C\n\
-            - BY message C -> PNG -> S\n  \
-              TO C:WAT & S:WRK\n\
-            FROM C:WAT & S:LST | C -> PNG -> S & S -> RSP -> C\n\
-            - BY message C -> PNG -> S\n  \
-              TO C:WAT & S:LST | S -> RSP -> C\n\
-            - BY message S -> RSP -> C\n  \
-              TO C:IDL & S:LST | C -> PNG -> S\n\
-            "
-    );
+    let mut stdout = Vec::new();
+    model.do_clap(&arg_matches, &mut stdout);
+    assert_output!(stdout, "txt");
 }
 
 #[test]
@@ -322,19 +204,9 @@ fn test_path() {
     let arg_matches =
         app.get_matches_from(vec!["test", "-p", "-t", "1", "path", "INIT", "INIT"].iter());
     let mut model = test_model(&arg_matches);
-    let mut stdout_bytes = Vec::new();
-    model.do_clap(&arg_matches, &mut stdout_bytes);
-    let stdout = str::from_utf8(&stdout_bytes).unwrap();
-    assert_eq!(
-        stdout,
-        "\
-        INIT C:IDL & S:LST\n\
-        BY time event\n\
-        TO C:IDL & S:LST | C -> PNG -> S\n\
-        BY message C -> PNG -> S\n\
-        INIT C:IDL & S:LST\n\
-        "
-    );
+    let mut stdout = Vec::new();
+    model.do_clap(&arg_matches, &mut stdout);
+    assert_output!(stdout, "txt");
 }
 
 #[test]
@@ -347,67 +219,9 @@ fn test_sequence() {
         .iter(),
     );
     let mut model = test_model(&arg_matches);
-    let mut stdout_bytes = Vec::new();
-    model.do_clap(&arg_matches, &mut stdout_bytes);
-    let stdout = str::from_utf8(&stdout_bytes).unwrap();
-    assert_eq!(
-        stdout,
-        "\
-        @startuml\n\
-        autonumber \" <b>#</b> \"\n\
-        skinparam shadowing false\n\
-        skinparam sequence {\n\
-        ArrowColor Black\n\
-        ActorBorderColor Black\n\
-        LifeLineBorderColor Black\n\
-        LifeLineBackgroundColor Black\n\
-        ParticipantBorderColor Black\n\
-        }\n\
-        skinparam ControlBorderColor White\n\
-        skinparam ControlBackgroundColor White\n\
-        participant \"C\" as A0 order 10100\n\
-        activate A0 #CadetBlue\n\
-        participant \"S\" as A1 order 10200\n\
-        activate A1 #CadetBlue\n\
-        rnote over A0 : IDL\n\
-        / rnote over A1 : LST\n\
-        ?o-> A0\n\
-        control \" \" as T0 order 10101\n\
-        A0 -> T0 : PNG\n\
-        activate T0 #Silver\n\
-        ?o-> A0\n\
-        A0 -> T0 : &#8658; PNG\n\
-        ?o-> A0\n\
-        deactivate A0\n\
-        A0 -> A1 : REQ\n\
-        deactivate A1\n\
-        rnote over A0 : WAT\n\
-        activate A0 #MediumPurple\n\
-        autonumber stop\n\
-        ?-[#White]\\ A1\n\
-        autonumber resume\n\
-        rnote over A1 : WRK\n\
-        activate A1 #CadetBlue\n\
-        ?o-> A1\n\
-        deactivate A1\n\
-        control \" \" as T1 order 10199\n\
-        A1 -> T1 : RSP\n\
-        activate T1 #Silver\n\
-        rnote over A1 : LST\n\
-        activate A1 #MediumPurple\n\
-        T0 -> A1 : PNG\n\
-        deactivate T0\n\
-        T1 -> A0 : RSP\n\
-        deactivate T1\n\
-        deactivate A0\n\
-        autonumber stop\n\
-        ?-[#White]\\ A0\n\
-        autonumber resume\n\
-        rnote over A0 : IDL\n\
-        activate A0 #MediumPurple\n\
-        @enduml\n\
-        "
-    );
+    let mut stdout = Vec::new();
+    model.do_clap(&arg_matches, &mut stdout);
+    assert_output!(stdout, "uml");
 }
 
 #[test]

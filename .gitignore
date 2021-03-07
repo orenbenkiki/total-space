@@ -5,5 +5,6 @@ cobertura.xml
 Makefile.scmf.toml
 **/*.rs.bk
 .*.sw*
-/target/
 tags
+/target/
+tests/actual

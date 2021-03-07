@@ -215,7 +215,8 @@ macro_rules! init_global_agent_indices {
 #[macro_export]
 macro_rules! init_global_agent_index {
     ($name:ident, $label:expr, $model:expr) => {
-        *$name.write() = $model.agent_index($label, None)
+        let todox = *$name.write() = $model.agent_index($label, None);
+        todox
     };
 }
 
@@ -289,7 +290,7 @@ impl<T: KeyLike + Default, I: IndexLike> Memoize<T, I> {
             value_by_id.push(RwLock::new(Default::default()));
         }
 
-        Memoize {
+        Self {
             max_count,
             next_id: AtomicUsize::new(0),
             id_by_value: SccHashMap::new(capacity, RandomState::new()),
@@ -536,10 +537,13 @@ pub trait AgentInstances<StateId: IndexLike, Payload: DataLike>: Name {
     /// `<state-name>(<state-data>)` if the state contains additional data. The `Debug` of the state
     /// might be acceptable as-is, but typically it is better to get rid or shorten the explicit
     /// field names, and/or format their values in a more compact form.
-    fn state_display(&self, state_id: StateId) -> String;
+    fn display_state(&self, state_id: StateId) -> String;
 
-    /// Return the short state name.
-    fn state_name(&self, state_id: StateId) -> String;
+    /// Convert the full state identifier to the terse state identifier.
+    fn terse_id(&self, state_id: StateId) -> StateId;
+
+    /// Return the name of the terse state (just the state name).
+    fn display_terse(&self, name_id: StateId) -> String;
 }
 
 /// A trait fully describing some agent instances of the same type.
@@ -568,6 +572,9 @@ pub trait AgentType<StateId: IndexLike, Payload: DataLike>:
 
     /// The total number of states seen so far.
     fn states_count(&self) -> usize;
+
+    /// Compute mapping from full states to terse states (name only).
+    fn compute_terse(&self);
 }
 
 /// Allow access to state of parts.
@@ -599,6 +606,12 @@ pub struct AgentTypeData<State: DataLike, StateId: IndexLike, Payload: DataLike>
 
     /// Whether this type only has a single instance.
     is_singleton: bool,
+
+    /// Convert a full state identifier to a terse state identifier.
+    terse_of_state: RwLock<Vec<StateId>>,
+
+    /// The names of the terse states (state names only).
+    name_of_terse: RwLock<Vec<String>>,
 
     /// The order of each instance (for sequence diagrams).
     instance_orders: Vec<usize>,
@@ -656,10 +669,12 @@ impl<State: DataLike, StateId: IndexLike, Payload: DataLike>
 
         let instance_orders = vec![0; count];
 
-        AgentTypeData {
+        Self {
             name,
             instance_orders,
             is_singleton,
+            terse_of_state: RwLock::new(vec![]),
+            name_of_terse: RwLock::new(vec![]),
             states,
             first_index: prev_agent_type
                 .clone()
@@ -667,6 +682,34 @@ impl<State: DataLike, StateId: IndexLike, Payload: DataLike>
             prev_agent_type,
             _payload: PhantomData,
         }
+    }
+
+    /// Compute mapping between full and terse state identifiers.
+    pub fn impl_compute_terse(&self) {
+        let mut terse_of_state = self.terse_of_state.write();
+        let mut name_of_terse = self.name_of_terse.write();
+
+        assert!(terse_of_state.is_empty());
+        assert!(name_of_terse.is_empty());
+
+        terse_of_state.reserve(self.states.len());
+        name_of_terse.reserve(self.states.len());
+
+        for state_id in 0..self.states.len() {
+            let state = self.states.get(StateId::from_usize(state_id));
+            let state_name = state.name();
+            if let Some(terse_id) = name_of_terse
+                .iter()
+                .position(|terse_name| terse_name == &state_name)
+            {
+                terse_of_state.push(StateId::from_usize(terse_id));
+            } else {
+                terse_of_state.push(StateId::from_usize(name_of_terse.len()));
+                name_of_terse.push(state_name);
+            }
+        }
+
+        name_of_terse.shrink_to_fit();
     }
 }
 
@@ -685,7 +728,7 @@ impl<
         part_type: Arc<dyn PartType<Part, StateId> + Send + Sync>,
         prev_type: Arc<dyn AgentType<StateId, Payload> + Send + Sync>,
     ) -> Self {
-        ContainerTypeData {
+        Self {
             agent_type_data: AgentTypeData::new(name, instances, Some(prev_type)),
             part_type,
         }
@@ -874,15 +917,17 @@ impl<State: DataLike, StateId: IndexLike, Payload: DataLike> AgentInstances<Stat
         self.instance_orders[instance]
     }
 
-    fn state_display(&self, state_id: StateId) -> String {
+    fn display_state(&self, state_id: StateId) -> String {
         format!("{}", self.states.get(state_id))
     }
 
-    // BEGIN NOT TESTED
-    fn state_name(&self, state_id: StateId) -> String {
-        self.states.get(state_id).name()
+    fn terse_id(&self, state_id: StateId) -> StateId {
+        self.terse_of_state.read()[state_id.to_usize()]
     }
-    // END NOT TESTED
+
+    fn display_terse(&self, terse_id: StateId) -> String {
+        self.name_of_terse.read()[terse_id.to_usize()].clone()
+    }
 }
 
 impl<
@@ -918,15 +963,17 @@ impl<
         self.agent_type_data.instance_order(instance)
     }
 
-    fn state_display(&self, state_id: StateId) -> String {
-        self.agent_type_data.state_display(state_id)
+    fn display_state(&self, state_id: StateId) -> String {
+        self.agent_type_data.display_state(state_id)
     }
 
-    // BEGIN NOT TESTED
-    fn state_name(&self, state_id: StateId) -> String {
-        self.agent_type_data.state_name(state_id)
+    fn terse_id(&self, state_id: StateId) -> StateId {
+        self.agent_type_data.terse_id(state_id)
     }
-    // END NOT TESTED
+
+    fn display_terse(&self, terse_id: StateId) -> String {
+        self.agent_type_data.display_terse(terse_id)
+    }
 }
 
 impl<State: DataLike + AgentState<State, Payload>, StateId: IndexLike, Payload: DataLike>
@@ -995,6 +1042,10 @@ impl<State: DataLike + AgentState<State, Payload>, StateId: IndexLike, Payload: 
 
     fn states_count(&self) -> usize {
         self.states.len()
+    }
+
+    fn compute_terse(&self) {
+        self.impl_compute_terse();
     }
 }
 
@@ -1113,6 +1164,10 @@ impl<
         self.agent_type_data.states.len()
     }
     // END NOT TESTED
+
+    fn compute_terse(&self) {
+        self.agent_type_data.impl_compute_terse();
+    }
 }
 
 // BEGIN MAYBE TESTED
@@ -1213,6 +1268,25 @@ pub struct Message<Payload: DataLike> {
 
     /// The replaced message, if any.
     pub replaced: Option<Payload>,
+}
+
+/// A message in-flight between agents, considering only names.
+#[derive(PartialEq, Eq, PartialOrd, Ord, Hash, Clone, Debug)]
+pub struct TerseMessage {
+    /// Whether the message is immediate.
+    pub is_immediate: bool,
+
+    /// The source agent index.
+    pub source_index: usize,
+
+    /// The target agent index.
+    pub target_index: usize,
+
+    /// The actual payload (name only).
+    pub payload: String,
+
+    /// The replaced message, if any (name only).
+    pub replaced: Option<String>,
 }
 
 impl<Payload: DataLike> Default for Message<Payload> {
@@ -1462,8 +1536,17 @@ pub struct Model<
     /// Memoization of the in-flight messages.
     pub messages: Memoize<Message<Payload>, MessageId>,
 
-    /// Map ordered message identifiers to their earlier order.
+    /// Map the full message identifier to the terse message identifier.
+    pub terse_of_message_id: RwLock<Vec<MessageId>>,
+
+    /// Map the terse message identifier to the full message identifier.
+    pub message_of_terse_id: RwLock<Vec<MessageId>>,
+
+    /// Map ordered message identifiers to their smaller order.
     pub decr_order_messages: SccHashMap<MessageId, MessageId, RandomState>,
+
+    /// Map ordered message identifiers to their larger order.
+    pub incr_order_messages: SccHashMap<MessageId, MessageId, RandomState>,
 
     /// Memoization of the invalid conditions.
     pub invalids: Memoize<<Self as MetaModel>::Invalid, InvalidId>,
@@ -1911,7 +1994,7 @@ impl<
             &mut agent_labels,
         );
 
-        let model = Model {
+        let model = Self {
             agent_types,
             agent_labels,
             first_indices,
@@ -1921,7 +2004,13 @@ impl<
                 MessageId::invalid().to_usize(),
                 MessageId::invalid().to_usize(),
             ),
+            terse_of_message_id: RwLock::new(vec![]),
+            message_of_terse_id: RwLock::new(vec![]),
             decr_order_messages: SccHashMap::new(
+                MessageId::invalid().to_usize(),
+                RandomState::new(),
+            ),
+            incr_order_messages: SccHashMap::new(
                 MessageId::invalid().to_usize(),
                 RandomState::new(),
             ),
@@ -2590,18 +2679,23 @@ impl<
             replaced,
         };
 
-        let mut decr_message = message;
-        let mut decr_message_id = self.messages.store(message).id;
+        let mut message = message;
+        let mut message_id = self.messages.store(message).id;
         while order > 0 {
             order -= 1;
             match self
                 .decr_order_messages
-                .insert(decr_message_id, MessageId::from_usize(0))
+                .insert(message_id, MessageId::from_usize(0))
             {
                 Ok(result) => {
-                    decr_message.order = MessageOrder::Ordered(MessageIndex::from_usize(order));
-                    decr_message_id = self.messages.store(decr_message).id;
+                    message.order = MessageOrder::Ordered(MessageIndex::from_usize(order));
+                    let decr_message_id = self.messages.store(message).id;
                     *result.get().1 = decr_message_id;
+                    assert!(self
+                        .incr_order_messages
+                        .insert(decr_message_id, message_id)
+                        .is_ok());
+                    message_id = decr_message_id;
                 }
                 Err(_) => break,
             }
@@ -2644,7 +2738,7 @@ impl<
                             let event_label = self.event_label(context.delivered_message_id);
                             let from_state = context
                                 .agent_type
-                                .state_display(context.agent_from_state_id);
+                                .display_state(context.agent_from_state_id);
                             panic!(
                                 "both the message {} \
                                  and the message {} \
@@ -2674,7 +2768,7 @@ impl<
                         let event_label = self.event_label(context.delivered_message_id);
                         let from_state = context
                             .agent_type
-                            .state_display(context.agent_from_state_id);
+                            .display_state(context.agent_from_state_id);
                         panic!(
                             "nothing was replaced by the required replacement message {} \
                              sent to the agent {} \
@@ -2752,10 +2846,8 @@ impl<
 
                 if let MessageOrder::Ordered(message_order) = message.order {
                     if message_order > removed_message_order {
-                        configuration.message_ids[message_index] = self
-                            .decr_order_messages
-                            .read(&message_id, |_message_id, message| *message)
-                            .unwrap();
+                        configuration.message_ids[message_index] =
+                            self.decr_message_id(message_id).unwrap();
                         did_modify = true;
                     }
                 }
@@ -2766,6 +2858,18 @@ impl<
                 configuration.message_ids.sort();
             }
         }
+    }
+
+    fn decr_message_id(&self, message_id: MessageId) -> Option<MessageId> {
+        self.decr_order_messages
+            .get(&message_id)
+            .map(|result| *result.get().1)
+    }
+
+    fn incr_message_id(&self, message_id: MessageId) -> Option<MessageId> {
+        self.incr_order_messages
+            .get(&message_id)
+            .map(|result| *result.get().1)
     }
 
     fn emit_message<'a>(
@@ -2784,6 +2888,31 @@ impl<
             );
             // END NOT TESTED
         }
+        context
+            .to_configuration
+            .message_ids
+            .iter()
+            .take_while(|to_message_id| to_message_id.is_valid())
+            .map(|to_message_id| self.messages.get(*to_message_id))
+            .filter(|to_message| {
+                to_message.source_index == message.source_index
+                    && to_message.target_index == message.target_index
+                    && to_message.payload == message.payload
+            })
+            .for_each(|to_message| {
+                let event_label = self.event_label(context.delivered_message_id);
+                let source_label = self.agent_labels[to_message.source_index].clone();
+                let target_label = self.agent_labels[to_message.target_index].clone();
+                let from_configuration = self.display_configuration(&context.from_configuration);
+                panic!(
+                    "the agent {} \
+                     sends a duplicate message {} \
+                     to the agent {} \
+                     when responding to the {} \
+                     while in the configuration {}",
+                    source_label, to_message.payload, target_label, event_label, from_configuration
+                );
+            });
         let message_id = self.messages.store(message).id;
         context
             .to_configuration
@@ -2822,7 +2951,7 @@ impl<
                 let event_label = self.event_label(None);
                 let from_state = context
                     .agent_type
-                    .state_display(context.agent_from_state_id);
+                    .display_state(context.agent_from_state_id);
                 panic!(
                     "the agent {} is deferring (should be ignoring) the {} while in the state {}",
                     agent_label, event_label, from_state
@@ -2840,7 +2969,7 @@ impl<
                     let event_label = self.event_label(Some(delivered_message_id));
                     let from_state = context
                         .agent_type
-                        .state_display(context.agent_from_state_id);
+                        .display_state(context.agent_from_state_id);
                     panic!("the agent {} is deferring (should be ignoring) the {} while in the state {}",
                            agent_label, event_label, from_state);
                     // END NOT TESTED
@@ -2852,7 +2981,7 @@ impl<
                     let event_label = self.event_label(Some(delivered_message_id));
                     let from_state = context
                         .agent_type
-                        .state_display(context.agent_from_state_id);
+                        .display_state(context.agent_from_state_id);
                     panic!(
                         "the agent {} is deferring the immediate {} while in the state {}",
                         agent_label, event_label, from_state
@@ -3136,7 +3265,7 @@ impl<
             string.push_str(prefix);
             string.push_str(agent_label);
             string.push(':');
-            string.push_str(&agent_type.state_display(agent_state_id));
+            string.push_str(&agent_type.display_state(agent_state_id));
             prefix = " & ";
         });
 
@@ -3181,7 +3310,10 @@ impl<
         if self.threads.count() == 0 {
             self.threads = Threads::Count(1); // NOT TESTED
         }
+
         self.eprint_progress = arg_matches.is_present("progress");
+        self.allow_invalid_configurations = arg_matches.is_present("invalid");
+
         self.ensure_init_is_reachable = arg_matches.is_present("reachable");
         if self.ensure_init_is_reachable {
             let mut incomings = self.incomings.write();
@@ -3454,32 +3586,31 @@ impl<
             .take_while(|from_message_id| from_message_id.is_valid())
             .enumerate()
             .for_each(|(from_message_index, from_message_id)| {
-                from_next_messages[from_message_index] = if from_message_index
-                    == outgoing.delivered_message_index.to_usize()
-                {
-                    let from_message = self.messages.get(*from_message_id);
-                    agent_index = Some(from_message.target_index);
-                    delivered_message_id = Some(*from_message_id);
-                    NextMessage::Delivered
-                } else if let Some(to_message_index) =
-                    self.message_exists_in_configuration(*from_message_id, &to_configuration, None)
-                {
-                    NextMessage::Kept(to_message_index)
-                } else {
-                    let from_message = self.messages.get(*from_message_id);
-                    let to_message_index = to_configuration
-                        .message_ids
-                        .iter()
-                        .take_while(|to_message_id| to_message_id.is_valid())
-                        .position(|to_message_id| {
-                            let to_message = self.messages.get(*to_message_id);
-                            to_message.source_index == from_message.source_index
-                                && to_message.target_index == from_message.target_index
-                                && to_message.replaced == Some(from_message.payload)
-                        })
-                        .unwrap();
-                    NextMessage::Replaced(to_message_index)
-                }
+                from_next_messages[from_message_index] =
+                    if from_message_index == outgoing.delivered_message_index.to_usize() {
+                        let from_message = self.messages.get(*from_message_id);
+                        agent_index = Some(from_message.target_index);
+                        delivered_message_id = Some(*from_message_id);
+                        NextMessage::Delivered
+                    } else if let Some(to_message_index) =
+                        self.from_message_kept_in_transition(*from_message_id, &to_configuration)
+                    {
+                        NextMessage::Kept(to_message_index)
+                    } else {
+                        let from_message = self.messages.get(*from_message_id);
+                        let to_message_index = to_configuration
+                            .message_ids
+                            .iter()
+                            .take_while(|to_message_id| to_message_id.is_valid())
+                            .position(|to_message_id| {
+                                let to_message = self.messages.get(*to_message_id);
+                                to_message.source_index == from_message.source_index
+                                    && to_message.target_index == from_message.target_index
+                                    && to_message.replaced == Some(from_message.payload)
+                            })
+                            .unwrap();
+                        NextMessage::Replaced(to_message_index)
+                    }
             });
 
         let mut to_prev_messages = [PrevMessage::NotApplicable; MAX_MESSAGES];
@@ -3489,9 +3620,12 @@ impl<
             .take_while(|to_message_id| to_message_id.is_valid())
             .enumerate()
             .for_each(|(to_message_index, to_message_id)| {
-                to_prev_messages[to_message_index] = if let Some(from_message_index) =
-                    self.message_exists_in_configuration(*to_message_id, &from_configuration, None)
-                {
+                to_prev_messages[to_message_index] = if let Some(from_message_index) = self
+                    .to_message_kept_in_transition(
+                        *to_message_id,
+                        &to_configuration,
+                        outgoing.delivered_message_index,
+                    ) {
                     PrevMessage::Kept(from_message_index)
                 } else {
                     let to_message = self.messages.get(*to_message_id);
@@ -3586,7 +3720,49 @@ impl<
         const MAX_MESSAGES: usize,
     > Model<StateId, MessageId, InvalidId, ConfigurationId, Payload, MAX_AGENTS, MAX_MESSAGES>
 {
-    pub fn print_agent_states_diagram(&self, agent_index: usize, stdout: &mut dyn Write) {
+    fn compute_terse(&self) {
+        let mut terse_of_message_id = self.terse_of_message_id.write();
+        let mut message_of_terse_id = self.message_of_terse_id.write();
+        assert!(terse_of_message_id.is_empty());
+        assert!(message_of_terse_id.is_empty());
+
+        for (agent_index, agent_type) in self.agent_types.iter().enumerate() {
+            if agent_index == agent_type.first_index() {
+                agent_type.compute_terse();
+            }
+        }
+
+        let mut seen_messages: StdHashMap<TerseMessage, usize> = StdHashMap::new();
+        seen_messages.reserve(self.messages.len());
+        terse_of_message_id.reserve(self.messages.len());
+        message_of_terse_id.reserve(self.messages.len());
+
+        for message_id in 0..self.messages.len() {
+            let message = self.messages.get(MessageId::from_usize(message_id));
+            let terse_message = TerseMessage {
+                is_immediate: message.order == MessageOrder::Immediate,
+                source_index: message.source_index,
+                target_index: message.target_index,
+                payload: message.payload.name(),
+                replaced: message.replaced.map(|replaced| replaced.name()),
+            };
+            let terse_id = *seen_messages.entry(terse_message).or_insert_with(|| {
+                let next_terse_id = message_of_terse_id.len();
+                message_of_terse_id.push(MessageId::from_usize(message_id));
+                next_terse_id
+            });
+            terse_of_message_id.push(MessageId::from_usize(terse_id));
+        }
+
+        message_of_terse_id.shrink_to_fit();
+    }
+
+    pub fn print_agent_states_diagram(
+        &self,
+        only_use_names: bool,
+        agent_index: usize,
+        stdout: &mut dyn Write,
+    ) {
         let mut emitted_states = vec![false; self.agent_types[agent_index].states_count()];
 
         writeln!(stdout, "digraph {{").unwrap();
@@ -3597,12 +3773,18 @@ impl<
 
         let mut state_transition_index: usize = 0;
 
-        let state_transitions = self.collect_agent_state_transitions(agent_index);
+        if only_use_names {
+            self.compute_terse();
+        }
+
+        let state_transitions = self.collect_agent_state_transitions(agent_index, only_use_names);
+        eprintln!("TODOX {:?}", state_transitions);
         let mut contexts: Vec<&<Self as MetaModel>::AgentStateTransitionContext> =
             state_transitions.keys().collect();
         contexts.sort();
 
         for context in contexts.iter() {
+            eprintln!("TODOX CONTEXT {:?}", context);
             let related_state_transitions = &state_transitions[context];
             let mut sent_keys: Vec<&Vec<MessageId>> = related_state_transitions.keys().collect();
             sent_keys.sort();
@@ -3627,6 +3809,8 @@ impl<
 
             let mut delivered_keys: Vec<&Vec<MessageId>> = sent_by_delivered.keys().collect();
             delivered_keys.sort();
+
+            eprintln!("TODOX sent_by_delivered: {:?}", sent_by_delivered);
 
             let mut intersecting_delivered_message_ids: Vec<Vec<MessageId>> = vec![];
             let mut distinct_delivered_message_ids: Vec<Vec<MessageId>> = vec![];
@@ -3682,16 +3866,36 @@ impl<
                 }
             }
 
+            eprintln!(
+                "TODOX intersecting_delivered_message_ids: {:?}",
+                intersecting_delivered_message_ids,
+            );
+            eprintln!(
+                "TODOX distinct_delivered_message_ids: {:?}",
+                distinct_delivered_message_ids,
+            );
+
             for delivered_message_ids_key in intersecting_delivered_message_ids.iter() {
+                eprintln!(
+                    "TODOX - I delivered_message_ids_key {:?}",
+                    delivered_message_ids_key,
+                );
+                let delivered_message_ids: &Vec<MessageId> = delivered_message_ids_key;
+                /*
                 let mut delivered_sent_keys: Vec<&Vec<MessageId>> =
                     related_state_transitions.keys().collect();
-                let delivered_message_ids: &Vec<MessageId> = delivered_message_ids_key;
+                delivered_sent_keys.sort();
+                TODOX
+                */
+                let mut delivered_sent_keys = sent_by_delivered[delivered_message_ids].clone();
                 delivered_sent_keys.sort();
 
                 for sent_message_ids_key in delivered_sent_keys.iter() {
+                    eprintln!("TODOX     sent_message_ids_key {:?}", sent_message_ids_key);
                     let sent_message_ids: &Vec<MessageId> = sent_message_ids_key;
 
                     self.print_agent_transition_cluster(
+                        only_use_names,
                         &mut emitted_states,
                         agent_index,
                         context,
@@ -3702,6 +3906,7 @@ impl<
                     );
 
                     self.print_agent_transition_sent_edges(
+                        only_use_names,
                         agent_index,
                         &sent_message_ids,
                         state_transition_index,
@@ -3715,12 +3920,17 @@ impl<
             }
 
             for delivered_message_ids_key in distinct_delivered_message_ids.iter() {
+                eprintln!(
+                    "TODOX - D delivered_message_ids_key {:?}",
+                    delivered_message_ids_key,
+                );
                 let mut delivered_sent_keys: Vec<&Vec<MessageId>> =
                     related_state_transitions.keys().collect();
                 let delivered_message_ids: &Vec<MessageId> = delivered_message_ids_key;
                 delivered_sent_keys.sort();
 
                 self.print_agent_transition_cluster(
+                    only_use_names,
                     &mut emitted_states,
                     agent_index,
                     context,
@@ -3733,9 +3943,11 @@ impl<
                 for (alternative_index, sent_message_ids_key) in
                     delivered_sent_keys.iter().enumerate()
                 {
+                    eprintln!("TODOX     sent_message_ids_key {:?}", sent_message_ids_key);
                     let sent_message_ids: &Vec<MessageId> = sent_message_ids_key;
 
                     self.print_agent_transition_sent_edges(
+                        only_use_names,
                         agent_index,
                         &sent_message_ids,
                         state_transition_index,
@@ -3755,6 +3967,7 @@ impl<
     #[allow(clippy::too_many_arguments)]
     fn print_agent_transition_cluster(
         &self,
+        only_use_names: bool,
         emitted_states: &mut [bool],
         agent_index: usize,
         context: &<Self as MetaModel>::AgentStateTransitionContext,
@@ -3763,8 +3976,10 @@ impl<
         has_alternatives: bool,
         stdout: &mut dyn Write,
     ) {
+        eprintln!("TODOX CLUSTER {:?}", state_transition_index);
         if !emitted_states[context.from_state_id.to_usize()] {
             self.print_agent_state_node(
+                only_use_names,
                 agent_index,
                 context.from_state_id,
                 context.from_is_deferring,
@@ -3775,6 +3990,7 @@ impl<
 
         if !emitted_states[context.to_state_id.to_usize()] {
             self.print_agent_state_node(
+                only_use_names,
                 agent_index,
                 context.to_state_id,
                 context.to_is_deferring,
@@ -3802,10 +4018,12 @@ impl<
 
         for delivered_message_id in delivered_message_ids.iter() {
             self.print_message_node(
+                only_use_names,
                 state_transition_index,
                 None,
                 agent_index,
                 Some(*delivered_message_id),
+                "D",
                 stdout,
             );
             self.print_message_transition_edge(
@@ -3818,50 +4036,48 @@ impl<
 
     fn print_agent_transition_sent_edges(
         &self,
+        only_use_names: bool,
         agent_index: usize,
         sent_message_ids: &[MessageId],
         state_transition_index: usize,
         mut alternative_index: Option<usize>,
         stdout: &mut dyn Write,
     ) {
-        if sent_message_ids.len() == 1 {
-            alternative_index = None;
-        }
-
         if let Some(alternative_index) = alternative_index {
-            // BEGIN NOT TESTED
-            Self::print_state_alternative_node_and_edge(
-                state_transition_index,
-                alternative_index,
-                stdout,
-            );
-            // END NOT TESTED
+            if sent_message_ids.len() > 1 {
+                Self::print_state_alternative_node_and_edge(
+                    state_transition_index,
+                    alternative_index,
+                    stdout,
+                );
+            }
         }
 
         if alternative_index.is_some() && sent_message_ids.is_empty() {
-            // BEGIN NOT TESTED
             self.print_message_node(
+                only_use_names,
                 state_transition_index,
-                alternative_index,
+                None,
                 agent_index,
                 None,
+                "S",
                 stdout,
             );
-            self.print_transition_message_edge(
-                state_transition_index,
-                alternative_index,
-                None,
-                stdout,
-            );
-            // END NOT TESTED
+            self.print_transition_message_edge(state_transition_index, None, None, stdout);
+        }
+
+        if sent_message_ids.len() < 2 {
+            alternative_index = None;
         }
 
         for sent_message_id in sent_message_ids.iter() {
             self.print_message_node(
+                only_use_names,
                 state_transition_index,
                 alternative_index,
                 agent_index,
                 Some(*sent_message_id),
+                "S",
                 stdout,
             );
             self.print_transition_message_edge(
@@ -3875,13 +4091,18 @@ impl<
 
     fn print_agent_state_node(
         &self,
+        only_use_names: bool,
         agent_index: usize,
         state_id: StateId,
         is_deferring: bool,
         stdout: &mut dyn Write,
     ) {
-        let state = self.agent_types[agent_index].state_display(state_id);
         let shape = if is_deferring { "octagon" } else { "ellipse" };
+        let state = if only_use_names {
+            self.agent_types[agent_index].display_terse(state_id)
+        } else {
+            self.agent_types[agent_index].display_state(state_id)
+        };
 
         writeln!(
             stdout,
@@ -3921,17 +4142,20 @@ impl<
 
     fn print_message_node(
         &self,
+        only_use_names: bool,
         state_transition_index: usize,
         alternative_index: Option<usize>,
         agent_index: usize,
         message_id: Option<MessageId>,
+        prefix: &str,
         stdout: &mut dyn Write,
     ) {
         if message_id.is_none() {
             // BEGIN NOT TESTED
             writeln!(
                 stdout,
-                "M_{}_{} [ label=\" \", shape=plain ];",
+                "{}_{}_{} [ label=\" \", shape=plain ];",
+                prefix,
                 state_transition_index,
                 alternative_index.unwrap_or(usize::max_value()),
             )
@@ -3940,12 +4164,13 @@ impl<
             // END NOT TESTED
         }
 
-        let message_id = message_id.unwrap();
+        let mut message_id = message_id.unwrap();
 
         if !message_id.is_valid() {
             writeln!(
                 stdout,
-                "M_{}_{}_{} [ label=\"Time\", shape=plain ];",
+                "{}_{}_{}_{} [ label=\"Time\", shape=plain ];",
+                prefix,
                 state_transition_index,
                 alternative_index.unwrap_or(usize::max_value()),
                 message_id.to_usize()
@@ -3956,12 +4181,17 @@ impl<
 
         write!(
             stdout,
-            "M_{}_{}_{} [ label=\"",
+            "{}_{}_{}_{} [ label=\"",
+            prefix,
             state_transition_index,
             alternative_index.unwrap_or(usize::max_value()),
             message_id.to_usize()
         )
         .unwrap();
+
+        if only_use_names {
+            message_id = self.message_of_terse_id.read()[message_id.to_usize()];
+        }
 
         let message = self.messages.get(message_id);
         if message.source_index != agent_index {
@@ -3974,10 +4204,18 @@ impl<
         }
 
         if let Some(replaced) = message.replaced {
-            write!(stdout, "{} {}\\n", replaced, RIGHT_DOUBLE_ARROW).unwrap();
+            if only_use_names {
+                write!(stdout, "{} {}\\n", replaced.name(), RIGHT_DOUBLE_ARROW).unwrap();
+            } else {
+                write!(stdout, "{} {}\\n", replaced, RIGHT_DOUBLE_ARROW).unwrap();
+            }
         }
 
-        write!(stdout, "{}", message.payload).unwrap();
+        if only_use_names {
+            write!(stdout, "{}", message.payload.name()).unwrap();
+        } else {
+            write!(stdout, "{}", message.payload).unwrap();
+        }
 
         if message.target_index != agent_index {
             write!(
@@ -4041,7 +4279,7 @@ impl<
 
         writeln!(
             stdout,
-            "M_{}_{}_{} -> T_{}_{} [ arrowhead={}, direction=forward, style=dashed ];",
+            "D_{}_{}_{} -> T_{}_{} [ arrowhead={}, direction=forward, style=dashed ];",
             to_state_transition_index,
             usize::max_value(),
             from_message_id.to_usize(),
@@ -4088,7 +4326,7 @@ impl<
             // BEGIN NOT TESTED
             writeln!(
                 stdout,
-                "T_{}_{} -> M_{}_{} [ arrowhead=dot, direction=forward, style=dashed ];",
+                "T_{}_{} -> S_{}_{} [ arrowhead=dot, direction=forward, style=dashed ];",
                 from_state_transition_index,
                 from_alternative_index.unwrap_or(usize::max_value()),
                 from_state_transition_index,
@@ -4111,7 +4349,7 @@ impl<
 
         writeln!(
             stdout,
-            "T_{}_{} -> M_{}_{}_{} [ arrowhead={}, direction=forward, style=dashed ];",
+            "T_{}_{} -> S_{}_{}_{} [ arrowhead={}, direction=forward, style=dashed ];",
             from_state_transition_index,
             from_alternative_index.unwrap_or(usize::max_value()),
             from_state_transition_index,
@@ -4301,7 +4539,7 @@ impl<
             .map(|(agent_index, agent_type)| {
                 (
                     agent_index,
-                    agent_type.state_display(first_configuration.state_ids[agent_index]),
+                    agent_type.display_state(first_configuration.state_ids[agent_index]),
                 )
             })
             .filter(|(_agent_index, agent_state)| !agent_state.is_empty())
@@ -4546,7 +4784,7 @@ impl<
                     writeln!(stdout, "?-[#White]\\ A{}", agent_index).unwrap();
                     writeln!(stdout, "autonumber resume").unwrap();
                 }
-                let agent_state = agent_type.state_display(to_configuration.state_ids[agent_index]);
+                let agent_state = agent_type.display_state(to_configuration.state_ids[agent_index]);
                 if !agent_state.is_empty() {
                     writeln!(stdout, "rnote over A{} : {}", agent_index, agent_state).unwrap();
                 }
@@ -4580,11 +4818,13 @@ impl<
     fn collect_agent_state_transitions(
         &self,
         agent_index: usize,
+        only_use_names: bool,
     ) -> <Self as MetaModel>::AgentStateTransitions {
         let mut state_transitions = <Self as MetaModel>::AgentStateTransitions::default();
         self.outgoings
             .read()
             .iter()
+            .take(self.configurations.len())
             .enumerate()
             .for_each(|(from_configuration_id, outgoings)| {
                 let from_configuration = self
@@ -4594,9 +4834,10 @@ impl<
                     let to_configuration = self.configurations.get(outgoing.to_configuration_id);
                     self.collect_agent_state_transition(
                         agent_index,
+                        only_use_names,
                         &from_configuration,
                         &to_configuration,
-                        outgoing.delivered_message_index.to_usize(),
+                        outgoing.delivered_message_index,
                         &mut state_transitions,
                     );
                 });
@@ -4607,15 +4848,28 @@ impl<
     fn collect_agent_state_transition(
         &self,
         agent_index: usize,
+        only_use_names: bool,
         from_configuration: &<Self as MetaModel>::Configuration,
         to_configuration: &<Self as MetaModel>::Configuration,
-        delivered_message_index: usize,
+        delivered_message_index: MessageIndex,
         state_transitions: &mut <Self as MetaModel>::AgentStateTransitions,
     ) {
         let agent_type = &self.agent_types[agent_index];
         let agent_instance = self.agent_instance(agent_index);
 
-        let context = AgentStateTransitionContext {
+        /*
+        eprintln!();
+        eprintln!(
+            "TODOX FROM {:?}",
+            self.display_configuration(from_configuration)
+        );
+        eprintln!(
+            "TODOX INTO {:?}",
+            self.display_configuration(to_configuration)
+        );
+        */
+
+        let mut context = AgentStateTransitionContext {
             from_state_id: from_configuration.state_ids[agent_index],
             from_is_deferring: agent_type
                 .state_is_deferring(agent_instance, &from_configuration.state_ids),
@@ -4623,6 +4877,11 @@ impl<
             to_is_deferring: agent_type
                 .state_is_deferring(agent_instance, &to_configuration.state_ids),
         };
+
+        if only_use_names {
+            context.from_state_id = agent_type.terse_id(context.from_state_id);
+            context.to_state_id = agent_type.terse_id(context.to_state_id);
+        }
 
         let mut sent_message_ids: Vec<MessageId> = vec![];
 
@@ -4634,36 +4893,55 @@ impl<
             .filter(|(_, to_message)| to_message.source_index == agent_index)
             .for_each(|(to_message_id, _)| {
                 if self
-                    .message_exists_in_configuration(
+                    .to_message_kept_in_transition(
                         *to_message_id,
                         &from_configuration,
-                        Some(delivered_message_index),
+                        delivered_message_index,
                     )
                     .is_none()
                 {
-                    sent_message_ids.push(*to_message_id);
+                    let mut message_id = *to_message_id;
+                    if only_use_names {
+                        message_id = self.terse_of_message_id.read()[message_id.to_usize()];
+                    }
+                    // eprintln!("TODOX sent {}", self.display_message_id(message_id));
+                    sent_message_ids.push(message_id);
                     sent_message_ids.sort();
                 }
             });
 
-        let (delivered_message_id, delivered_to_us) =
-            if delivered_message_index == MessageIndex::invalid().to_usize() {
-                (MessageId::invalid(), false)
-            } else {
-                let delivered_message_id = from_configuration.message_ids[delivered_message_index];
-                let delivered_message = self.messages.get(delivered_message_id);
-                (
-                    delivered_message_id,
-                    delivered_message.target_index == agent_index,
-                )
-            };
+        let mut delivered_message_id = MessageId::invalid();
+        let mut is_delivered_to_us = false;
+        if delivered_message_index != MessageIndex::invalid() {
+            delivered_message_id =
+                from_configuration.message_ids[delivered_message_index.to_usize()];
+            let delivered_message = self.messages.get(delivered_message_id);
+            if delivered_message.target_index == agent_index {
+                if only_use_names {
+                    delivered_message_id =
+                        self.terse_of_message_id.read()[delivered_message_id.to_usize()];
+                }
+                is_delivered_to_us = true;
+            }
+        }
 
-        if !delivered_to_us
+        /*
+        eprintln!(
+            "TODOX ? is_delivered_to_us {} same {} empty {}",
+            is_delivered_to_us,
+            context.from_state_id == context.to_state_id,
+            sent_message_ids.is_empty()
+        );
+        */
+        if !is_delivered_to_us
             && context.from_state_id == context.to_state_id
             && sent_message_ids.is_empty()
         {
+            //eprintln!("TODOX - NOPE");
             return;
         }
+
+        //eprintln!("TODOX + COLLECT");
 
         state_transitions
             .entry(context)
@@ -4687,13 +4965,59 @@ impl<
             delivered_message_ids.push(delivered_message_id);
             delivered_message_ids.sort();
         }
+
+        //eprintln!("TODOX {:?}", state_transitions);
+    }
+
+    fn from_message_kept_in_transition(
+        &self,
+        from_message_id: MessageId,
+        to_configuration: &<Self as MetaModel>::Configuration,
+    ) -> Option<usize> {
+        let to_index =
+            self.message_exists_in_configuration(from_message_id, to_configuration, None);
+        if to_index.is_some() {
+            return to_index;
+        }
+
+        match self.decr_message_id(from_message_id) {
+            None => None,
+            Some(decr_message_id) => {
+                self.message_exists_in_configuration(decr_message_id, to_configuration, None)
+            }
+        }
+    }
+
+    fn to_message_kept_in_transition(
+        &self,
+        to_message_id: MessageId,
+        from_configuration: &<Self as MetaModel>::Configuration,
+        delivered_message_index: MessageIndex,
+    ) -> Option<usize> {
+        let from_index = self.message_exists_in_configuration(
+            to_message_id,
+            from_configuration,
+            Some(delivered_message_index),
+        );
+        if from_index.is_some() {
+            return from_index;
+        }
+
+        match self.incr_message_id(to_message_id) {
+            None => None,
+            Some(incr_message_id) => self.message_exists_in_configuration(
+                incr_message_id,
+                from_configuration,
+                Some(delivered_message_index),
+            ),
+        }
     }
 
     fn message_exists_in_configuration(
         &self,
         message_id: MessageId,
         configuration: &<Self as MetaModel>::Configuration,
-        delivered_message_index: Option<usize>,
+        exclude_message_index: Option<MessageIndex>,
     ) -> Option<usize> {
         configuration
             .message_ids
@@ -4701,23 +5025,10 @@ impl<
             .take_while(|configuration_message_id| configuration_message_id.is_valid())
             .enumerate()
             .filter(|(configuration_message_index, _)| {
-                delivered_message_index != Some(*configuration_message_index)
+                Some(MessageIndex::from_usize(*configuration_message_index))
+                    != exclude_message_index
             })
-            .position(|(_, configuration_message_id)| {
-                *configuration_message_id == message_id
-                    || (delivered_message_index.is_some()
-                        && self
-                            .decr_order_messages
-                            .get(&message_id)
-                            .map(|result| *result.get().1) // NOT TESTED
-                            == Some(*configuration_message_id))
-                    || (delivered_message_index.is_none()
-                        && self
-                            .decr_order_messages
-                            .get(configuration_message_id)
-                            .map(|result| *result.get().1) // NOT TESTED
-                            == Some(message_id))
-            })
+            .position(|(_, configuration_message_id)| *configuration_message_id == message_id)
     }
 }
 
@@ -4795,6 +5106,12 @@ pub fn add_clap<'a, 'b>(app: App<'a, 'b>) -> App<'a, 'b> {
             .arg(
                 Arg::with_name("AGENT")
                     .help("the name of the agent to generate a diagrams for the states of"),
+            )
+            .arg(
+                Arg::with_name("names")
+                    .short("n")
+                    .long("names")
+                    .help("condense graph nodes considering only the state & payload names"),
             ),
     )
 }
@@ -4984,6 +5301,7 @@ impl<
                 let agent_label = matches
                     .value_of("AGENT")
                     .expect("the states command requires a single agent name, none were given");
+                let only_use_names = matches.is_present("names");
                 let agent_index = self
                     .agent_labels
                     .iter()
@@ -4991,7 +5309,7 @@ impl<
                     .unwrap_or_else(|| panic!("unknown agent {}", agent_label));
 
                 self.do_compute(arg_matches);
-                self.print_agent_states_diagram(agent_index, stdout);
+                self.print_agent_states_diagram(only_use_names, agent_index, stdout);
 
                 true
             }

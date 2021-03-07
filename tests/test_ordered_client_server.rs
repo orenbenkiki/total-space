@@ -1,3 +1,5 @@
+mod common;
+
 use clap::App;
 use clap::ArgMatches;
 use num_traits::cast::FromPrimitive;
@@ -16,10 +18,10 @@ declare_global_agent_index! {SERVER}
 // BEGIN MAYBE TESTED
 #[derive(PartialEq, Eq, Hash, Copy, Clone, Debug, IntoStaticStr)]
 enum Payload {
-    Request,
-    Response,
+    Request(usize),
+    Response(usize),
 }
-impl_data_like! { Payload = Self::Request }
+impl_data_like! { Payload = Self::Request(1) }
 // END MAYBE TESTED
 
 impl Validated for Payload {}
@@ -28,8 +30,7 @@ impl Validated for Payload {}
 #[derive(PartialEq, Eq, Hash, Copy, Clone, Debug, IntoStaticStr)]
 enum ClientState {
     Idle,
-    Wait1,
-    Wait2,
+    Wait(usize),
 }
 impl_data_like! { ClientState = Self::Idle }
 // END MAYBE TESTED
@@ -40,12 +41,12 @@ impl AgentState<ClientState, Payload> for ClientState {
     fn pass_time(&self, _instance: usize) -> Reaction<Self, Payload> {
         match self {
             Self::Idle => Reaction::Do1(Action::ChangeAndSend1(
-                Self::Wait1,
-                Emit::Ordered(Payload::Request, agent_index!(SERVER)),
+                Self::Wait(1),
+                Emit::Ordered(Payload::Request(1), agent_index!(SERVER)),
             )),
-            Self::Wait1 => Reaction::Do1(Action::ChangeAndSend1(
-                Self::Wait2,
-                Emit::Ordered(Payload::Request, agent_index!(SERVER)),
+            Self::Wait(1) => Reaction::Do1(Action::ChangeAndSend1(
+                Self::Wait(3),
+                Emit::Ordered(Payload::Request(2), agent_index!(SERVER)),
             )),
             _ => Reaction::Ignore,
         }
@@ -53,8 +54,12 @@ impl AgentState<ClientState, Payload> for ClientState {
 
     fn receive_message(&self, _instance: usize, payload: &Payload) -> Reaction<Self, Payload> {
         match (self, payload) {
-            (Self::Wait2, Payload::Response) => Reaction::Do1(Action::Change(Self::Wait1)),
-            (Self::Wait1, Payload::Response) => Reaction::Do1(Action::Change(Self::Idle)),
+            (Self::Wait(mask), Payload::Response(index)) if mask == index => {
+                Reaction::Do1(Action::Change(Self::Idle))
+            }
+            (Self::Wait(mask), Payload::Response(index)) if mask & index != 0 => {
+                Reaction::Do1(Action::Change(Self::Wait(mask & !index)))
+            }
             _ => Reaction::Unexpected, // NOT TESTED
         }
     }
@@ -68,7 +73,7 @@ impl AgentState<ClientState, Payload> for ClientState {
 #[derive(PartialEq, Eq, Hash, Copy, Clone, Debug, IntoStaticStr)]
 enum ServerState {
     Listen,
-    Work,
+    Work(usize),
 }
 impl_data_like! { ServerState = Self::Listen }
 // END MAYBE TESTED
@@ -79,23 +84,25 @@ impl AgentState<ServerState, Payload> for ServerState {
     fn pass_time(&self, _instance: usize) -> Reaction<Self, Payload> {
         match self {
             Self::Listen => Reaction::Ignore,
-            Self::Work => Reaction::Do1(Action::ChangeAndSend1(
+            Self::Work(index) => Reaction::Do1(Action::ChangeAndSend1(
                 Self::Listen,
-                Emit::Ordered(Payload::Response, agent_index!(CLIENT)),
+                Emit::Ordered(Payload::Response(*index), agent_index!(CLIENT)),
             )),
         }
     }
 
     fn receive_message(&self, _instance: usize, payload: &Payload) -> Reaction<Self, Payload> {
         match (self, payload) {
-            (Self::Listen, Payload::Request) => Reaction::Do1(Action::Change(Self::Work)),
-            (Self::Work, Payload::Request) => Reaction::Defer,
+            (Self::Listen, Payload::Request(index)) => {
+                Reaction::Do1(Action::Change(Self::Work(*index)))
+            }
+            (Self::Work(_), Payload::Request(_)) => Reaction::Defer,
             _ => Reaction::Unexpected, // NOT TESTED
         }
     }
 
     fn is_deferring(&self) -> bool {
-        self == &Self::Work
+        matches!(self, Self::Work(_))
     }
 
     fn max_in_flight_messages(&self) -> Option<usize> {
@@ -140,95 +147,54 @@ fn test_model(arg_matches: &ArgMatches) -> TestModel {
 
 #[test]
 fn test_agents() {
-    let app = add_clap(App::new("agents"));
+    let app = add_clap(App::new(test_name!()));
     let arg_matches = app.get_matches_from(vec!["test", "agents"].iter());
     let mut model = test_model(&arg_matches);
-    let mut stdout_bytes = Vec::new();
-    model.do_clap(&arg_matches, &mut stdout_bytes);
-    let stdout = str::from_utf8(&stdout_bytes).unwrap();
-    assert_eq!(
-        stdout,
-        "\
-            Client\n\
-            Server\n\
-            "
-    );
+    let mut stdout = Vec::new();
+    model.do_clap(&arg_matches, &mut stdout);
+    assert_output!(stdout, "txt");
 }
 
 #[test]
 fn test_configurations() {
-    let app = add_clap(App::new("configurations"));
+    let app = add_clap(App::new(test_name!()));
     let arg_matches =
         app.get_matches_from(vec!["test", "-r", "-p", "-t", "1", "configurations"].iter());
     let mut model = test_model(&arg_matches);
-    let mut stdout_bytes = Vec::new();
-    model.do_clap(&arg_matches, &mut stdout_bytes);
-    let stdout = str::from_utf8(&stdout_bytes).unwrap();
-    assert_eq!(
-            stdout,
-            "\
-            Client:Idle & Server:Listen\n\
-            Client:Wait1 & Server:Listen | Client -> @0 Request -> Server\n\
-            Client:Wait2 & Server:Listen | Client -> @0 Request -> Server & Client -> @1 Request -> Server\n\
-            Client:Wait2 & Server:Work | Client -> @0 Request -> Server\n\
-            Client:Wait2 & Server:Listen | Client -> @0 Request -> Server & Server -> @0 Response -> Client\n\
-            Client:Wait2 & Server:Work | Server -> @0 Response -> Client\n\
-            Client:Wait2 & Server:Listen | Server -> @0 Response -> Client & Server -> @1 Response -> Client\n\
-            Client:Wait1 & Server:Work\n\
-            Client:Wait1 & Server:Listen | Server -> @0 Response -> Client\n\
-            "
-        );
+    let mut stdout = Vec::new();
+    model.do_clap(&arg_matches, &mut stdout);
+    assert_output!(stdout, "txt");
 }
 
 #[test]
 fn test_transitions() {
-    let app = add_clap(App::new("transitions"));
+    let app = add_clap(App::new(test_name!()));
     let arg_matches =
         app.get_matches_from(vec!["test", "-r", "-p", "-t", "1", "transitions"].iter());
     let mut model = test_model(&arg_matches);
-    let mut stdout_bytes = Vec::new();
-    model.do_clap(&arg_matches, &mut stdout_bytes);
-    let stdout = str::from_utf8(&stdout_bytes).unwrap();
-    assert_eq!(
-            stdout,
-            "\
-            FROM Client:Idle & Server:Listen\n\
-            - BY time event\n  \
-              TO Client:Wait1 & Server:Listen | Client -> @0 Request -> Server\n\
-            FROM Client:Wait1 & Server:Listen | Client -> @0 Request -> Server\n\
-            - BY time event\n  \
-              TO Client:Wait2 & Server:Listen | Client -> @0 Request -> Server & Client -> @1 Request -> Server\n\
-            - BY message Client -> @0 Request -> Server\n  \
-              TO Client:Wait1 & Server:Work\n\
-            FROM Client:Wait2 & Server:Listen | Client -> @0 Request -> Server & Client -> @1 Request -> Server\n\
-            - BY message Client -> @0 Request -> Server\n  \
-              TO Client:Wait2 & Server:Work | Client -> @0 Request -> Server\n\
-            FROM Client:Wait2 & Server:Work | Client -> @0 Request -> Server\n\
-            - BY time event\n  \
-              TO Client:Wait2 & Server:Listen | Client -> @0 Request -> Server & Server -> @0 Response -> Client\n\
-            FROM Client:Wait2 & Server:Listen | Client -> @0 Request -> Server & Server -> @0 Response -> Client\n\
-            - BY message Client -> @0 Request -> Server\n  \
-              TO Client:Wait2 & Server:Work | Server -> @0 Response -> Client\n\
-            - BY message Server -> @0 Response -> Client\n  \
-              TO Client:Wait1 & Server:Listen | Client -> @0 Request -> Server\n\
-            FROM Client:Wait2 & Server:Work | Server -> @0 Response -> Client\n\
-            - BY time event\n  \
-              TO Client:Wait2 & Server:Listen | Server -> @0 Response -> Client & Server -> @1 Response -> Client\n\
-            - BY message Server -> @0 Response -> Client\n  \
-              TO Client:Wait1 & Server:Work\n\
-            FROM Client:Wait2 & Server:Listen | Server -> @0 Response -> Client & Server -> @1 Response -> Client\n\
-            - BY message Server -> @0 Response -> Client\n  \
-              TO Client:Wait1 & Server:Listen | Server -> @0 Response -> Client\n\
-            FROM Client:Wait1 & Server:Work\n\
-            - BY time event\n  \
-              TO Client:Wait2 & Server:Work | Client -> @0 Request -> Server\n\
-            - BY time event\n  \
-              TO Client:Wait1 & Server:Listen | Server -> @0 Response -> Client\n\
-            FROM Client:Wait1 & Server:Listen | Server -> @0 Response -> Client\n\
-            - BY time event\n  \
-              TO Client:Wait2 & Server:Listen | Client -> @0 Request -> Server & Server -> @0 Response -> Client\n\
-            - BY message Server -> @0 Response -> Client\n  \
-              TO Client:Idle & Server:Listen\n\
-            ",
-        );
+    let mut stdout = Vec::new();
+    model.do_clap(&arg_matches, &mut stdout);
+    assert_output!(stdout, "txt");
+}
+
+#[test]
+fn test_states() {
+    let app = add_clap(App::new(test_name!()));
+    let arg_matches =
+        app.get_matches_from(vec!["test", "-r", "-p", "-t", "1", "states", "Client"].iter());
+    let mut model = test_model(&arg_matches);
+    let mut stdout = Vec::new();
+    model.do_clap(&arg_matches, &mut stdout);
+    assert_output!(stdout, "dot");
+}
+
+#[test]
+fn test_states_names() {
+    let app = add_clap(App::new(test_name!()));
+    let arg_matches =
+        app.get_matches_from(vec!["test", "-r", "-p", "-t", "1", "states", "-n", "Client"].iter());
+    let mut model = test_model(&arg_matches);
+    let mut stdout = Vec::new();
+    model.do_clap(&arg_matches, &mut stdout);
+    assert_output!(stdout, "dot");
 }
