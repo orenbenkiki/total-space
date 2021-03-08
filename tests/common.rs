@@ -39,10 +39,12 @@ pub fn impl_assert_output(module_name: &str, test_name: &str, suffix: &str, actu
     let actual_dir = format!("tests/actual/{}", module_name);
 
     create_dir_all(expected_dir.clone()).unwrap_or_else(|_| {
+        // BEGIN NOT TESTED
         panic!(
             "failed to create expected results directory {}",
             expected_dir
         )
+        // END NOT TESTED
     });
     create_dir_all(actual_dir.clone())
         .unwrap_or_else(|_| panic!("failed to create actual results directory {}", actual_dir));
@@ -51,6 +53,7 @@ pub fn impl_assert_output(module_name: &str, test_name: &str, suffix: &str, actu
     let actual_path = format!("{}/{}.{}", actual_dir, test_name, suffix);
 
     let expected_bytes = read(expected_path.clone()).unwrap_or_else(|_| {
+        // BEGIN NOT TESTED
         write(expected_path.clone(), actual_bytes).unwrap_or_else(|_| {
             panic!("failed to write expected results file {}", expected_path);
         });
@@ -59,6 +62,7 @@ pub fn impl_assert_output(module_name: &str, test_name: &str, suffix: &str, actu
             expected_path
         );
         actual_bytes.to_vec()
+        // END NOT TESTED
     });
 
     write(actual_path.clone(), actual_bytes)

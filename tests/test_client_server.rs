@@ -12,18 +12,19 @@ use std::sync::Arc;
 use strum::IntoStaticStr;
 use total_space::*;
 
-declare_global_agent_indices! {CLIENTS}
+declare_global_agent_index! {CLIENT}
 declare_global_agent_index! {SERVER}
 
 // BEGIN MAYBE TESTED
 #[derive(PartialEq, Eq, Hash, Copy, Clone, Debug, IntoStaticStr)]
 enum Payload {
-    Request { client: usize },
+    Ping,
+    Request,
     Response,
 }
 impl_data_like! {
-    Payload = Self::Response,
-    "client" => "C",
+    Payload = Self::Ping,
+    "Ping" => "PNG",
     "Request" => "REQ",
     "Response" => "RSP"
 }
@@ -46,14 +47,25 @@ impl_data_like! {
 
 impl Validated for ClientState {}
 
+fn is_maybe_ping(payload: Option<Payload>) -> bool {
+    matches!(payload, None | Some(Payload::Ping))
+}
+
 impl AgentState<ClientState, Payload> for ClientState {
-    fn pass_time(&self, instance: usize) -> Reaction<Self, Payload> {
+    fn pass_time(&self, _instance: usize) -> Reaction<Self, Payload> {
         match self {
             Self::Wait => Reaction::Ignore,
-            Self::Idle => Reaction::Do1(Action::ChangeAndSend1(
-                Self::Wait,
-                Emit::Unordered(Payload::Request { client: instance }, agent_index!(SERVER)),
-            )),
+            Self::Idle => Reaction::Do1Of2(
+                Action::ChangeAndSend1(
+                    Self::Wait,
+                    Emit::Unordered(Payload::Request, agent_index!(SERVER)),
+                ),
+                Action::Send1(Emit::UnorderedReplacement(
+                    is_maybe_ping,
+                    Payload::Ping,
+                    agent_index!(SERVER),
+                )),
+            ),
         }
     }
 
@@ -65,7 +77,7 @@ impl AgentState<ClientState, Payload> for ClientState {
     }
 
     fn max_in_flight_messages(&self) -> Option<usize> {
-        Some(1)
+        Some(2)
     }
 }
 
@@ -73,14 +85,9 @@ impl AgentState<ClientState, Payload> for ClientState {
 #[derive(PartialEq, Eq, Hash, Copy, Clone, Debug, IntoStaticStr)]
 enum ServerState {
     Listen,
-    Work { client: usize },
+    Work,
 }
-impl_data_like! {
-    ServerState = Self::Listen,
-    "client" => "C",
-    "Listen" => "LST",
-    "Work" => "WRK"
-}
+impl_data_like! { ServerState = Self::Listen, "Listen" => "LST", "Work" => "WRK" }
 // END MAYBE TESTED
 
 impl Validated for ServerState {}
@@ -89,29 +96,28 @@ impl AgentState<ServerState, Payload> for ServerState {
     fn pass_time(&self, _instance: usize) -> Reaction<Self, Payload> {
         match self {
             Self::Listen => Reaction::Ignore,
-            Self::Work { client } => Reaction::Do1(Action::ChangeAndSend1(
+            Self::Work => Reaction::Do1(Action::ChangeAndSend1(
                 Self::Listen,
-                Emit::Unordered(Payload::Response, agent_index!(CLIENTS[*client])),
+                Emit::Unordered(Payload::Response, agent_index!(CLIENT)),
             )),
         }
     }
 
     fn receive_message(&self, _instance: usize, payload: &Payload) -> Reaction<Self, Payload> {
         match (self, payload) {
-            (Self::Listen, Payload::Request { client }) => {
-                Reaction::Do1(Action::Change(Self::Work { client: *client }))
-            }
-            (Self::Work { client: _ }, Payload::Request { client: _ }) => Reaction::Defer,
-            _ => Reaction::Unexpected, // NOT TESTED
+            (_, Payload::Ping) => Reaction::Ignore,
+            (Self::Listen, Payload::Request) => Reaction::Do1(Action::Change(Self::Work)),
+            (Self::Work, Payload::Request) => Reaction::Defer, // NOT TESTED
+            _ => Reaction::Unexpected,                         // NOT TESTED
         }
     }
 
     fn is_deferring(&self) -> bool {
-        matches!(self, &Self::Work { client: _ })
+        self == &Self::Work
     }
 
     fn max_in_flight_messages(&self) -> Option<usize> {
-        Some(agents_count!(CLIENTS))
+        Some(1)
     }
 }
 
@@ -135,30 +141,33 @@ fn test_model(arg_matches: &ArgMatches) -> TestModel {
         ClientState,
         <TestModel as MetaModel>::StateId,
         Payload,
-    >::new("C", Instances::Count(2), None));
+    >::new("C", Instances::Singleton, None));
+
     let server_type = Arc::new(AgentTypeData::<
         ServerState,
         <TestModel as MetaModel>::StateId,
         Payload,
     >::new(
-        "SRV", Instances::Singleton, Some(client_type.clone())
+        "S", Instances::Singleton, Some(client_type.clone())
     ));
+
     let model = TestModel::new(model_size(arg_matches, 1), server_type, vec![]);
-    init_global_agent_indices!(CLIENTS, "C", model);
-    init_global_agent_index!(SERVER, "SRV", model);
+    init_global_agent_index!(CLIENT, "C", model);
+    init_global_agent_index!(SERVER, "S", model);
     model
 }
 
+test_case! { conditions, "txt", vec!["test", "conditions"] }
 test_case! { agents, "txt", vec!["test", "agents"] }
-test_case! { configurations, "txt", vec!["test", "-p", "1", "-s", "1", "-t", "1", "configurations"] }
+test_case! { configurations, "txt", vec!["test", "-r", "-p", "1", "-t", "1", "configurations"] }
 test_case! { transitions, "txt", vec!["test", "-p", "1", "-t", "1", "transitions"] }
-test_case! { path, "txt", vec!["test", "-r", "-p", "1", "-t", "1", "path", "1MSG", "2MSG", "INIT"] }
-test_case! { sequence, "uml", vec!["test", "-p", "1", "-t", "1", "sequence", "INIT", "1MSG", "2MSG", "INIT"] }
-test_case! { client_states, "dot", vec!["test", "-p", "1", "-t", "1", "states", "C(0)"] }
-test_case! { client_states_names, "dot", vec!["test", "-p", "1", "-t", "1", "states", "C(0)", "-n"] }
-test_case! { client_states_names_merge, "dot", vec!["test", "-p", "1", "-t", "1", "states", "C(0)", "-n", "-m"] }
-test_case! { client_states_merge, "dot", vec!["test", "-p", "1", "-t", "1", "states", "C(0)", "-m"] }
-test_case! { server_states, "dot", vec!["test", "-p", "1", "-t", "1", "states", "SRV"] }
-test_case! { server_states_names, "dot", vec!["test", "-p", "1", "-t", "1", "states", "SRV", "-n"] }
-test_case! { server_states_names_merge, "dot", vec!["test", "-p", "1", "-t", "1", "states", "SRV", "-n", "-m"] }
-test_case! { server_states_merge, "dot", vec!["test", "-p", "1", "-t", "1", "states", "SRV", "-m"] }
+test_case! { path, "txt", vec!["test", "-p", "1", "-t", "1", "path", "INIT", "REPLACE", "2MSG", "INIT"] }
+test_case! { sequence, "uml", vec!["test", "-p", "1", "-t", "1", "sequence", "INIT", "REPLACE", "2MSG", "INIT"] }
+test_case! { client_states, "dot", vec!["test", "-p", "1", "-t", "1", "states", "C"] }
+test_case! { client_states_names, "dot", vec!["test", "-p", "1", "-t", "1", "states", "C", "-n"] }
+test_case! { client_states_final, "dot", vec!["test", "-p", "1", "-t", "1", "states", "C", "-f"] }
+test_case! { client_states_condensed, "dot", vec!["test", "-p", "1", "-t", "1", "states", "C", "-c"] }
+test_case! { server_states, "dot", vec!["test", "-p", "1", "-t", "1", "states", "S"] }
+test_case! { server_states_names, "dot", vec!["test", "-p", "1", "-t", "1", "states", "S", "-n"] }
+test_case! { server_states_final, "dot", vec!["test", "-p", "1", "-t", "1", "states", "S", "-f"] }
+test_case! { server_states_condensed, "dot", vec!["test", "-p", "1", "-t", "1", "states", "S", "-c"] }

@@ -6,24 +6,31 @@ ACTUAL_UMLS = $(wildcard tests/actual/*/*.uml)
 EXPECTED_DOTS = $(wildcard tests/expected/*/*.dot)
 ACTUAL_DOTS = $(wildcard tests/actual/*/*.dot)
 
-EXPECTED_SVGS = \
-	$(patsubst %.dot, %.svg, $(EXPECTED_DOTS)) \
-	$(patsubst %.uml, %.svg, $(EXPECTED_UMLS))
-ACTUAL_SVGS = \
-	$(patsubst %.dot, %.svg, $(ACTUAL_DOTS)) \
-       	$(patsubst %.uml, %.svg, $(ACTUAL_UMLS))
+EXPECTED_DOT_SVGS = $(patsubst %.dot, %.svg, $(EXPECTED_DOTS))
+ACTUAL_DOT_SVGS = $(patsubst %.dot, %.svg, $(ACTUAL_DOTS))
 
-all: expected_svgs actual_svgs
+EXPECTED_UML_SVGS = $(patsubst %.uml, %.svg, $(EXPECTED_UMLS))
+ACTUAL_UML_SVGS = $(patsubst %.uml, %.svg, $(ACTUAL_UMLS))
 
-expected_svgs: $(EXPECTED_SVGS)
+EXPECTED_SVGS = $(EXPECTED_DOT_SVGS) $(EXPECTED_UML_SVGS)
+ACTUAL_SVGS = $(ACTUAL_DOT_SVGS) $(ACTUAL_UML_SVGS)
 
-actual_svgs: $(ACTUAL_SVGS)
+DOT_SVGS = $(EXPECTED_DOT_SVGS) $(ACTUAL_DOT_SVGS)
+UML_SVGS = $(EXPECTED_UML_SVGS) $(ACTUAL_UML_SVGS)
+
+ALL_SVGS = $(DOT_SVGS) $(UML_SVGS)
+
+all: svgs
+
+svgs: $(ALL_SVGS)
 
 .dot.svg:
 	dot -Tsvg $? > $@
 
-.uml.svg: plantuml.jar
-	java -jar plantuml.jar -tsvg $?
+$(UML_SVGS): plantuml.jar
+
+.uml.svg:
+	java -jar plantuml.jar -tsvg $<
 
 plantuml.jar:
 	wget http://sourceforge.net/projects/plantuml/files/plantuml.jar/download -O plantuml.jar
@@ -31,8 +38,13 @@ plantuml.jar:
 build:
 	(cargo fmt && cargo build) 2>&1 | tee junk
 
-fast_test:
+fast:
 	(cargo fmt && cargo test) 2>&1 | tee junk
 
-slow_test:
+slow:
 	(cargo fmt && cargo test -- --test-threads 1 --nocapture) 2>&1 | tee junk
+
+TODO = todox  # ALLOW TODOX
+
+$(TODO):
+	(cargo fmt && cargo test $(TODO) -- --test-threads 1 --nocapture) 2>&1 | tee junk

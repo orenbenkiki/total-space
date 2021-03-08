@@ -215,8 +215,7 @@ macro_rules! init_global_agent_indices {
 #[macro_export]
 macro_rules! init_global_agent_index {
     ($name:ident, $label:expr, $model:expr) => {
-        let todox = *$name.write() = $model.agent_index($label, None);
-        todox
+        *$name.write() = $model.agent_index($label, None)
     };
 }
 
@@ -967,6 +966,7 @@ impl<
         self.agent_type_data.display_state(state_id)
     }
 
+    // BEGIN NOT TESTED
     fn terse_id(&self, state_id: StateId) -> StateId {
         self.agent_type_data.terse_id(state_id)
     }
@@ -974,6 +974,7 @@ impl<
     fn display_terse(&self, terse_id: StateId) -> String {
         self.agent_type_data.display_terse(terse_id)
     }
+    // END NOT TESTED
 }
 
 impl<State: DataLike + AgentState<State, Payload>, StateId: IndexLike, Payload: DataLike>
@@ -2868,16 +2869,20 @@ impl<
 
                 if let MessageOrder::Ordered(message_order) = message.order {
                     if message_order > removed_message_order {
+                        // BEGIN NOT TESTED
                         configuration.message_ids[message_index] =
                             self.decr_message_id(message_id).unwrap();
                         did_modify = true;
+                        // END NOT TESTED
                     }
                 }
             }
 
             if did_modify {
+                // BEGIN NOT TESTED
                 assert!(!configuration.immediate_index.is_valid());
                 configuration.message_ids.sort();
+                // END NOT TESTED
             }
         }
     }
@@ -2885,7 +2890,7 @@ impl<
     fn decr_message_id(&self, message_id: MessageId) -> Option<MessageId> {
         self.decr_order_messages
             .get(&message_id)
-            .map(|result| *result.get().1)
+            .map(|result| *result.get().1) // NOT TESTED
     }
 
     fn incr_message_id(&self, message_id: MessageId) -> Option<MessageId> {
@@ -2922,6 +2927,7 @@ impl<
                     && to_message.payload == message.payload
             })
             .for_each(|to_message| {
+                // BEGIN NOT TESTED
                 let event_label = self.event_label(context.delivered_message_id);
                 let source_label = self.agent_labels[to_message.source_index].clone();
                 let target_label = self.agent_labels[to_message.target_index].clone();
@@ -2934,6 +2940,7 @@ impl<
                      while in the configuration {}",
                     source_label, to_message.payload, target_label, event_label, from_configuration
                 );
+                // END NOT TESTED
             });
         let message_id = self.messages.store(message).id;
         context
@@ -3687,8 +3694,8 @@ impl<
         assert!(
             agent_index.is_some(),
             "could not identify active agent transitioning from {} to {}",
-            self.display_configuration(&from_configuration),
-            self.display_configuration(&to_configuration)
+            self.display_configuration(&from_configuration), // NOT TESTED
+            self.display_configuration(&to_configuration)    // NOT TESTED
         );
 
         let delivered_message_index = if !outgoing.delivered_message_index.is_valid() {
@@ -3794,7 +3801,7 @@ impl<
             } else if condense.names_only {
                 Some(message.replaced.unwrap().name())
             } else {
-                Some(message.replaced.unwrap().to_string())
+                Some(message.replaced.unwrap().to_string()) // NOT TESTED
             };
 
             let terse_message = TerseMessage {
@@ -3805,21 +3812,12 @@ impl<
                 replaced,
             };
 
-            let todox = terse_message.clone();
-
             let terse_id = *seen_messages.entry(terse_message).or_insert_with(|| {
                 let next_terse_id = message_of_terse_id.len();
                 message_of_terse_id.push(MessageId::from_usize(message_id));
                 next_terse_id
             });
 
-            eprintln!(
-                "TODOX TERSE OF {:?} MSG {} DATA {:?} IS {:?}",
-                message_id,
-                self.display_message(&message),
-                todox,
-                terse_id
-            );
             terse_of_message_id.push(MessageId::from_usize(terse_id));
         }
 
@@ -3952,7 +3950,6 @@ impl<
 
                     self.print_agent_transition_sent_edges(
                         condense,
-                        agent_index,
                         &sent_message_ids,
                         state_transition_index,
                         None,
@@ -3988,7 +3985,6 @@ impl<
 
                     self.print_agent_transition_sent_edges(
                         condense,
-                        agent_index,
                         &sent_message_ids,
                         state_transition_index,
                         Some(alternative_index),
@@ -4060,12 +4056,12 @@ impl<
                 condense,
                 state_transition_index,
                 None,
-                agent_index,
                 Some(*delivered_message_id),
                 "D",
                 stdout,
             );
             self.print_message_transition_edge(
+                condense,
                 *delivered_message_id,
                 state_transition_index,
                 stdout,
@@ -4076,7 +4072,6 @@ impl<
     fn print_agent_transition_sent_edges(
         &self,
         condense: &Condense,
-        agent_index: usize,
         sent_message_ids: &[MessageId],
         state_transition_index: usize,
         mut alternative_index: Option<usize>,
@@ -4084,25 +4079,27 @@ impl<
     ) {
         if let Some(alternative_index) = alternative_index {
             if sent_message_ids.len() > 1 {
+                // BEGIN NOT TESTED
                 Self::print_state_alternative_node_and_edge(
                     state_transition_index,
                     alternative_index,
                     stdout,
                 );
+                // END NOT TESTED
             }
         }
 
         if alternative_index.is_some() && sent_message_ids.is_empty() {
-            self.print_message_node(
+            // BEGIN NOT TESTED
+            self.print_message_node(condense, state_transition_index, None, None, "S", stdout);
+            self.print_transition_message_edge(
                 condense,
                 state_transition_index,
                 None,
-                agent_index,
                 None,
-                "S",
                 stdout,
             );
-            self.print_transition_message_edge(state_transition_index, None, None, stdout);
+            // END NOT TESTED
         }
 
         if sent_message_ids.len() < 2 {
@@ -4114,12 +4111,12 @@ impl<
                 condense,
                 state_transition_index,
                 alternative_index,
-                agent_index,
                 Some(*sent_message_id),
                 "S",
                 stdout,
             );
             self.print_transition_message_edge(
+                condense,
                 state_transition_index,
                 alternative_index,
                 Some(*sent_message_id),
@@ -4184,7 +4181,6 @@ impl<
         condense: &Condense,
         state_transition_index: usize,
         alternative_index: Option<usize>,
-        agent_index: usize,
         message_id: Option<MessageId>,
         prefix: &str,
         stdout: &mut dyn Write,
@@ -4228,12 +4224,12 @@ impl<
         )
         .unwrap();
 
-        if condense.names_only {
+        if condense.is_active() {
             message_id = self.message_of_terse_id.read()[message_id.to_usize()];
         }
 
         let message = self.messages.get(message_id);
-        if message.source_index != agent_index {
+        if prefix == "D" {
             let source = if condense.merge_instances {
                 self.agent_types[message.source_index].name()
             } else {
@@ -4258,7 +4254,7 @@ impl<
             write!(stdout, "{}", message.payload).unwrap();
         }
 
-        if message.target_index != agent_index {
+        if prefix == "S" {
             let target = if condense.merge_instances {
                 self.agent_types[message.target_index].name()
             } else {
@@ -4306,14 +4302,21 @@ impl<
 
     fn print_message_transition_edge(
         &self,
+        condense: &Condense,
         from_message_id: MessageId,
         to_state_transition_index: usize,
         stdout: &mut dyn Write,
     ) {
-        let is_immediate = from_message_id.is_valid()
-            && self.messages.get(from_message_id).order == MessageOrder::Immediate;
+        let show_message_id = if condense.is_active() && from_message_id.is_valid() {
+            self.message_of_terse_id.read()[from_message_id.to_usize()]
+        } else {
+            from_message_id
+        };
+
+        let is_immediate = show_message_id.is_valid()
+            && self.messages.get(show_message_id).order == MessageOrder::Immediate;
         let arrowhead = if is_immediate {
-            "normalnormal" // NOT TESTED
+            "normalnormal"
         } else {
             "normal"
         };
@@ -4358,6 +4361,7 @@ impl<
 
     fn print_transition_message_edge(
         &self,
+        condense: &Condense,
         from_state_transition_index: usize,
         from_alternative_index: Option<usize>,
         to_message_id: Option<MessageId>,
@@ -4379,9 +4383,14 @@ impl<
         }
 
         let to_message_id = to_message_id.unwrap();
+        let show_message_id = if condense.is_active() && to_message_id.is_valid() {
+            self.message_of_terse_id.read()[to_message_id.to_usize()]
+        } else {
+            to_message_id
+        };
 
         let is_immediate = to_message_id.is_valid()
-            && self.messages.get(to_message_id).order == MessageOrder::Immediate;
+            && self.messages.get(show_message_id).order == MessageOrder::Immediate;
         let arrowhead = if is_immediate {
             "normalnormal" // NOT TESTED
         } else {
@@ -4505,6 +4514,7 @@ impl<
             .take_while(|message_id| message_id.is_valid())
             .enumerate()
             .for_each(|(message_index, message_id)| {
+                // BEGIN NOT TESTED
                 let message = self.messages.get(*message_id);
                 let timeline_index = self.add_sequence_timeline(
                     &mut sequence_state,
@@ -4514,6 +4524,7 @@ impl<
                     stdout,
                 );
                 writeln!(stdout, "activate T{} #Silver", timeline_index).unwrap();
+                // END NOT TESTED
             });
     }
 
@@ -4601,6 +4612,7 @@ impl<
             .iter()
             .enumerate()
             .for_each(|(timeline_index, message_index)| {
+                // BEGIN NOT TESTED
                 let message_id = first_configuration.message_ids[message_index.unwrap()];
                 let message = self.messages.get(message_id);
                 writeln!(
@@ -4610,6 +4622,7 @@ impl<
                     self.display_sequence_message(&message, false)
                 )
                 .unwrap();
+                // END NOT TESTED
             });
     }
 
@@ -5010,9 +5023,10 @@ impl<
 
         match self.decr_message_id(from_message_id) {
             None => None,
+            // BEGIN NOT TESTED
             Some(decr_message_id) => {
                 self.message_exists_in_configuration(decr_message_id, to_configuration, None)
-            }
+            } // END NOT TESTED
         }
     }
 
@@ -5153,6 +5167,12 @@ pub fn add_clap<'a, 'b>(app: App<'a, 'b>) -> App<'a, 'b> {
                     .short("f")
                     .long("final-replaced")
                     .help("condense graph nodes considering only the final (replaced) payload"),
+            )
+            .arg(
+                Arg::with_name("condensed")
+                    .short("c")
+                    .long("condensed")
+                    .help("most condensed graph (implies --names-only, --merge-instances and --final-replaced)"),
             ),
     )
 }
@@ -5336,9 +5356,11 @@ impl<
                     .value_of("AGENT")
                     .expect("the states command requires a single agent name, none were given");
                 let condense = Condense {
-                    names_only: matches.is_present("names-only"),
-                    merge_instances: matches.is_present("merge-instances"),
-                    final_replaced: matches.is_present("final-replaced"),
+                    names_only: matches.is_present("names-only") || matches.is_present("condensed"),
+                    merge_instances: matches.is_present("merge-instances")
+                        || matches.is_present("condensed"),
+                    final_replaced: matches.is_present("final-replaced")
+                        || matches.is_present("condensed"),
                 };
                 let agent_index = self
                     .agent_labels

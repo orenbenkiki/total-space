@@ -25,7 +25,7 @@ A_1_true -> T_2_18446744073709551615 [ arrowhead=none, direction=forward ];
 T_2_18446744073709551615 -> A_0_false;
 D_2_18446744073709551615_255 [ label="Time", shape=plain ];
 D_2_18446744073709551615_255 -> T_2_18446744073709551615 [ arrowhead=normal, direction=forward, style=dashed ];
-S_2_18446744073709551615_2 [ label="C &#8594;\nPNG", shape=plain ];
+S_2_18446744073709551615_2 [ label="RSP\n&#8594; C", shape=plain ];
 T_2_18446744073709551615 -> S_2_18446744073709551615_2 [ arrowhead=normal, direction=forward, style=dashed ];
 }
 subgraph cluster_3 {

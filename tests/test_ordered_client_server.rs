@@ -151,6 +151,6 @@ test_case! { transitions, "txt", vec!["test", "-p", "1", "-t", "1", "transitions
 test_case! { path, "txt", vec!["test", "-p", "1", "-t", "1", "path", "INIT", "2MSG", "INIT"] }
 test_case! { sequence, "uml", vec!["test", "-p", "1", "-t", "1", "sequence", "INIT", "2MSG", "INIT"] }
 test_case! { client_states, "dot", vec!["test", "-p", "1", "-t", "1", "states", "Client"] }
-test_case! { client_states_names, "dot", vec!["test", "-p", "1", "-t", "1", "states", "Client", "-n"] }
+test_case! { client_states_condensed, "dot", vec!["test", "-p", "1", "-t", "1", "states", "Client", "-c"] }
 test_case! { server_states, "dot", vec!["test", "-p", "1", "-t", "1", "states", "Server"] }
-test_case! { server_states_names, "dot", vec!["test", "-p", "1", "-t", "1", "states", "Server", "-n"] }
+test_case! { server_states_condensed, "dot", vec!["test", "-p", "1", "-t", "1", "states", "Server", "-c"] }
