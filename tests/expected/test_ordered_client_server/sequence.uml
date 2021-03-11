@@ -55,17 +55,21 @@ rnote over A1 : Work(2)
 activate A1 #CadetBlue
 ?o-> A1
 deactivate A1
-A1 -[#Blue]> A0 : Response(2)
-deactivate A0
+control " " as T3 order 10198
+A1 -[#Blue]> T3 : Response(2)
+activate T3 #Silver
 rnote over A1 : Listen
 activate A1 #MediumPurple
+T2 -[#Blue]> A0 : Response(1)
+deactivate T2
+deactivate A0
 autonumber stop
 ?-[#White]\ A0
 autonumber resume
-rnote over A0 : Wait(1)
+rnote over A0 : Wait(2)
 activate A0 #MediumPurple
-T2 -[#Blue]> A0 : Response(1)
-deactivate T2
+T3 -[#Blue]> A0 : Response(2)
+deactivate T3
 deactivate A0
 autonumber stop
 ?-[#White]\ A0

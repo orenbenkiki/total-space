@@ -2702,23 +2702,23 @@ impl<
             replaced,
         };
 
-        let mut message = message;
-        let mut message_id = self.messages.store(message).id;
+        let mut next_message = message;
+        let mut next_message_id = self.messages.store(next_message).id;
         while order > 0 {
             order -= 1;
             match self
                 .decr_order_messages
-                .insert(message_id, MessageId::from_usize(0))
+                .insert(next_message_id, MessageId::from_usize(0))
             {
                 Ok(result) => {
-                    message.order = MessageOrder::Ordered(MessageIndex::from_usize(order));
-                    let decr_message_id = self.messages.store(message).id;
+                    next_message.order = MessageOrder::Ordered(MessageIndex::from_usize(order));
+                    let decr_message_id = self.messages.store(next_message).id;
                     *result.get().1 = decr_message_id;
                     assert!(self
                         .incr_order_messages
-                        .insert(decr_message_id, message_id)
+                        .insert(decr_message_id, next_message_id)
                         .is_ok());
-                    message_id = decr_message_id;
+                    next_message_id = decr_message_id;
                 }
                 Err(_) => break,
             }
@@ -2869,20 +2869,16 @@ impl<
 
                 if let MessageOrder::Ordered(message_order) = message.order {
                     if message_order > removed_message_order {
-                        // BEGIN NOT TESTED
                         configuration.message_ids[message_index] =
                             self.decr_message_id(message_id).unwrap();
                         did_modify = true;
-                        // END NOT TESTED
                     }
                 }
             }
 
             if did_modify {
-                // BEGIN NOT TESTED
                 assert!(!configuration.immediate_index.is_valid());
                 configuration.message_ids.sort();
-                // END NOT TESTED
             }
         }
     }
@@ -2890,7 +2886,14 @@ impl<
     fn decr_message_id(&self, message_id: MessageId) -> Option<MessageId> {
         self.decr_order_messages
             .get(&message_id)
-            .map(|result| *result.get().1) // NOT TESTED
+            .map(|result| *result.get().1)
+    }
+
+    fn first_message_id(&self, mut message_id: MessageId) -> MessageId {
+        while let Some(decr_message_id) = self.decr_message_id(message_id) {
+            message_id = decr_message_id;
+        }
+        message_id
     }
 
     fn incr_message_id(&self, message_id: MessageId) -> Option<MessageId> {
@@ -3660,6 +3663,9 @@ impl<
                         &from_configuration,
                         outgoing.delivered_message_index,
                     ) {
+                    eprintln!("FROM {}", self.display_configuration(&from_configuration));
+                    eprintln!("INTO {}", self.display_configuration(&to_configuration));
+                    eprintln!("KEPT {}", self.display_message_id(*to_message_id));
                     PrevMessage::Kept(from_message_index)
                 } else {
                     let to_message = self.messages.get(*to_message_id);
@@ -4566,7 +4572,7 @@ impl<
         sequence_state.timelines.push(Some(message_index));
         sequence_state
             .message_timelines
-            .insert(message_id, timeline_index);
+            .insert(self.first_message_id(message_id), timeline_index);
 
         let timeline_order = if self.is_rightwards_message(message) {
             sequence_state.agents_timelines[message.source_index]
@@ -4679,8 +4685,9 @@ impl<
         if transition.delivered_message_index.is_some() {
             let delivered_message_id = transition.delivered_message_id.unwrap();
             let delivered_message = self.messages.get(delivered_message_id);
-            if let Some(timeline_index) =
-                sequence_state.message_timelines.get(&delivered_message_id)
+            if let Some(timeline_index) = sequence_state
+                .message_timelines
+                .get(&self.first_message_id(delivered_message_id))
             {
                 let arrow = match delivered_message.order {
                     MessageOrder::Immediate => "-[#Crimson]>",
@@ -4725,7 +4732,8 @@ impl<
             .enumerate()
             .for_each(|(to_message_index, prev_message)| match prev_message {
                 PrevMessage::Kept(_) => {
-                    let to_message_id = to_configuration.message_ids[to_message_index];
+                    let to_message_id =
+                        self.first_message_id(to_configuration.message_ids[to_message_index]);
                     let timeline_index = from_message_timelines[&to_message_id];
                     sequence_state
                         .message_timelines
@@ -4738,7 +4746,7 @@ impl<
                     let to_message = self.messages.get(to_message_id);
                     sequence_state
                         .message_timelines
-                        .insert(to_message_id, timeline_index);
+                        .insert(self.first_message_id(to_message_id), timeline_index);
                     let arrow = match to_message.order // MAYBE TESTED
                     {
                         MessageOrder::Immediate => "-[#Crimson]>",
@@ -4774,10 +4782,11 @@ impl<
                         if next_transition.from_next_messages[to_message_index]
                             == NextMessage::Delivered =>
                     {
-                        let arrow = match to_message.order {
+                        let arrow = match to_message.order // MAYBE TESTED
+                        {
                             MessageOrder::Immediate => "-[#Crimson]>",
                             MessageOrder::Unordered => "->",
-                            MessageOrder::Ordered(_) => "-[#Blue]>",
+                            MessageOrder::Ordered(_) => "-[#Blue]>", // NOT TESTED
                         };
 
                         writeln!(
@@ -4820,9 +4829,10 @@ impl<
                                 debug_assert!(
                                     sequence_state.timelines[existing_timeline_index].is_none()
                                 );
-                                sequence_state
-                                    .message_timelines
-                                    .insert(to_message_id, existing_timeline_index);
+                                sequence_state.message_timelines.insert(
+                                    self.first_message_id(to_message_id),
+                                    existing_timeline_index,
+                                );
                                 existing_timeline_index
                                 // END NOT TESTED
                             } else {
@@ -5056,10 +5066,9 @@ impl<
 
         match self.decr_message_id(from_message_id) {
             None => None,
-            // BEGIN NOT TESTED
             Some(decr_message_id) => {
                 self.message_exists_in_configuration(decr_message_id, to_configuration, None)
-            } // END NOT TESTED
+            }
         }
     }
 
