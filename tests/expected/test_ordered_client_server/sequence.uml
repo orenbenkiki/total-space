@@ -19,18 +19,18 @@ rnote over A0 : Idle
 ?o-> A0
 deactivate A0
 control " " as T0 order 10101
-A0 -> T0 : @0 Request(1)
+A0 -[#Blue]> T0 : Request(1)
 activate T0 #Silver
 rnote over A0 : Wait(1)
 activate A0 #MediumPurple
 ?o-> A0
 deactivate A0
 control " " as T1 order 10102
-A0 -> T1 : @0 Request(2)
+A0 -[#Blue]> T1 : Request(2)
 activate T1 #Silver
 rnote over A0 : Wait(3)
 activate A0 #MediumPurple
-T0 -> A1 : @0 Request(1)
+T0 -[#Blue]> A1 : Request(1)
 deactivate T0
 deactivate A1
 autonumber stop
@@ -41,11 +41,11 @@ activate A1 #CadetBlue
 ?o-> A1
 deactivate A1
 control " " as T2 order 10199
-A1 -> T2 : @0 Response(1)
+A1 -[#Blue]> T2 : Response(1)
 activate T2 #Silver
 rnote over A1 : Listen
 activate A1 #MediumPurple
-T1 -> A1 : @0 Request(2)
+T1 -[#Blue]> A1 : Request(2)
 deactivate T1
 deactivate A1
 autonumber stop
@@ -55,7 +55,7 @@ rnote over A1 : Work(2)
 activate A1 #CadetBlue
 ?o-> A1
 deactivate A1
-A1 -> A0 : @0 Response(2)
+A1 -[#Blue]> A0 : Response(2)
 deactivate A0
 rnote over A1 : Listen
 activate A1 #MediumPurple
@@ -64,7 +64,7 @@ autonumber stop
 autonumber resume
 rnote over A0 : Wait(1)
 activate A0 #MediumPurple
-T2 -> A0 : @0 Response(1)
+T2 -[#Blue]> A0 : Response(1)
 deactivate T2
 deactivate A0
 autonumber stop

@@ -12,21 +12,21 @@ T_0_18446744073709551615 -> A_1_false;
 D_0_18446744073709551615_255 [ label="Time", shape=plain ];
 D_0_18446744073709551615_255 -> T_0_18446744073709551615 [ arrowhead=normal, direction=forward, style=dashed ];
 S_0_18446744073709551615_0 [ label="Request\n&#8594; Server", shape=plain ];
-T_0_18446744073709551615 -> S_0_18446744073709551615_0 [ arrowhead=normal, direction=forward, style=dashed ];
+T_0_18446744073709551615 -> S_0_18446744073709551615_0 [ arrowhead=normalnonedot, direction=forward, style=dashed ];
 }
 subgraph cluster_1 {
 T_1_18446744073709551615 [ shape=point, height=0.015, width=0.015 ];
 A_1_false -> T_1_18446744073709551615 [ arrowhead=none, direction=forward ];
 T_1_18446744073709551615 -> A_0_false;
 D_1_18446744073709551615_1 [ label="Server &#8594;\nResponse", shape=plain ];
-D_1_18446744073709551615_1 -> T_1_18446744073709551615 [ arrowhead=normal, direction=forward, style=dashed ];
+D_1_18446744073709551615_1 -> T_1_18446744073709551615 [ arrowhead=normalnonedot, direction=forward, style=dashed ];
 }
 subgraph cluster_2 {
 T_2_18446744073709551615 [ shape=point, height=0.015, width=0.015 ];
 A_1_false -> T_2_18446744073709551615 [ arrowhead=none, direction=forward ];
 T_2_18446744073709551615 -> A_1_false;
 D_2_18446744073709551615_1 [ label="Server &#8594;\nResponse", shape=plain ];
-D_2_18446744073709551615_1 -> T_2_18446744073709551615 [ arrowhead=normal, direction=forward, style=dashed ];
+D_2_18446744073709551615_1 -> T_2_18446744073709551615 [ arrowhead=normalnonedot, direction=forward, style=dashed ];
 }
 subgraph cluster_3 {
 T_3_18446744073709551615 [ shape=point, height=0.015, width=0.015 ];
@@ -35,6 +35,6 @@ T_3_18446744073709551615 -> A_1_false;
 D_3_18446744073709551615_255 [ label="Time", shape=plain ];
 D_3_18446744073709551615_255 -> T_3_18446744073709551615 [ arrowhead=normal, direction=forward, style=dashed ];
 S_3_18446744073709551615_0 [ label="Request\n&#8594; Server", shape=plain ];
-T_3_18446744073709551615 -> S_3_18446744073709551615_0 [ arrowhead=normal, direction=forward, style=dashed ];
+T_3_18446744073709551615 -> S_3_18446744073709551615_0 [ arrowhead=normalnonedot, direction=forward, style=dashed ];
 }
 }

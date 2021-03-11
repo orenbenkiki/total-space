@@ -1274,8 +1274,8 @@ pub struct Message<Payload: DataLike> {
 /// A message in-flight between agents, considering only names.
 #[derive(PartialEq, Eq, PartialOrd, Ord, Hash, Clone, Debug)]
 pub struct TerseMessage {
-    /// Whether the message is immediate.
-    pub is_immediate: bool,
+    /// The terse message order.
+    pub order: MessageOrder,
 
     /// The source agent index.
     pub source_index: usize,
@@ -3216,7 +3216,11 @@ impl<
                 }
             }
             MessageOrder::Unordered => {}
-            MessageOrder::Ordered(order) => string.push_str(&format!("@{} ", order)), //
+            MessageOrder::Ordered(order) => {
+                if !is_sequence {
+                    string.push_str(&format!("@{} ", order));
+                }
+            }
         }
 
         if let Some(ref replaced) = message.replaced {
@@ -3804,8 +3808,13 @@ impl<
                 Some(message.replaced.unwrap().to_string()) // NOT TESTED
             };
 
+            let order = match message.order {
+                MessageOrder::Ordered(_) => MessageOrder::Ordered(MessageIndex::invalid()),
+                order => order,
+            };
+
             let terse_message = TerseMessage {
-                is_immediate: message.order == MessageOrder::Immediate,
+                order,
                 source_index,
                 target_index,
                 payload,
@@ -4313,10 +4322,12 @@ impl<
             from_message_id
         };
 
-        let is_immediate = show_message_id.is_valid()
-            && self.messages.get(show_message_id).order == MessageOrder::Immediate;
-        let arrowhead = if is_immediate {
-            "normalnormal"
+        let arrowhead = if show_message_id.is_valid() {
+            match self.messages.get(show_message_id).order {
+                MessageOrder::Ordered(_) => "normalnonedot",
+                MessageOrder::Unordered => "normal",
+                MessageOrder::Immediate => "normalnormal",
+            }
         } else {
             "normal"
         };
@@ -4389,12 +4400,14 @@ impl<
             to_message_id
         };
 
-        let is_immediate = to_message_id.is_valid()
-            && self.messages.get(show_message_id).order == MessageOrder::Immediate;
-        let arrowhead = if is_immediate {
-            "normalnormal" // NOT TESTED
+        let arrowhead = if show_message_id.is_valid() {
+            match self.messages.get(show_message_id).order {
+                MessageOrder::Ordered(_) => "normalnonedot",
+                MessageOrder::Unordered => "normal",
+                MessageOrder::Immediate => "normalnormal", // NOT TESTED
+            }
         } else {
-            "normal"
+            "normal" // NOT TESTED
         };
 
         writeln!(
@@ -4669,10 +4682,16 @@ impl<
             if let Some(timeline_index) =
                 sequence_state.message_timelines.get(&delivered_message_id)
             {
+                let arrow = match delivered_message.order {
+                    MessageOrder::Immediate => "-[#Crimson]>",
+                    MessageOrder::Unordered => "->",
+                    MessageOrder::Ordered(_) => "-[#Blue]>",
+                };
                 writeln!(
                     stdout,
-                    "T{} -> A{} : {}",
+                    "T{} {} A{} : {}",
                     timeline_index,
+                    arrow,
                     delivered_message.target_index,
                     self.display_sequence_message(&delivered_message, true)
                 )
@@ -4720,10 +4739,17 @@ impl<
                     sequence_state
                         .message_timelines
                         .insert(to_message_id, timeline_index);
+                    let arrow = match to_message.order // MAYBE TESTED
+                    {
+                        MessageOrder::Immediate => "-[#Crimson]>",
+                        MessageOrder::Unordered => "->",
+                        MessageOrder::Ordered(_) => "-[#Blue]>", // NOT TESTED
+                    };
                     writeln!(
                         stdout,
-                        "A{} -> T{} : {}",
+                        "A{} {} T{} : {}",
                         to_message.source_index,
+                        arrow,
                         timeline_index,
                         self.display_sequence_message(&to_message, false)
                     )
@@ -4748,16 +4774,17 @@ impl<
                         if next_transition.from_next_messages[to_message_index]
                             == NextMessage::Delivered =>
                     {
-                        let color = if to_message.order == MessageOrder::Immediate {
-                            "[#Crimson]" // NOT TESTED
-                        } else {
-                            ""
+                        let arrow = match to_message.order {
+                            MessageOrder::Immediate => "-[#Crimson]>",
+                            MessageOrder::Unordered => "->",
+                            MessageOrder::Ordered(_) => "-[#Blue]>",
                         };
+
                         writeln!(
                             stdout,
-                            "A{} -{}> A{} : {}",
+                            "A{} {} A{} : {}",
                             to_message.source_index,
-                            color,
+                            arrow,
                             to_message.target_index,
                             self.display_sequence_message(&to_message, false),
                         )
@@ -4807,10 +4834,16 @@ impl<
                                     stdout,
                                 )
                             };
+                        let arrow = match to_message.order {
+                            MessageOrder::Immediate => "-[#Crimson]>",
+                            MessageOrder::Unordered => "->",
+                            MessageOrder::Ordered(_) => "-[#Blue]>",
+                        };
                         writeln!(
                             stdout,
-                            "A{} -> T{} : {}",
+                            "A{} {} T{} : {}",
                             to_message.source_index,
+                            arrow,
                             timeline_index,
                             self.display_sequence_message(&to_message, false)
                         )

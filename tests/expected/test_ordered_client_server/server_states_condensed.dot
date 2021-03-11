@@ -10,7 +10,7 @@ T_0_18446744073709551615 [ shape=point, height=0.015, width=0.015 ];
 A_0_false -> T_0_18446744073709551615 [ arrowhead=none, direction=forward ];
 T_0_18446744073709551615 -> A_1_true;
 D_0_18446744073709551615_0 [ label="Client &#8594;\nRequest", shape=plain ];
-D_0_18446744073709551615_0 -> T_0_18446744073709551615 [ arrowhead=normal, direction=forward, style=dashed ];
+D_0_18446744073709551615_0 -> T_0_18446744073709551615 [ arrowhead=normalnonedot, direction=forward, style=dashed ];
 }
 subgraph cluster_1 {
 T_1_18446744073709551615 [ shape=point, height=0.015, width=0.015 ];
@@ -19,6 +19,6 @@ T_1_18446744073709551615 -> A_0_false;
 D_1_18446744073709551615_255 [ label="Time", shape=plain ];
 D_1_18446744073709551615_255 -> T_1_18446744073709551615 [ arrowhead=normal, direction=forward, style=dashed ];
 S_1_18446744073709551615_1 [ label="Response\n&#8594; Client", shape=plain ];
-T_1_18446744073709551615 -> S_1_18446744073709551615_1 [ arrowhead=normal, direction=forward, style=dashed ];
+T_1_18446744073709551615 -> S_1_18446744073709551615_1 [ arrowhead=normalnonedot, direction=forward, style=dashed ];
 }
 }
