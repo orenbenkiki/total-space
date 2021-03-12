@@ -4219,7 +4219,7 @@ impl<
         if !message_id.is_valid() {
             writeln!(
                 stdout,
-                "{}_{}_{}_{} [ label=\"Time\", shape=plain ];",
+                "{}_{}_{}_{} [ label=\"Activity\", shape=plain ];",
                 prefix,
                 state_transition_index,
                 alternative_index.unwrap_or(usize::max_value()),

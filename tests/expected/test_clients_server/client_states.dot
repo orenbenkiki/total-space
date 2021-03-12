@@ -9,7 +9,7 @@ subgraph cluster_0 {
 T_0_18446744073709551615 [ shape=point, height=0.015, width=0.015 ];
 A_0_false -> T_0_18446744073709551615 [ arrowhead=none, direction=forward ];
 T_0_18446744073709551615 -> A_1_false;
-D_0_18446744073709551615_255 [ label="Time", shape=plain ];
+D_0_18446744073709551615_255 [ label="Activity", shape=plain ];
 D_0_18446744073709551615_255 -> T_0_18446744073709551615 [ arrowhead=normal, direction=forward, style=dashed ];
 S_0_18446744073709551615_0 [ label="REQ(C=0)\n&#8594; SRV", shape=plain ];
 T_0_18446744073709551615 -> S_0_18446744073709551615_0 [ arrowhead=normal, direction=forward, style=dashed ];
