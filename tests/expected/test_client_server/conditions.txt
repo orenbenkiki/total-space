@@ -8,6 +8,8 @@
 7MSG: matches any configuration with 7 in-flight messages
 8MSG: matches any configuration with 8 in-flight messages
 9MSG: matches any configuration with 9 in-flight messages
+IMMEDIATE_REPLACEMENT: matches a configuration with a message replaced by an immediate message
 INIT: matches the initial configuration
-REPLACE: matches a configuration with a replaced message
+ORDERED_REPLACEMENT: matches a configuration with a message replaced by an ordered message
+UNORDERED_REPLACEMENT: matches a configuration with a message replaced by an unordered message
 VALID: matches any valid configuration (is typically negated)

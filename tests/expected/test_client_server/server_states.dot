@@ -9,9 +9,13 @@ T_0_18446744073709551615 [ shape=point, height=0.015, width=0.015 ];
 A_0_false -> T_0_18446744073709551615 [ arrowhead=none, direction=forward ];
 T_0_18446744073709551615 -> A_0_false;
 D_0_18446744073709551615_1 [ label="C &#8594;\nPNG", shape=plain ];
-D_0_18446744073709551615_1 -> T_0_18446744073709551615 [ arrowhead=normal, direction=forward, style=dashed ];
-D_0_18446744073709551615_2 [ label="C &#8594;\nPNG &#8658;\nPNG", shape=plain ];
+D_0_18446744073709551615_1 -> T_0_18446744073709551615 [ arrowhead=normalnormal, direction=forward, style=dashed ];
+D_0_18446744073709551615_2 [ label="C &#8594;\nPNG", shape=plain ];
 D_0_18446744073709551615_2 -> T_0_18446744073709551615 [ arrowhead=normal, direction=forward, style=dashed ];
+D_0_18446744073709551615_3 [ label="C &#8594;\nPNG &#8658;\nPNG", shape=plain ];
+D_0_18446744073709551615_3 -> T_0_18446744073709551615 [ arrowhead=normalnormal, direction=forward, style=dashed ];
+D_0_18446744073709551615_4 [ label="C &#8594;\nPNG &#8658;\nPNG", shape=plain ];
+D_0_18446744073709551615_4 -> T_0_18446744073709551615 [ arrowhead=normal, direction=forward, style=dashed ];
 }
 A_1_true [ label="WRK", shape=octagon ];
 subgraph cluster_1 {
@@ -27,16 +31,7 @@ A_1_true -> T_2_18446744073709551615 [ arrowhead=none, direction=forward ];
 T_2_18446744073709551615 -> A_0_false;
 D_2_18446744073709551615_255 [ label="Activity", shape=plain ];
 D_2_18446744073709551615_255 -> T_2_18446744073709551615 [ arrowhead=normal, direction=forward, style=dashed ];
-S_2_18446744073709551615_3 [ label="RSP\n&#8594; C", shape=plain ];
-T_2_18446744073709551615 -> S_2_18446744073709551615_3 [ arrowhead=normal, direction=forward, style=dashed ];
-}
-subgraph cluster_3 {
-T_3_18446744073709551615 [ shape=point, height=0.015, width=0.015 ];
-A_1_true -> T_3_18446744073709551615 [ arrowhead=none, direction=forward ];
-T_3_18446744073709551615 -> A_1_true;
-D_3_18446744073709551615_1 [ label="C &#8594;\nPNG", shape=plain ];
-D_3_18446744073709551615_1 -> T_3_18446744073709551615 [ arrowhead=normal, direction=forward, style=dashed ];
-D_3_18446744073709551615_2 [ label="C &#8594;\nPNG &#8658;\nPNG", shape=plain ];
-D_3_18446744073709551615_2 -> T_3_18446744073709551615 [ arrowhead=normal, direction=forward, style=dashed ];
+S_2_18446744073709551615_5 [ label="RSP\n&#8594; C", shape=plain ];
+T_2_18446744073709551615 -> S_2_18446744073709551615_5 [ arrowhead=normal, direction=forward, style=dashed ];
 }
 }

@@ -52,13 +52,14 @@ fn is_maybe_ping(payload: Option<Payload>) -> bool {
 }
 
 impl AgentState<ClientState, Payload> for ClientState {
-    fn pass_time(&self, _instance: usize) -> Reaction<Self, Payload> {
+    fn activity(&self, _instance: usize) -> Reaction<Self, Payload> {
         match self {
             Self::Wait => Reaction::Ignore,
             Self::Idle => Reaction::Do1Of2(
-                Action::ChangeAndSend1(
+                Action::ChangeAndSend2(
                     Self::Wait,
                     Emit::Unordered(Payload::Request, agent_index!(SERVER)),
+                    Emit::ImmediateReplacement(is_maybe_ping, Payload::Ping, agent_index!(SERVER)),
                 ),
                 Action::Send1(Emit::UnorderedReplacement(
                     is_maybe_ping,
@@ -93,7 +94,7 @@ impl_data_like! { ServerState = Self::Listen, "Listen" => "LST", "Work" => "WRK"
 impl Validated for ServerState {}
 
 impl AgentState<ServerState, Payload> for ServerState {
-    fn pass_time(&self, _instance: usize) -> Reaction<Self, Payload> {
+    fn activity(&self, _instance: usize) -> Reaction<Self, Payload> {
         match self {
             Self::Listen => Reaction::Ignore,
             Self::Work => Reaction::Do1(Action::ChangeAndSend1(
@@ -161,8 +162,8 @@ test_case! { conditions, "txt", vec!["test", "conditions"] }
 test_case! { agents, "txt", vec!["test", "agents"] }
 test_case! { configurations, "txt", vec!["test", "-r", "-p", "1", "-t", "1", "configurations"] }
 test_case! { transitions, "txt", vec!["test", "-p", "1", "-t", "1", "transitions"] }
-test_case! { path, "txt", vec!["test", "-p", "1", "-t", "1", "path", "INIT", "REPLACE", "2MSG", "INIT"] }
-test_case! { sequence, "uml", vec!["test", "-p", "1", "-t", "1", "sequence", "INIT", "REPLACE", "2MSG", "INIT"] }
+test_case! { path, "txt", vec!["test", "-p", "1", "-t", "1", "path", "INIT", "2MSG", "INIT", "UNORDERED_REPLACEMENT", "IMMEDIATE_REPLACEMENT", "INIT"] }
+test_case! { sequence, "uml", vec!["test", "-p", "1", "-t", "1", "sequence", "INIT", "2MSG", "INIT", "UNORDERED_REPLACEMENT", "IMMEDIATE_REPLACEMENT", "INIT"] }
 test_case! { client_states, "dot", vec!["test", "-p", "1", "-t", "1", "states", "C"] }
 test_case! { client_states_names, "dot", vec!["test", "-p", "1", "-t", "1", "states", "C", "-n"] }
 test_case! { client_states_final, "dot", vec!["test", "-p", "1", "-t", "1", "states", "C", "-f"] }

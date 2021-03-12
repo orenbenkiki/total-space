@@ -47,7 +47,7 @@ impl_data_like! {
 impl Validated for ClientState {}
 
 impl AgentState<ClientState, Payload> for ClientState {
-    fn pass_time(&self, instance: usize) -> Reaction<Self, Payload> {
+    fn activity(&self, instance: usize) -> Reaction<Self, Payload> {
         match self {
             Self::Wait => Reaction::Ignore,
             Self::Idle => Reaction::Do1(Action::ChangeAndSend1(
@@ -86,7 +86,7 @@ impl_data_like! {
 impl Validated for ServerState {}
 
 impl AgentState<ServerState, Payload> for ServerState {
-    fn pass_time(&self, _instance: usize) -> Reaction<Self, Payload> {
+    fn activity(&self, _instance: usize) -> Reaction<Self, Payload> {
         match self {
             Self::Listen => Reaction::Ignore,
             Self::Work { client } => Reaction::Do1(Action::ChangeAndSend1(

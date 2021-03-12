@@ -38,7 +38,7 @@ impl_data_like! { ClientState = Self::Idle }
 impl Validated for ClientState {}
 
 impl AgentState<ClientState, Payload> for ClientState {
-    fn pass_time(&self, _instance: usize) -> Reaction<Self, Payload> {
+    fn activity(&self, _instance: usize) -> Reaction<Self, Payload> {
         match self {
             Self::Idle => Reaction::Do1(Action::ChangeAndSend1(
                 Self::Wait(1),
@@ -81,7 +81,7 @@ impl_data_like! { ServerState = Self::Listen }
 impl Validated for ServerState {}
 
 impl AgentState<ServerState, Payload> for ServerState {
-    fn pass_time(&self, _instance: usize) -> Reaction<Self, Payload> {
+    fn activity(&self, _instance: usize) -> Reaction<Self, Payload> {
         match self {
             Self::Listen => Reaction::Ignore,
             Self::Work(index) => Reaction::Do1(Action::ChangeAndSend1(

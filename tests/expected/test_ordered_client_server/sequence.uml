@@ -21,59 +21,72 @@ deactivate A0
 control " " as T0 order 10101
 A0 -[#Blue]> T0 : Request(1)
 activate T0 #Silver
-rnote over A0 : Wait(1)
+deactivate A0
+autonumber stop
+[-[#White]\ A0
+autonumber resume
 activate A0 #MediumPurple
+rnote over A0 : Wait(1)
 ?o-> A0
 deactivate A0
-control " " as T1 order 10102
-A0 -[#Blue]> T1 : Request(2)
-activate T1 #Silver
-rnote over A0 : Wait(3)
-activate A0 #MediumPurple
 T0 -[#Blue]> A1 : Request(1)
 deactivate T0
 deactivate A1
+A0 -[#Blue]> T0 : Request(2)
+activate T0 #Silver
+deactivate A0
 autonumber stop
-?-[#White]\ A1
+[-[#White]\ A0
 autonumber resume
-rnote over A1 : Work(1)
+activate A0 #MediumPurple
 activate A1 #CadetBlue
+rnote over A0 : Wait(3)
+/ rnote over A1 : Work(1)
 ?o-> A1
 deactivate A1
-control " " as T2 order 10199
-A1 -[#Blue]> T2 : Response(1)
-activate T2 #Silver
-rnote over A1 : Listen
-activate A1 #MediumPurple
-T1 -[#Blue]> A1 : Request(2)
-deactivate T1
+control " " as T1 order 10199
+A1 -[#Blue]> T1 : Response(1)
+activate T1 #Silver
 deactivate A1
 autonumber stop
-?-[#White]\ A1
+[-[#White]\ A0
 autonumber resume
+activate A1 #MediumPurple
+rnote over A1 : Listen
+T0 -[#Blue]> A1 : Request(2)
+deactivate T0
+deactivate A1
+autonumber stop
+[-[#White]\ A0
+autonumber resume
+activate A1 #CadetBlue
 rnote over A1 : Work(2)
-activate A1 #CadetBlue
 ?o-> A1
 deactivate A1
-control " " as T3 order 10198
-A1 -[#Blue]> T3 : Response(2)
-activate T3 #Silver
-rnote over A1 : Listen
+T1 -[#Blue]> A0 : Response(1)
+deactivate T1
+deactivate A0
+A1 -[#Blue]> T1 : Response(2)
+activate T1 #Silver
+deactivate A1
+autonumber stop
+[-[#White]\ A0
+autonumber resume
 activate A1 #MediumPurple
-T2 -[#Blue]> A0 : Response(1)
-deactivate T2
-deactivate A0
-autonumber stop
-?-[#White]\ A0
-autonumber resume
-rnote over A0 : Wait(2)
 activate A0 #MediumPurple
-T3 -[#Blue]> A0 : Response(2)
-deactivate T3
+rnote over A1 : Listen
+/ rnote over A0 : Wait(2)
+T1 -[#Blue]> A0 : Response(2)
+deactivate T1
 deactivate A0
 autonumber stop
-?-[#White]\ A0
+[-[#White]\ A0
 autonumber resume
+activate A0 #MediumPurple
 rnote over A0 : Idle
-activate A0 #MediumPurple
+autonumber stop
+[-[#White]\ A0
+autonumber resume
+deactivate A0
+deactivate A1
 @enduml
