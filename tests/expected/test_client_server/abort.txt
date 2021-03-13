@@ -1,0 +1,3 @@
+INIT C:IDL & S:LST
+BY C activity
+!INIT C:WAT & S:LST | C -> REQ -> S & C -> * PNG -> S

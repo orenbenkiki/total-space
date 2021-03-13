@@ -162,6 +162,7 @@ test_case! { conditions, "txt", vec!["test", "conditions"] }
 test_case! { agents, "txt", vec!["test", "agents"] }
 test_case! { configurations, "txt", vec!["test", "-r", "-p", "1", "-t", "1", "configurations"] }
 test_case! { transitions, "txt", vec!["test", "-p", "1", "-t", "1", "transitions"] }
+test_case! { abort, "txt", vec!["test", "-p", "1", "-t", "1", "path", "INIT", "!INIT"] }
 test_case! { path, "txt", vec!["test", "-p", "1", "-t", "1", "path", "INIT", "2MSG", "INIT", "UNORDERED_REPLACEMENT", "IMMEDIATE_REPLACEMENT", "INIT"] }
 test_case! { sequence, "uml", vec!["test", "-p", "1", "-t", "1", "sequence", "INIT", "2MSG", "INIT", "UNORDERED_REPLACEMENT", "IMMEDIATE_REPLACEMENT", "INIT"] }
 test_case! { client_states, "dot", vec!["test", "-p", "1", "-t", "1", "states", "C"] }

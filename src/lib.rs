@@ -1573,6 +1573,12 @@ pub struct Model<
     /// Whether we'll be testing if the initial configuration is reachable from every configuration.
     pub ensure_init_is_reachable: bool,
 
+    /// A step that, if reached, we can abort the computation.
+    pub early_abort_step: Option<PathStep<Self>>,
+
+    /// Whether we have actually reached the early abort step so can stop computing.
+    pub early_abort: RwLock<bool>,
+
     /// Whether to allow for invalid configurations.
     pub allow_invalid_configurations: bool,
 
@@ -1744,6 +1750,29 @@ pub struct AgentStateTransitionContext<StateId: IndexLike> {
     pub to_is_deferring: bool,
 }
 
+/// A path step (possibly negated named condition).
+pub struct PathStep<Model: MetaModel> {
+    /// The condition function.
+    condition: fn(&Model, Model::ConfigurationId) -> bool,
+
+    /// Whether to negate the condition.
+    is_negated: bool,
+
+    /// The name of the step.
+    name: String,
+}
+
+impl<Model: MetaModel> PathStep<Model> {
+    /// Clone this (somehow can't be derived).
+    fn clone(&self) -> Self {
+        PathStep {
+            condition: self.condition,
+            is_negated: self.is_negated,
+            name: self.name.clone(),
+        }
+    }
+}
+
 // END MAYBE TESTED
 
 /// Allow querying the model's meta-parameters.
@@ -1804,6 +1833,9 @@ pub trait MetaModel {
 
     /// A condition on model configurations.
     type Condition;
+
+    /// A path step (possibly negated named condition).
+    type PathStep;
 
     /// A transition along a path between configurations.
     type SequenceStep;
@@ -1906,6 +1938,7 @@ impl<
     type Context =
         Context<StateId, MessageId, InvalidId, ConfigurationId, Payload, MAX_AGENTS, MAX_MESSAGES>;
     type Condition = fn(&Self, ConfigurationId) -> bool;
+    type PathStep = PathStep<Self>;
     type SequenceStep = SequenceStep<StateId, MessageId>;
     type SequencePatch = SequencePatch<StateId, MessageId>;
     type PathTransition = PathTransition<MessageId, ConfigurationId, MAX_MESSAGES>;
@@ -2148,12 +2181,31 @@ impl<
             max_configuration_string_size: RwLock::new(0),
             print_progress_every: 0,
             ensure_init_is_reachable: false,
+            early_abort_step: None,
+            early_abort: RwLock::new(false),
             allow_invalid_configurations: false,
             threads: Threads::Physical,
             conditions: SccHashMap::new(128, RandomState::new()),
         };
 
         model.add_conditions();
+
+        let mut initial_configuration = Configuration {
+            state_ids: [StateId::invalid(); MAX_AGENTS],
+            message_counts: [MessageIndex::from_usize(0); MAX_AGENTS],
+            message_ids: [MessageId::invalid(); MAX_MESSAGES],
+            invalid_id: InvalidId::invalid(),
+            immediate_index: MessageIndex::invalid(),
+        };
+
+        assert!(model.agents_count() > 0);
+        for agent_index in 0..model.agents_count() {
+            initial_configuration.state_ids[agent_index] = StateId::from_usize(0);
+        }
+
+        let stored = model.store_configuration(initial_configuration);
+        assert!(stored.is_new);
+        assert!(stored.id.to_usize() == 0);
 
         model
     }
@@ -2371,25 +2423,18 @@ impl<
 
     /// Compute all the configurations of the model, if needed.
     pub fn compute(&self) {
-        if !self.configurations.is_empty() {
+        if self.configurations.len() != 1 {
             return;
         }
-
-        let initial_configuration = Configuration {
-            state_ids: [StateId::from_usize(0); MAX_AGENTS],
-            message_counts: [MessageIndex::from_usize(0); MAX_AGENTS],
-            message_ids: [MessageId::invalid(); MAX_MESSAGES],
-            invalid_id: InvalidId::invalid(),
-            immediate_index: MessageIndex::invalid(),
-        };
-        let stored = self.store_configuration(initial_configuration);
 
         ThreadPoolBuilder::new()
             .num_threads(self.threads.count())
             .build()
             .unwrap()
             .install(|| {
-                scope(|parallel_scope| self.explore_configuration(parallel_scope, stored.id));
+                scope(|parallel_scope| {
+                    self.explore_configuration(parallel_scope, ConfigurationId::from_usize(0))
+                });
             });
 
         if self.ensure_init_is_reachable {
@@ -2418,8 +2463,8 @@ impl<
         }
 
         let stored = self.store_configuration(context.to_configuration);
-
         let to_configuration_id = stored.id;
+
         if to_configuration_id == context.incoming.from_configuration_id {
             return;
         }
@@ -2441,8 +2486,22 @@ impl<
             .push(outgoing);
 
         if stored.is_new {
-            parallel_scope
-                .spawn(move |same_scope| self.explore_configuration(same_scope, stored.id));
+            if !self.ensure_init_is_reachable {
+                if let Some(ref step) = self.early_abort_step {
+                    if self.step_matches_configuration(&step, to_configuration_id) {
+                        let mut early_abort = self.early_abort.write();
+                        if !*early_abort {
+                            eprintln!("reached {} - aborting further exploration", step.name);
+                            *early_abort = true;
+                        }
+                    }
+                }
+            }
+
+            if !*self.early_abort.read() {
+                parallel_scope
+                    .spawn(move |same_scope| self.explore_configuration(same_scope, stored.id));
+            }
         }
     }
 
@@ -3544,14 +3603,23 @@ impl<
         );
     }
 
-    #[allow(clippy::too_many_arguments)]
+    fn step_matches_configuration(
+        &self,
+        step: &<Self as MetaModel>::PathStep,
+        configuration_id: ConfigurationId,
+    ) -> bool {
+        let mut is_match = (step.condition)(self, configuration_id);
+        if step.is_negated {
+            is_match = !is_match
+        }
+        is_match
+    }
+
     fn find_closest_configuration_id(
         &self,
         from_configuration_id: ConfigurationId,
         from_name: &str,
-        to_condition: <Self as MetaModel>::Condition,
-        to_negated: bool,
-        to_name: &str,
+        to_step: &<Self as MetaModel>::PathStep,
         pending_configuration_ids: &mut VecDeque<ConfigurationId>,
         prev_configuration_ids: &mut [ConfigurationId],
     ) -> ConfigurationId {
@@ -3570,13 +3638,11 @@ impl<
                 prev_configuration_ids[to_configuration_id.to_usize()] = next_configuration_id;
 
                 let mut is_condition = false;
+
                 if next_configuration_id != from_configuration_id
                     || to_configuration_id != from_configuration_id
                 {
-                    is_condition = to_condition(&self, to_configuration_id);
-                    if to_negated {
-                        is_condition = !is_condition; // NOT TESTED
-                    }
+                    is_condition = self.step_matches_configuration(to_step, to_configuration_id);
                 }
 
                 if is_condition {
@@ -3592,18 +3658,18 @@ impl<
             "could not find a path from the condition {} to the condition {}\n\
             starting from the configuration {}",
             from_name,
-            to_name,
+            to_step.name,
             self.display_configuration_id(from_configuration_id)
         );
         // END NOT TESTED
     }
 
-    fn collect_path(
+    fn collect_steps(
         &self,
         subcommand_name: &str,
         matches: &ArgMatches,
-    ) -> Vec<<Self as MetaModel>::PathTransition> {
-        let mut steps: Vec<(<Self as MetaModel>::Condition, bool, String)> = matches
+    ) -> Vec<<Self as MetaModel>::PathStep> {
+        let steps: Vec<<Self as MetaModel>::PathStep> = matches
             .values_of("CONDITION")
             .unwrap_or_else(|| {
                 // BEGIN NOT TESTED
@@ -3614,12 +3680,16 @@ impl<
                 // END NOT TESTED
             })
             .map(|name| {
-                let (key, negated) = match name.strip_prefix("!") {
+                let (key, is_negated) = match name.strip_prefix("!") {
                     None => (name, false),
-                    Some(suffix) => (suffix, true), // NOT TESTED
+                    Some(suffix) => (suffix, true),
                 };
                 if let Some(result) = self.conditions.get(&key.to_string()) {
-                    (result.get().1 .0, negated, name.to_string())
+                    PathStep {
+                        condition: result.get().1 .0,
+                        is_negated,
+                        name: name.to_string(),
+                    }
                 } else {
                     panic!("unknown configuration condition {}", name); // NOT TESTED
                 }
@@ -3632,6 +3702,13 @@ impl<
             subcommand_name
         );
 
+        steps
+    }
+
+    fn collect_path(
+        &self,
+        mut steps: Vec<<Self as MetaModel>::PathStep>,
+    ) -> Vec<<Self as MetaModel>::PathTransition> {
         let mut prev_configuration_ids =
             vec![ConfigurationId::invalid(); self.configurations.len()];
 
@@ -3639,14 +3716,10 @@ impl<
 
         let initial_configuration_id = ConfigurationId::from_usize(0);
 
-        let (first_condition, first_negated, first_name) = steps[0].clone();
-        let mut start_at_init = first_condition(self, initial_configuration_id);
-        if first_negated {
-            start_at_init = !start_at_init; // NOT TESTED
-        }
+        let start_at_init = self.step_matches_configuration(&steps[0], initial_configuration_id);
 
         let mut current_configuration_id = initial_configuration_id;
-        let mut current_name = first_name.to_string();
+        let mut current_name = steps[0].name.to_string();
 
         if start_at_init {
             steps.remove(0);
@@ -3654,9 +3727,7 @@ impl<
             current_configuration_id = self.find_closest_configuration_id(
                 initial_configuration_id,
                 "INIT",
-                first_condition,
-                first_negated,
-                &first_name,
+                &steps[0],
                 &mut pending_configuration_ids,
                 &mut prev_configuration_ids,
             );
@@ -3670,28 +3741,24 @@ impl<
             to_condition_name: Some(current_name.to_string()),
         }];
 
-        steps
-            .iter()
-            .for_each(|(next_condition, next_negated, next_name)| {
-                let next_configuration_id = self.find_closest_configuration_id(
-                    current_configuration_id,
-                    &current_name,
-                    *next_condition,
-                    *next_negated,
-                    next_name,
-                    &mut pending_configuration_ids,
-                    &mut prev_configuration_ids,
-                );
-                self.collect_path_step(
-                    current_configuration_id,
-                    next_configuration_id,
-                    Some(next_name),
-                    &prev_configuration_ids,
-                    &mut path,
-                );
-                current_configuration_id = next_configuration_id;
-                current_name = next_name.to_string();
-            });
+        steps.iter().for_each(|step| {
+            let next_configuration_id = self.find_closest_configuration_id(
+                current_configuration_id,
+                &current_name,
+                step,
+                &mut pending_configuration_ids,
+                &mut prev_configuration_ids,
+            );
+            self.collect_path_step(
+                current_configuration_id,
+                next_configuration_id,
+                Some(&step.name),
+                &prev_configuration_ids,
+                &mut path,
+            );
+            current_configuration_id = next_configuration_id;
+            current_name = step.name.to_string();
+        });
 
         path
     }
@@ -5591,8 +5658,14 @@ impl<
     fn do_clap_path(&mut self, arg_matches: &ArgMatches, stdout: &mut dyn Write) -> bool {
         match arg_matches.subcommand_matches("path") {
             Some(matches) => {
+                let steps = self.collect_steps("path", matches);
+                if steps.len() == 2
+                    && self.step_matches_configuration(&steps[0], ConfigurationId::from_usize(0))
+                {
+                    self.early_abort_step = Some(steps[1].clone());
+                }
                 self.do_compute(arg_matches);
-                let path = self.collect_path("path", matches);
+                let path = self.collect_path(steps);
                 self.print_path(&path, stdout);
                 true
             }
@@ -5603,8 +5676,16 @@ impl<
     fn do_clap_sequence(&mut self, arg_matches: &ArgMatches, stdout: &mut dyn Write) -> bool {
         match arg_matches.subcommand_matches("sequence") {
             Some(matches) => {
+                let steps = self.collect_steps("sequence", matches);
+                // BEGIN MAYBE TESTED
+                if steps.len() == 2
+                    && self.step_matches_configuration(&steps[0], ConfigurationId::from_usize(0))
+                {
+                    self.early_abort_step = Some(steps[1].clone()); // NOT TESTED
+                }
+                // BEGIN END TESTED
                 self.do_compute(arg_matches);
-                let path = self.collect_path("path", matches);
+                let path = self.collect_path(steps);
                 let mut sequence_steps = self.collect_sequence_steps(&path[1..]);
                 self.patch_sequence_steps(&mut sequence_steps);
                 let first_configuration_id = path[1].from_configuration_id;
