@@ -21,42 +21,39 @@ activate A3 #CadetBlue
 rnote over A0 : IDL
 / rnote over A1 : IDL
 / rnote over A3 : LST
-?o-> A0 : Need
-deactivate A0
-control " " as T0 order 10101
-A0 -> T0 : REQ(C=0)
-activate T0 #Silver
-deactivate A0
 autonumber stop
 [-[#White]\ A0
 autonumber resume
+deactivate A0
+note over A0 : Need
+control " " as T0 order 10101
+A0 -> T0 : REQ(C=0)
+activate T0 #Silver
 activate A0 #MediumPurple
 rnote over A0 : WAT
-?o-> A1 : Need
+autonumber stop
+[-[#White]\ A0
+autonumber resume
 deactivate A1
+note over A1 : Need
 T0 -> A3 : REQ(C=0)
 deactivate T0
 deactivate A3
 control " " as T1 order 10201
 A1 -> T1 : REQ(C=1)
 activate T1 #Silver
-deactivate A1
-autonumber stop
-[-[#White]\ A0
-autonumber resume
 activate A1 #MediumPurple
 activate A3 #CadetBlue
 rnote over A1 : WAT
 / rnote over A3 : WRK(C=0)
-?o-> A3 : Completed
-deactivate A3
-control " " as T2 order 10399
-A3 -> T2 : RSP
-activate T2 #Silver
-deactivate A3
 autonumber stop
 [-[#White]\ A0
 autonumber resume
+deactivate A3
+note over A3 : Completed
+control " " as T2 order 10399
+A3 -> T2 : RSP
+activate T2 #Silver
 activate A3 #MediumPurple
 rnote over A3 : LST
 T1 -> A3 : REQ(C=1)
@@ -67,17 +64,16 @@ autonumber stop
 autonumber resume
 activate A3 #CadetBlue
 rnote over A3 : WRK(C=1)
-?o-> A3 : Completed
+autonumber stop
+[-[#White]\ A0
+autonumber resume
 deactivate A3
+note over A3 : Completed
 T2 -> A0 : RSP
 deactivate T2
 deactivate A0
 A3 -> T2 : RSP
 activate T2 #Silver
-deactivate A3
-autonumber stop
-[-[#White]\ A0
-autonumber resume
 activate A3 #MediumPurple
 activate A0 #MediumPurple
 rnote over A3 : LST

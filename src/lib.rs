@@ -1684,7 +1684,6 @@ pub enum SequenceStep<StateId: IndexLike, MessageId: IndexLike> {
     /// exiting message.
     Emitted {
         agent_index: usize,
-        did_change_state: bool,
         message_id: MessageId,
         replaced: Option<MessageId>,
     },
@@ -1693,7 +1692,6 @@ pub enum SequenceStep<StateId: IndexLike, MessageId: IndexLike> {
     /// states, possibly replacing an existing message.
     Passed {
         source_index: usize,
-        source_did_change_state: bool,
         target_index: usize,
         target_did_change_state: bool,
         message_id: MessageId,
@@ -4705,7 +4703,6 @@ impl<
                     });
                     sequence_steps.push(SequenceStep::Emitted {
                         agent_index,
-                        did_change_state,
                         message_id: *to_message_id,
                         replaced,
                     });
@@ -4778,7 +4775,6 @@ impl<
                 (
                     SequenceStep::Emitted {
                         agent_index: source_index,
-                        did_change_state: source_did_change_state,
                         message_id: source_message_id,
                         replaced,
                     },
@@ -4791,7 +4787,6 @@ impl<
                 ) if source_message_id == target_message_id => {
                     SequencePatch::Merge(SequenceStep::Passed {
                         source_index,
-                        source_did_change_state,
                         target_index,
                         target_did_change_state,
                         message_id: target_message_id,
@@ -4812,11 +4807,11 @@ impl<
 
                 (
                     SequenceStep::NewState {
-                        agent_index: last_agent_index,
+                        agent_index: next_agent_index,
                         ..
                     },
                     SequenceStep::Received {
-                        agent_index: next_agent_index,
+                        agent_index: last_agent_index,
                         ..
                     },
                 ) if last_agent_index != next_agent_index => SequencePatch::Swap,
@@ -5130,17 +5125,21 @@ impl<
                 message_id,
             } => {
                 let message = self.messages.get(message_id);
+
+                if did_change_state {
+                    sequence_state.has_reactivation_message = false;
+                    self.reactivate(&mut sequence_state, stdout);
+                    writeln!(stdout, "deactivate A{}", agent_index).unwrap();
+                    sequence_state.has_reactivation_message = false;
+                }
+
                 writeln!(
                     stdout,
-                    "?o-> A{} : {}",
+                    "note over A{} : {}",
                     agent_index,
                     self.display_sequence_message(&message, true)
                 )
                 .unwrap();
-                if did_change_state {
-                    writeln!(stdout, "deactivate A{}", agent_index).unwrap();
-                }
-                sequence_state.has_reactivation_message = !did_change_state;
             }
 
             SequenceStep::Received {
@@ -5161,6 +5160,7 @@ impl<
                     MessageOrder::Unordered => "->",
                     MessageOrder::Ordered(_) => "-[#Blue]>",
                 };
+
                 writeln!(
                     stdout,
                     "T{} {} A{} : {}",
@@ -5170,18 +5170,20 @@ impl<
                     self.display_sequence_message(&message, true)
                 )
                 .unwrap();
+                sequence_state.has_reactivation_message = true;
+
                 writeln!(stdout, "deactivate T{}", timeline_index).unwrap();
+
                 sequence_state.message_timelines.remove(&first_message_id);
                 sequence_state.timelines[timeline_index] = None;
                 if did_change_state {
                     writeln!(stdout, "deactivate A{}", agent_index).unwrap();
+                    sequence_state.has_reactivation_message = false;
                 }
-                sequence_state.has_reactivation_message = !did_change_state;
             }
 
             SequenceStep::Emitted {
                 agent_index,
-                did_change_state,
                 message_id,
                 replaced,
             } => {
@@ -5223,15 +5225,11 @@ impl<
                 if replaced.is_none() {
                     writeln!(stdout, "activate T{} #Silver", timeline_index).unwrap();
                 }
-                if did_change_state {
-                    writeln!(stdout, "deactivate A{}", agent_index).unwrap();
-                }
-                sequence_state.has_reactivation_message = !did_change_state;
+                sequence_state.has_reactivation_message = true;
             }
 
             SequenceStep::Passed {
                 source_index,
-                source_did_change_state,
                 target_index,
                 target_did_change_state,
                 message_id,
@@ -5264,20 +5262,16 @@ impl<
                     self.display_sequence_message(&message, false)
                 )
                 .unwrap();
+                sequence_state.has_reactivation_message = true;
+
                 if let Some(timeline_index) = replaced_timeline_index {
                     writeln!(stdout, "deactivate T{}", timeline_index).unwrap();
-                    sequence_state.has_reactivation_message = false;
                 }
-                if source_did_change_state {
-                    writeln!(stdout, "deactivate A{}", source_index).unwrap();
-                    sequence_state.has_reactivation_message = false;
-                }
+
                 if target_did_change_state {
                     writeln!(stdout, "deactivate A{}", target_index).unwrap();
                     sequence_state.has_reactivation_message = false;
                 }
-                sequence_state.has_reactivation_message =
-                    !source_did_change_state && !target_did_change_state;
             }
 
             SequenceStep::NewState {
@@ -5294,6 +5288,7 @@ impl<
                 let agent_type = &self.agent_types[agent_index];
                 let agent_state = agent_type.display_state(state_id);
                 writeln!(stdout, "rnote over A{} : {}", agent_index, agent_state).unwrap();
+                sequence_state.has_reactivation_message = false;
             }
 
             SequenceStep::NewStates {

@@ -16,12 +16,13 @@ participant "S" as A1 order 10200
 activate A1 #CadetBlue
 rnote over A0 : IDL
 / rnote over A1 : LST
-?o-> A0 : Need
+autonumber stop
+[-[#White]\ A0
+autonumber resume
 deactivate A0
+note over A0 : Need
 A0 -[#Crimson]> A1 : PNG
-deactivate A0
 A0 -> A1 : REQ
-deactivate A0
 deactivate A1
 autonumber stop
 [-[#White]\ A0
@@ -30,10 +31,12 @@ activate A0 #MediumPurple
 activate A1 #CadetBlue
 rnote over A0 : WAT
 / rnote over A1 : WRK
-?o-> A1 : Completed
+autonumber stop
+[-[#White]\ A0
+autonumber resume
 deactivate A1
+note over A1 : Completed
 A1 -> A0 : RSP
-deactivate A1
 deactivate A0
 autonumber stop
 [-[#White]\ A0
@@ -42,19 +45,20 @@ activate A1 #MediumPurple
 activate A0 #MediumPurple
 rnote over A1 : LST
 / rnote over A0 : IDL
-?o-> A0 : Worry
+note over A0 : Worry
 control " " as T0 order 10101
 A0 -> T0 : PNG
 activate T0 #Silver
-?o-> A0 : Worry
+note over A0 : Worry
 A0 -> T0 : &#8658; PNG
-?o-> A0 : Need
+autonumber stop
+[-[#White]\ A0
+autonumber resume
 deactivate A0
+note over A0 : Need
 A0 -[#Crimson]> A1 : &#8658; PNG
 deactivate T0
-deactivate A0
 A0 -> A1 : REQ
-deactivate A0
 deactivate A1
 autonumber stop
 [-[#White]\ A0
@@ -63,10 +67,12 @@ activate A0 #MediumPurple
 activate A1 #CadetBlue
 rnote over A0 : WAT
 / rnote over A1 : WRK
-?o-> A1 : Completed
+autonumber stop
+[-[#White]\ A0
+autonumber resume
 deactivate A1
+note over A1 : Completed
 A1 -> A0 : RSP
-deactivate A1
 deactivate A0
 autonumber stop
 [-[#White]\ A0
