@@ -21,7 +21,7 @@ activate A3 #CadetBlue
 rnote over A0 : IDL
 / rnote over A1 : IDL
 / rnote over A3 : LST
-?o-> A0
+?o-> A0 : Need
 deactivate A0
 control " " as T0 order 10101
 A0 -> T0 : REQ(C=0)
@@ -32,7 +32,7 @@ autonumber stop
 autonumber resume
 activate A0 #MediumPurple
 rnote over A0 : WAT
-?o-> A1
+?o-> A1 : Need
 deactivate A1
 T0 -> A3 : REQ(C=0)
 deactivate T0
@@ -48,7 +48,7 @@ activate A1 #MediumPurple
 activate A3 #CadetBlue
 rnote over A1 : WAT
 / rnote over A3 : WRK(C=0)
-?o-> A3
+?o-> A3 : Completed
 deactivate A3
 control " " as T2 order 10399
 A3 -> T2 : RSP
@@ -67,7 +67,7 @@ autonumber stop
 autonumber resume
 activate A3 #CadetBlue
 rnote over A3 : WRK(C=1)
-?o-> A3
+?o-> A3 : Completed
 deactivate A3
 T2 -> A0 : RSP
 deactivate T2

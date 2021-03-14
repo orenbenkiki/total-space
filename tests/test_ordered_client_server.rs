@@ -18,6 +18,8 @@ declare_global_agent_index! {SERVER}
 // BEGIN MAYBE TESTED
 #[derive(PartialEq, Eq, Hash, Copy, Clone, Debug, IntoStaticStr)]
 enum Payload {
+    Need,
+    Completed,
     Request(usize),
     Response(usize),
 }
@@ -38,22 +40,24 @@ impl_data_like! { ClientState = Self::Idle }
 impl Validated for ClientState {}
 
 impl AgentState<ClientState, Payload> for ClientState {
-    fn activity(&self, _instance: usize) -> Reaction<Self, Payload> {
+    fn activity(&self, _instance: usize) -> Activity<Payload> {
         match self {
-            Self::Idle => Reaction::Do1(Action::ChangeAndSend1(
-                Self::Wait(1),
-                Emit::Ordered(Payload::Request(1), agent_index!(SERVER)),
-            )),
-            Self::Wait(1) => Reaction::Do1(Action::ChangeAndSend1(
-                Self::Wait(3),
-                Emit::Ordered(Payload::Request(2), agent_index!(SERVER)),
-            )),
-            _ => Reaction::Ignore,
+            Self::Idle => Activity::Process1(Payload::Need),
+            Self::Wait(1) => Activity::Process1(Payload::Need),
+            _ => Activity::Passive,
         }
     }
 
     fn receive_message(&self, _instance: usize, payload: &Payload) -> Reaction<Self, Payload> {
         match (self, payload) {
+            (Self::Idle, Payload::Need) => Reaction::Do1(Action::ChangeAndSend1(
+                Self::Wait(1),
+                Emit::Ordered(Payload::Request(1), agent_index!(SERVER)),
+            )),
+            (Self::Wait(1), Payload::Need) => Reaction::Do1(Action::ChangeAndSend1(
+                Self::Wait(3),
+                Emit::Ordered(Payload::Request(2), agent_index!(SERVER)),
+            )),
             (Self::Wait(mask), Payload::Response(index)) if mask == index => {
                 Reaction::Do1(Action::Change(Self::Idle))
             }
@@ -81,13 +85,10 @@ impl_data_like! { ServerState = Self::Listen }
 impl Validated for ServerState {}
 
 impl AgentState<ServerState, Payload> for ServerState {
-    fn activity(&self, _instance: usize) -> Reaction<Self, Payload> {
+    fn activity(&self, _instance: usize) -> Activity<Payload> {
         match self {
-            Self::Listen => Reaction::Ignore,
-            Self::Work(index) => Reaction::Do1(Action::ChangeAndSend1(
-                Self::Listen,
-                Emit::Ordered(Payload::Response(*index), agent_index!(CLIENT)),
-            )),
+            Self::Listen => Activity::Passive,
+            Self::Work(_index) => Activity::Process1(Payload::Completed),
         }
     }
 
@@ -96,6 +97,10 @@ impl AgentState<ServerState, Payload> for ServerState {
             (Self::Listen, Payload::Request(index)) => {
                 Reaction::Do1(Action::Change(Self::Work(*index)))
             }
+            (Self::Work(index), Payload::Completed) => Reaction::Do1(Action::ChangeAndSend1(
+                Self::Listen,
+                Emit::Ordered(Payload::Response(*index), agent_index!(CLIENT)),
+            )),
             (Self::Work(_), Payload::Request(_)) => Reaction::Defer,
             _ => Reaction::Unexpected, // NOT TESTED
         }

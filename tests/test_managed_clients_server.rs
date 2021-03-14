@@ -20,6 +20,9 @@ declare_global_agent_index! { SERVER }
 // BEGIN MAYBE TESTED
 #[derive(PartialEq, Eq, Hash, Copy, Clone, Debug, IntoStaticStr)]
 enum Payload {
+    Need,
+    Worry,
+    Completed,
     Check { client: usize },
     Confirm,
     Request { client: usize },
@@ -51,8 +54,8 @@ impl_data_like! {
 impl Validated for ManagerState {}
 
 impl ContainerState<ManagerState, ClientState, Payload> for ManagerState {
-    fn activity(&self, _instance: usize, _clients: &[ClientState]) -> Reaction<Self, Payload> {
-        Reaction::Ignore
+    fn activity(&self, _instance: usize, _clients: &[ClientState]) -> Activity<Payload> {
+        Activity::Passive
     }
 
     fn receive_message(
@@ -96,24 +99,23 @@ impl_data_like! {
 impl Validated for ClientState {}
 
 impl AgentState<ClientState, Payload> for ClientState {
-    fn activity(&self, instance: usize) -> Reaction<Self, Payload> {
+    fn activity(&self, _instance: usize) -> Activity<Payload> {
         match self {
-            Self::Idle => Reaction::Do1Of2(
-                Action::ChangeAndSend1(
-                    Self::Wait,
-                    Emit::Unordered(Payload::Request { client: instance }, agent_index!(SERVER)),
-                ),
-                Action::ChangeAndSend1(
-                    Self::Check,
-                    Emit::Unordered(Payload::Check { client: instance }, agent_index!(MANAGER)),
-                ),
-            ),
-            _ => Reaction::Ignore,
+            Self::Idle => Activity::Process1Of2(Payload::Need, Payload::Worry),
+            _ => Activity::Passive,
         }
     }
 
-    fn receive_message(&self, _instance: usize, payload: &Payload) -> Reaction<Self, Payload> {
+    fn receive_message(&self, instance: usize, payload: &Payload) -> Reaction<Self, Payload> {
         match (self, payload) {
+            (Self::Idle, Payload::Need) => Reaction::Do1(Action::ChangeAndSend1(
+                Self::Wait,
+                Emit::Unordered(Payload::Request { client: instance }, agent_index!(SERVER)),
+            )),
+            (Self::Idle, Payload::Worry) => Reaction::Do1(Action::ChangeAndSend1(
+                Self::Check,
+                Emit::Unordered(Payload::Check { client: instance }, agent_index!(MANAGER)),
+            )),
             (Self::Wait, Payload::Response) => Reaction::Do1(Action::Change(Self::Idle)),
             (Self::Check, Payload::Confirm) => Reaction::Do1(Action::Change(Self::Idle)),
             _ => Reaction::Unexpected, // NOT TESTED
@@ -142,13 +144,10 @@ impl_data_like! {
 impl Validated for ServerState {}
 
 impl AgentState<ServerState, Payload> for ServerState {
-    fn activity(&self, _instance: usize) -> Reaction<Self, Payload> {
+    fn activity(&self, _instance: usize) -> Activity<Payload> {
         match self {
-            Self::Listen => Reaction::Ignore,
-            Self::Work { client } => Reaction::Do1(Action::ChangeAndSend1(
-                Self::Listen,
-                Emit::Unordered(Payload::Response, agent_index!(CLIENTS[*client])),
-            )),
+            Self::Listen => Activity::Passive,
+            Self::Work { .. } => Activity::Process1(Payload::Completed),
         }
     }
 
@@ -157,13 +156,17 @@ impl AgentState<ServerState, Payload> for ServerState {
             (Self::Listen, Payload::Request { client }) => {
                 Reaction::Do1(Action::Change(Self::Work { client: *client }))
             }
-            (Self::Work { client: _ }, Payload::Request { client: _ }) => Reaction::Defer,
+            (Self::Work { client }, Payload::Completed) => Reaction::Do1(Action::ChangeAndSend1(
+                Self::Listen,
+                Emit::Unordered(Payload::Response, agent_index!(CLIENTS[*client])),
+            )),
+            (Self::Work { .. }, Payload::Request { .. }) => Reaction::Defer,
             _ => Reaction::Unexpected, // NOT TESTED
         }
     }
 
     fn is_deferring(&self) -> bool {
-        matches!(self, &Self::Work { client: _ })
+        matches!(self, &Self::Work { .. })
     }
 
     fn max_in_flight_messages(&self) -> Option<usize> {

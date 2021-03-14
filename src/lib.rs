@@ -1,4 +1,4 @@
-// Copyright (C) 2021 Oren B-[#Crimson]>-Kiki <oren@ben-kiki.org>
+// Copyright (C) 2021 Oren Ben-Kiki <oren@ben-kiki.org>
 //
 // This file is part of cargo-coverage-annotations.
 //
@@ -459,7 +459,26 @@ pub enum Action<State: KeyLike, Payload: DataLike> {
     ),
 }
 
-/// The reaction of an agent to an event.
+/// The reaction of an agent to time passing.
+#[derive(PartialEq, Eq, Debug)]
+pub enum Activity<Payload: DataLike> {
+    /// The agent is passive, will only respond to a message.
+    Passive,
+
+    /// The agent activity generates a message, to be delivered to it for processing.
+    Process1(Payload),
+
+    /// The agent activity generates one of two messages, to be delivered to it for processing.
+    Process1Of2(Payload, Payload),
+
+    /// The agent activity generates one of three messages, to be delivered to it for processing.
+    Process1Of3(Payload, Payload, Payload),
+
+    /// The agent activity generates one of four messages, to be delivered to it for processing.
+    Process1Of4(Payload, Payload, Payload, Payload),
+}
+
+/// The reaction of an agent to receiving a message.
 #[derive(PartialEq, Eq, Debug)]
 pub enum Reaction<State: KeyLike, Payload: DataLike> {
     /// Indicate an unexpected event.
@@ -559,7 +578,7 @@ pub trait AgentType<StateId: IndexLike, Payload: DataLike>:
     ) -> Reaction<StateId, Payload>;
 
     /// Return the actions that may be taken by an agent with some state when time passes.
-    fn activity(&self, instance: usize, state_ids: &[StateId]) -> Reaction<StateId, Payload>;
+    fn activity(&self, instance: usize, state_ids: &[StateId]) -> Activity<Payload>;
 
     /// Whether any agent in the state is deferring messages.
     fn state_is_deferring(&self, instance: usize, state_ids: &[StateId]) -> bool;
@@ -757,7 +776,7 @@ pub trait AgentState<State: DataLike, Payload: DataLike> {
     fn receive_message(&self, instance: usize, payload: &Payload) -> Reaction<State, Payload>;
 
     /// Return the actions that may be taken by an agent with some state when time passes.
-    fn activity(&self, instance: usize) -> Reaction<State, Payload>;
+    fn activity(&self, instance: usize) -> Activity<Payload>;
 
     /// Whether any agent in this state is deferring messages.
     fn is_deferring(&self) -> bool {
@@ -783,7 +802,7 @@ pub trait ContainerState<State: DataLike, Part: DataLike, Payload: DataLike> {
     ) -> Reaction<State, Payload>;
 
     /// Return the actions that may be taken by an agent with some state when time passes.
-    fn activity(&self, instance: usize, parts: &[Part]) -> Reaction<State, Payload>;
+    fn activity(&self, instance: usize, parts: &[Part]) -> Activity<Payload>;
 
     /// Whether any agent in this state is deferring messages.
     fn is_deferring(&self, _parts: &[Part]) -> bool {
@@ -999,18 +1018,16 @@ impl<State: DataLike + AgentState<State, Payload>, StateId: IndexLike, Payload: 
         self.translate_reaction(reaction)
     }
 
-    fn activity(&self, instance: usize, state_ids: &[StateId]) -> Reaction<StateId, Payload> {
+    fn activity(&self, instance: usize, state_ids: &[StateId]) -> Activity<Payload> {
         debug_assert!(
             instance < self.instances_count(),
             "instance: {} count: {}",
             instance,
             self.instances_count() // NOT TESTED
         );
-        let reaction = self
-            .states
+        self.states
             .get(state_ids[self.first_index + instance])
-            .activity(instance);
-        self.translate_reaction(reaction)
+            .activity(instance)
     }
 
     fn state_is_deferring(&self, instance: usize, state_ids: &[StateId]) -> bool {
@@ -1100,7 +1117,7 @@ impl<
         self.agent_type_data.translate_reaction(reaction)
     }
 
-    fn activity(&self, instance: usize, state_ids: &[StateId]) -> Reaction<StateId, Payload> {
+    fn activity(&self, instance: usize, state_ids: &[StateId]) -> Activity<Payload> {
         debug_assert!(
             instance < self.instances_count(),
             "instance: {} count: {}",
@@ -1112,12 +1129,10 @@ impl<
         self.collect_parts(state_ids, &mut parts_buffer);
         let parts = &parts_buffer[0..self.part_type.parts_count()];
 
-        let reaction = self
-            .agent_type_data
+        self.agent_type_data
             .states
             .get(state_ids[self.agent_type_data.first_index + instance])
-            .activity(instance, parts);
-        self.agent_type_data.translate_reaction(reaction)
+            .activity(instance, parts)
     }
 
     fn state_is_deferring(&self, instance: usize, state_ids: &[StateId]) -> bool {
@@ -1466,24 +1481,24 @@ impl<
 
 /// A transition from a given configuration.
 #[derive(Copy, Clone, Debug)]
-pub struct Outgoing<ConfigurationId: IndexLike> {
+pub struct Outgoing<MessageId: IndexLike, ConfigurationId: IndexLike> {
     /// The identifier of the target configuration.
     pub to_configuration_id: ConfigurationId,
 
-    /// The index of the message of the source configuration that was delivered to its target agent
-    /// to reach the target configuration.
-    pub delivered_message_index: MessageIndex,
+    /// The identifier of the message that was delivered to its target agent to reach the target
+    /// configuration.
+    pub delivered_message_id: MessageId,
 }
 
 /// A transition to a given configuration.
 #[derive(Copy, Clone, Debug)]
-pub struct Incoming<ConfigurationId: IndexLike> {
+pub struct Incoming<MessageId: IndexLike, ConfigurationId: IndexLike> {
     /// The identifier of the source configuration.
     pub from_configuration_id: ConfigurationId,
 
-    /// The index of the message of the source configuration that was delivered to its target agent
-    /// to reach the target configuration.
-    pub delivered_message_index: MessageIndex,
+    /// The identifier of the message that was delivered to its target agent to reach the target
+    /// configuration.
+    pub delivered_message_id: MessageId,
 }
 
 /// Specify the number of threads to use.
@@ -1657,25 +1672,50 @@ pub enum SequenceStep<StateId: IndexLike, MessageId: IndexLike> {
     /// No step (created when merging steps).
     NoStep,
 
-    /// Activity in an agent, possibly changing its state.
-    Activity(usize, bool),
-
     /// A message received by an agent, possibly changing its state.
-    Received(usize, bool, MessageId),
+    Received {
+        agent_index: usize,
+        is_activity: bool,
+        did_change_state: bool,
+        message_id: MessageId,
+    },
 
     /// A message was emitted by an agent, possibly changing its state, possibly replacing an
     /// exiting message.
-    Emitted(usize, bool, MessageId, Option<MessageId>),
+    Emitted {
+        agent_index: usize,
+        did_change_state: bool,
+        message_id: MessageId,
+        replaced: Option<MessageId>,
+    },
 
     /// A message passed from one agent to another (e.g., immediate), possibly changing their
     /// states, possibly replacing an existing message.
-    Passed(usize, bool, usize, bool, MessageId, Option<MessageId>),
+    Passed {
+        source_index: usize,
+        source_did_change_state: bool,
+        target_index: usize,
+        target_did_change_state: bool,
+        message_id: MessageId,
+        replaced: Option<MessageId>,
+    },
 
     /// Update the state of a single agent, which might be deferring.
-    NewState(usize, StateId, bool),
+    NewState {
+        agent_index: usize,
+        state_id: StateId,
+        is_deferring: bool,
+    },
 
     /// Update the state of two agents, which might be deferring.
-    NewStates(usize, StateId, bool, usize, StateId, bool),
+    NewStates {
+        first_agent_index: usize,
+        first_state_id: StateId,
+        first_is_deferring: bool,
+        second_agent_index: usize,
+        second_state_id: StateId,
+        second_is_deferring: bool,
+    },
 }
 
 /// How to patch a pair of sequence steps
@@ -1702,7 +1742,7 @@ pub struct PathTransition<
     pub from_configuration_id: ConfigurationId,
 
     /// The identifier of the delivered message, if any.
-    pub delivered_message_id: Option<MessageId>,
+    pub delivered_message_id: MessageId,
 
     /// The agent that received the message.
     pub agent_index: usize,
@@ -1725,13 +1765,6 @@ pub struct Condense {
 
     /// Only consider the final value of a replaced message.
     final_replaced: bool,
-}
-
-impl Condense {
-    /// Test whether we are condensing anything.
-    pub fn is_active(&self) -> bool {
-        self.names_only || self.merge_instances || self.final_replaced
-    }
 }
 
 /// Identify related set of transition between agent states in the diagram.
@@ -1873,33 +1906,37 @@ pub struct Context<
     const MAX_AGENTS: usize,
     const MAX_MESSAGES: usize,
 > {
+    /// The index of the message of the source configuration that was delivered to its target agent
+    /// to reach the target configuration.
+    pub delivered_message_index: MessageIndex,
+
     /// The identifier of the message that the agent received, or `None` if the agent received an
     /// activity event.
-    delivered_message_id: Option<MessageId>,
+    pub delivered_message_id: MessageId,
 
     /// Whether the delivered message was an immediate message.
-    is_immediate: bool,
+    pub is_immediate: bool,
 
     /// The index of the agent that reacted to the event.
-    agent_index: usize,
+    pub agent_index: usize,
 
     /// The type of the agent that reacted to the event.
-    agent_type: Arc<dyn AgentType<StateId, Payload> + Send + Sync>,
+    pub agent_type: Arc<dyn AgentType<StateId, Payload> + Send + Sync>,
 
     /// The index of the source agent in its type.
-    agent_instance: usize,
+    pub agent_instance: usize,
 
     /// The identifier of the state of the agent when handling the event.
-    agent_from_state_id: StateId,
+    pub agent_from_state_id: StateId,
 
     /// The incoming transition into the new configuration to be generated.
-    incoming: Incoming<ConfigurationId>,
+    pub incoming: Incoming<MessageId, ConfigurationId>,
 
     /// The configuration when delivering the event.
-    from_configuration: Configuration<StateId, MessageId, InvalidId, MAX_AGENTS, MAX_MESSAGES>,
+    pub from_configuration: Configuration<StateId, MessageId, InvalidId, MAX_AGENTS, MAX_MESSAGES>,
 
     /// Incrementally updated to become the target configuration.
-    to_configuration: Configuration<StateId, MessageId, InvalidId, MAX_AGENTS, MAX_MESSAGES>,
+    pub to_configuration: Configuration<StateId, MessageId, InvalidId, MAX_AGENTS, MAX_MESSAGES>,
 }
 
 // END MAYBE TESTED
@@ -1933,8 +1970,8 @@ impl<
     type Validator = fn(
         &Configuration<StateId, MessageId, InvalidId, MAX_AGENTS, MAX_MESSAGES>,
     ) -> Option<&'static str>;
-    type Incoming = Incoming<ConfigurationId>;
-    type Outgoing = Outgoing<ConfigurationId>;
+    type Incoming = Incoming<MessageId, ConfigurationId>;
+    type Outgoing = Outgoing<MessageId, ConfigurationId>;
     type Context =
         Context<StateId, MessageId, InvalidId, ConfigurationId, Payload, MAX_AGENTS, MAX_MESSAGES>;
     type Condition = fn(&Self, ConfigurationId) -> bool;
@@ -2453,10 +2490,10 @@ impl<
             // BEGIN NOT TESTED
             panic!(
                 "reached an invalid configuration {}\n\
-                   by the {}\n\
+                   by the message {}\n\
                    from the valid configuration {}",
                 self.display_configuration_id(context.incoming.from_configuration_id),
-                self.event_label(context.agent_index, context.delivered_message_id),
+                self.display_message_id(context.delivered_message_id),
                 self.display_configuration(&context.to_configuration)
             );
             // END NOT TESTED
@@ -2478,7 +2515,7 @@ impl<
         let from_configuration_id = context.incoming.from_configuration_id;
         let outgoing = Outgoing {
             to_configuration_id,
-            delivered_message_index: context.incoming.delivered_message_index,
+            delivered_message_id: context.incoming.delivered_message_id,
         };
 
         self.outgoings.read()[from_configuration_id.to_usize()]
@@ -2537,18 +2574,26 @@ impl<
                 self.activity_event(parallel_scope, configuration_id, configuration, event_index);
             } else if configuration.has_immediate() {
                 debug_assert!(event_index == self.agents_count());
+                let delivered_message_index = configuration.immediate_index;
+                let delivered_message_id =
+                    configuration.message_ids[delivered_message_index.to_usize()];
                 self.message_event(
                     parallel_scope,
                     configuration_id,
                     configuration,
-                    configuration.immediate_index.to_usize(),
+                    delivered_message_index,
+                    delivered_message_id,
                 )
             } else {
+                let message_index = event_index - self.agents_count();
+                let delivered_message_id = configuration.message_ids[message_index];
+                let delivered_message_index = MessageIndex::from_usize(message_index);
                 self.message_event(
                     parallel_scope,
                     configuration_id,
                     configuration,
-                    event_index - self.agents_count(),
+                    delivered_message_index,
+                    delivered_message_id,
                 );
             }
         });
@@ -2561,38 +2606,116 @@ impl<
         from_configuration: <Self as MetaModel>::Configuration,
         agent_index: usize,
     ) {
-        let agent_from_state_id = from_configuration.state_ids[agent_index];
         let agent_type = self.agent_types[agent_index].clone();
         let agent_instance = self.agent_instance(agent_index);
-        let reaction = agent_type.activity(agent_instance, &from_configuration.state_ids);
-
-        /*
-        eprintln!("{} - FROM: {}", current_thread_name!(), self.display_configuration(&from_configuration));
-        eprintln!("{} - BY: {}", current_thread_name!(), self.event_label(agent_index, None));
-        eprintln!("{} - REACTION: {:?}", current_thread_name!(), reaction);
-        */
-
-        if reaction == Reaction::Ignore {
-            return;
+        match agent_type.activity(agent_instance, &from_configuration.state_ids) {
+            Activity::Passive => {}
+            Activity::Process1(payload1) => {
+                self.activity_message(
+                    parallel_scope,
+                    from_configuration_id,
+                    from_configuration,
+                    agent_index,
+                    payload1,
+                );
+            }
+            Activity::Process1Of2(payload1, payload2) => {
+                self.activity_message(
+                    parallel_scope,
+                    from_configuration_id,
+                    from_configuration,
+                    agent_index,
+                    payload1,
+                );
+                self.activity_message(
+                    parallel_scope,
+                    from_configuration_id,
+                    from_configuration,
+                    agent_index,
+                    payload2,
+                );
+            }
+            Activity::Process1Of3(payload1, payload2, payload3) => {
+                self.activity_message(
+                    parallel_scope,
+                    from_configuration_id,
+                    from_configuration,
+                    agent_index,
+                    payload1,
+                );
+                self.activity_message(
+                    parallel_scope,
+                    from_configuration_id,
+                    from_configuration,
+                    agent_index,
+                    payload2,
+                );
+                self.activity_message(
+                    parallel_scope,
+                    from_configuration_id,
+                    from_configuration,
+                    agent_index,
+                    payload3,
+                );
+            }
+            Activity::Process1Of4(payload1, payload2, payload3, payload4) => {
+                self.activity_message(
+                    parallel_scope,
+                    from_configuration_id,
+                    from_configuration,
+                    agent_index,
+                    payload1,
+                );
+                self.activity_message(
+                    parallel_scope,
+                    from_configuration_id,
+                    from_configuration,
+                    agent_index,
+                    payload2,
+                );
+                self.activity_message(
+                    parallel_scope,
+                    from_configuration_id,
+                    from_configuration,
+                    agent_index,
+                    payload3,
+                );
+                self.activity_message(
+                    parallel_scope,
+                    from_configuration_id,
+                    from_configuration,
+                    agent_index,
+                    payload4,
+                );
+            }
         }
+    }
 
-        let incoming = Incoming {
+    fn activity_message<'a>(
+        &'a self,
+        parallel_scope: &ParallelScope<'a>,
+        from_configuration_id: ConfigurationId,
+        from_configuration: <Self as MetaModel>::Configuration,
+        agent_index: usize,
+        payload: Payload,
+    ) {
+        let delivered_message = Message {
+            order: MessageOrder::Unordered,
+            source_index: usize::max_value(),
+            target_index: agent_index,
+            payload,
+            replaced: None,
+        };
+
+        let delivered_message_id = self.messages.store(delivered_message).id;
+
+        self.message_event(
+            parallel_scope,
             from_configuration_id,
-            delivered_message_index: MessageIndex::invalid(),
-        };
-
-        let context = Context {
-            delivered_message_id: None,
-            is_immediate: false,
-            agent_index,
-            agent_type,
-            agent_instance,
-            agent_from_state_id,
-            incoming,
             from_configuration,
-            to_configuration: from_configuration,
-        };
-        self.process_reaction(parallel_scope, context, reaction);
+            MessageIndex::invalid(),
+            delivered_message_id,
+        );
     }
 
     fn message_event<'a>(
@@ -2600,12 +2723,11 @@ impl<
         parallel_scope: &ParallelScope<'a>,
         from_configuration_id: ConfigurationId,
         from_configuration: <Self as MetaModel>::Configuration,
-        message_index: usize,
+        delivered_message_index: MessageIndex,
+        delivered_message_id: MessageId,
     ) {
-        let message_id = from_configuration.message_ids[message_index];
-
         let (source_index, target_index, payload, is_immediate) = {
-            let message = self.messages.get(message_id);
+            let message = self.messages.get(delivered_message_id);
             if let MessageOrder::Ordered(order) = message.order {
                 if order.to_usize() > 0 {
                     return;
@@ -2625,22 +2747,23 @@ impl<
         let reaction =
             target_type.receive_message(target_instance, &from_configuration.state_ids, &payload);
 
-        /*
-        eprintln!("{} - FROM: {}", current_thread_name!(), self.display_configuration(&from_configuration));
-        eprintln!("{} - BY: {}", current_thread_name!(), self.event_label(usize::max_value(), Some(message_id)));
-        eprintln!("{} - REACTION: {:?}", current_thread_name!(), reaction);
-        */
-
         let incoming = Incoming {
             from_configuration_id,
-            delivered_message_index: MessageIndex::from_usize(message_index),
+            delivered_message_id,
         };
 
         let mut to_configuration = from_configuration;
-        self.remove_message(&mut to_configuration, source_index, message_index);
+        if delivered_message_index.is_valid() {
+            self.remove_message(
+                &mut to_configuration,
+                source_index,
+                delivered_message_index.to_usize(),
+            );
+        }
 
         let context = Context {
-            delivered_message_id: Some(message_id),
+            delivered_message_index,
+            delivered_message_id,
             is_immediate,
             agent_index: target_index,
             agent_type: target_type,
@@ -2812,7 +2935,13 @@ impl<
             }
 
             Emit::ImmediateReplacement(callback, payload, target_index) => {
-                let replaced = self.replace_message(&mut context, callback, &payload, target_index);
+                let replaced = self.replace_message(
+                    &mut context,
+                    callback,
+                    MessageOrder::Immediate,
+                    &payload,
+                    target_index,
+                );
                 let message = Message {
                     order: MessageOrder::Immediate,
                     source_index: context.agent_index,
@@ -2824,7 +2953,13 @@ impl<
             }
 
             Emit::UnorderedReplacement(callback, payload, target_index) => {
-                let replaced = self.replace_message(&mut context, callback, &payload, target_index);
+                let replaced = self.replace_message(
+                    &mut context,
+                    callback,
+                    MessageOrder::Unordered,
+                    &payload,
+                    target_index,
+                );
                 let message = Message {
                     order: MessageOrder::Unordered,
                     source_index: context.agent_index,
@@ -2837,7 +2972,13 @@ impl<
 
             // BEGIN NOT TESTED
             Emit::OrderedReplacement(callback, payload, target_index) => {
-                let replaced = self.replace_message(&mut context, callback, &payload, target_index);
+                let replaced = self.replace_message(
+                    &mut context,
+                    callback,
+                    MessageOrder::Ordered(MessageIndex::from_usize(0)),
+                    &payload,
+                    target_index,
+                );
                 let message = self.ordered_message(
                     &context.to_configuration,
                     context.agent_index,
@@ -2909,93 +3050,91 @@ impl<
         &self,
         context: &mut <Self as MetaModel>::Context,
         callback: fn(Option<Payload>) -> bool,
+        order: MessageOrder,
         payload: &Payload,
         target_index: usize,
     ) -> Option<Payload> {
-        let replaced = {
-            context
-                .to_configuration
-                .message_ids
-                .iter()
-                .take_while(|message_id| message_id.is_valid())
-                .enumerate()
-                .map(|(message_index, message_id)| (message_index, self.messages.get(*message_id)))
-                .filter(|(_, message)| {
-                    message.source_index == context.agent_index
-                        && message.target_index == target_index
-                        && callback(Some(message.payload))
-                })
-                .fold(None, |replaced, (message_index, message)| {
-                    match replaced // MAYBE TESTED
-                    {
-                        None => Some((message_index, message)),
-                        // BEGIN NOT TESTED
-                        Some((_, ref conflict)) => {
-                            let conflict_payload = format!("{}", conflict.payload);
-                            let message_payload = format!("{}", message.payload);
-                            let replacement_payload = format!("{}", payload);
-                            let source_label = self.agent_labels[context.agent_index].clone();
-                            let target_label = self.agent_labels[target_index].clone();
-                            let event_label = self.event_label(context.agent_index, context.delivered_message_id);
-                            let from_state = context
-                                .agent_type
-                                .display_state(context.agent_from_state_id);
-                            panic!(
-                                "both the message {} \
-                                 and the message {} \
-                                 can be replaced by the ambiguous replacement message {} \
-                                 sent to the agent {} \
-                                 by the agent {} \
-                                 in the state {} \
-                                 when responding to the {}",
-                                conflict_payload,
-                                message_payload,
-                                replacement_payload,
-                                target_label,
-                                source_label,
-                                from_state,
-                                event_label
-                            );
-                        } // END NOT TESTED
-                    }
-                })
-                .map(|(message_index, message)| Some((message_index, message.payload)))
-                .unwrap_or_else(|| {
-                    if !callback(None) {
-                        // BEGIN NOT TESTED
-                        let replacement_payload = format!("{}", payload);
-                        let source_label = self.agent_labels[context.agent_index].clone();
-                        let target_label = self.agent_labels[target_index].clone();
-                        let event_label = self.event_label(context.agent_index, context.delivered_message_id);
+        let replaced = context
+            .to_configuration
+            .message_ids
+            .iter()
+            .take_while(|message_id| message_id.is_valid())
+            .enumerate()
+            .map(|(message_index, message_id)| {
+                (message_index, message_id, self.messages.get(*message_id))
+            })
+            .filter(|(_message_index, _message_id, message)| {
+                message.source_index == context.agent_index
+                    && message.target_index == target_index
+                    && callback(Some(message.payload))
+            })
+            .fold(None, |replaced, (message_index, message_id, message)| {
+                match replaced // MAYBE TESTED
+                {
+                    None => Some((message_index, message_id, message)),
+                    // BEGIN NOT TESTED
+                    Some((_conflict_index, _conflict_id, ref conflict_message)) => {
+                        let replacement_message = Message {
+                            order,
+                            source_index: context.agent_index,
+                            target_index,
+                            payload: *payload,
+                            replaced: None,
+                        };
+
+                        let conflict_label = self.display_message(&conflict_message);
+                        let message_label = self.display_message(&message);
+                        let replacement_label = self.display_message(&replacement_message);
                         let from_state = context
                             .agent_type
                             .display_state(context.agent_from_state_id);
+                        let delivered_label = self.display_message_id(context.delivered_message_id);
                         panic!(
-                            "nothing was replaced by the required replacement message {} \
-                             sent to the agent {} \
-                             by the agent {} \
-                             in the state {} \
-                             when responding to the {}",
-                            replacement_payload,
-                            target_label,
-                            source_label,
+                            "both the message {} \
+                             and the message {} \
+                             can be replaced by the ambiguous replacement message {} \
+                             when responding to the message {} \
+                             while in the state {}",
+                            conflict_label,
+                            message_label,
+                            replacement_label,
+                            delivered_label,
                             from_state,
-                            event_label
                         );
-                        // END NOT TESTED
-                    }
-                    None
-                })
-        };
+                    } // END NOT TESTED
+                }
+            });
 
-        if let Some((replaced_index, replaced_payload)) = replaced {
+        if let Some((replaced_index, _replace_id, replaced_message)) = replaced {
             self.remove_message(
                 &mut context.to_configuration,
                 context.agent_index,
                 replaced_index,
             );
-            Some(replaced_payload)
+            Some(replaced_message.payload)
         } else {
+            if !callback(None) {
+                // BEGIN NOT TESTED
+                let replacement_message = Message {
+                    order,
+                    source_index: context.agent_index,
+                    target_index,
+                    payload: *payload,
+                    replaced: None,
+                };
+                let replacement_label = self.display_message(&replacement_message);
+                let delivered_label = self.display_message_id(context.delivered_message_id);
+                let from_state = context
+                    .agent_type
+                    .display_state(context.agent_from_state_id);
+                panic!(
+                    "nothing was replaced by the required replacement message {} \
+                             when responding to the message {} \
+                             while in the state {}",
+                    replacement_label, delivered_label, from_state,
+                );
+                // END NOT TESTED
+            }
             None
         }
     }
@@ -3108,18 +3247,16 @@ impl<
             })
             .for_each(|to_message| {
                 // BEGIN NOT TESTED
-                let event_label =
-                    self.event_label(context.agent_index, context.delivered_message_id);
                 let source_label = self.agent_labels[to_message.source_index].clone();
-                let target_label = self.agent_labels[to_message.target_index].clone();
+                let message_label = self.display_message(&to_message);
+                let delivered_label = self.display_message_id(context.delivered_message_id);
                 let from_configuration = self.display_configuration(&context.from_configuration);
                 panic!(
                     "the agent {} \
                      sends a duplicate message {} \
-                     to the agent {} \
-                     when responding to the {} \
+                     when responding to the message {} \
                      while in the configuration {}",
-                    source_label, to_message.payload, target_label, event_label, from_configuration
+                    source_label, message_label, delivered_label, from_configuration
                 );
                 // END NOT TESTED
             });
@@ -3131,12 +3268,12 @@ impl<
 
     // BEGIN NOT TESTED
     fn unexpected_message(&self, context: <Self as MetaModel>::Context) {
-        let event_label = self.event_label(context.agent_index, context.delivered_message_id);
         let agent_label = self.agent_labels[context.agent_index].clone();
+        let delivered_label = self.display_message_id(context.delivered_message_id);
         let from_configuration = self.display_configuration(&context.from_configuration);
         panic!(
-            "the agent {} does not expect the {} while in the configuration {}",
-            agent_label, event_label, from_configuration
+            "the agent {} does not expect the message {} while in the configuration {}",
+            agent_label, delivered_label, from_configuration
         );
     }
     // END NOT TESTED
@@ -3146,57 +3283,52 @@ impl<
         parallel_scope: &ParallelScope<'a>,
         context: <Self as MetaModel>::Context,
     ) {
-        if context.incoming.delivered_message_index.is_valid() {
-            self.reach_configuration(parallel_scope, context);
-        }
+        self.reach_configuration(parallel_scope, context);
     }
 
     fn defer_message(&self, context: <Self as MetaModel>::Context) {
-        match context.delivered_message_id // MAYBE TESTED
-        {
-            None => {
+        if !context.delivered_message_index.is_valid() {
+            // BEGIN NOT TESTED
+            let agent_label = self.agent_labels[context.agent_index].clone();
+            let delivered_label = self.display_message_id(context.delivered_message_id);
+            let from_state = context
+                .agent_type
+                .display_state(context.agent_from_state_id);
+            panic!(
+                "the agent {} is deferring (should not be generating) the message {} while in the state {}",
+                agent_label, delivered_label, from_state
+            );
+            // END NOT TESTED
+        } else {
+            if !context.agent_type.state_is_deferring(
+                context.agent_instance,
+                &context.from_configuration.state_ids,
+            ) {
                 // BEGIN NOT TESTED
                 let agent_label = self.agent_labels[context.agent_index].clone();
-                let event_label = self.event_label(context.agent_index, None);
+                let delivered_label = self.display_message_id(context.delivered_message_id);
                 let from_state = context
                     .agent_type
                     .display_state(context.agent_from_state_id);
                 panic!(
-                    "the agent {} is deferring (should be ignoring) the {} while in the state {}",
-                    agent_label, event_label, from_state
+                    "the agent {} is deferring the message {} while in the non-deferring state {}",
+                    agent_label, delivered_label, from_state
                 );
                 // END NOT TESTED
             }
 
-            Some(delivered_message_id) => {
-                if !context.agent_type.state_is_deferring(
-                    context.agent_instance,
-                    &context.from_configuration.state_ids,
-                ) {
-                    // BEGIN NOT TESTED
-                    let agent_label = self.agent_labels[context.agent_index].clone();
-                    let event_label = self.event_label(context.agent_index, Some(delivered_message_id));
-                    let from_state = context
-                        .agent_type
-                        .display_state(context.agent_from_state_id);
-                    panic!("the agent {} is deferring (should be ignoring) the {} while in the state {}",
-                           agent_label, event_label, from_state);
-                    // END NOT TESTED
-                }
-
-                if context.is_immediate {
-                    // BEGIN NOT TESTED
-                    let agent_label = self.agent_labels[context.agent_index].clone();
-                    let event_label = self.event_label(context.agent_index, Some(delivered_message_id));
-                    let from_state = context
-                        .agent_type
-                        .display_state(context.agent_from_state_id);
-                    panic!(
-                        "the agent {} is deferring the immediate {} while in the state {}",
-                        agent_label, event_label, from_state
-                    );
-                    // END NOT TESTED
-                }
+            if context.is_immediate {
+                // BEGIN NOT TESTED
+                let agent_label = self.agent_labels[context.agent_index].clone();
+                let delivered_label = self.display_message_id(context.delivered_message_id);
+                let from_state = context
+                    .agent_type
+                    .display_state(context.agent_from_state_id);
+                panic!(
+                    "the agent {} is deferring the immediate {} while in the state {}",
+                    agent_label, delivered_label, from_state
+                );
+                // END NOT TESTED
             }
         }
     }
@@ -3216,17 +3348,24 @@ impl<
                 if in_flight_messages > max_in_flight_messages {
                     // BEGIN NOT TESTED
                     let agent_label = self.agent_labels[context.agent_index].clone();
-                    let event_label =
-                        self.event_label(context.agent_index, context.delivered_message_id);
+                    let delivered_label = self.display_message_id(context.delivered_message_id);
                     let to_configuration = self.display_configuration(&context.to_configuration);
                     let from_configuration =
                         self.display_configuration(&context.from_configuration);
 
                     panic!(
-                        "the agent {} sends too more messages {} then allowed {} when reacting to the {} by moving\n\
-                        from the configuration {}\n\
-                        into the configuration {}",
-                        agent_label, in_flight_messages, max_in_flight_messages, event_label, from_configuration, to_configuration
+                        "the agent {} \
+                         sends too more messages {} \
+                         than allowed {} \
+                         when reacting to the message {} by moving\n\
+                         from the configuration {}\n\
+                         into the configuration {}",
+                        agent_label,
+                        in_flight_messages,
+                        max_in_flight_messages,
+                        delivered_label,
+                        from_configuration,
+                        to_configuration
                     );
                     // END NOT TESTED
                 }
@@ -3331,14 +3470,6 @@ impl<
         self.invalids.is_empty()
     }
 
-    fn event_label(&self, agent_index: usize, message_id: Option<MessageId>) -> String {
-        match message_id // MAYBE TESTED
-        {
-            Some(message_id) if message_id.is_valid() => format!("message {}", self.display_message_id(message_id)),
-            _ => format!("{} activity", self.agent_labels[agent_index]),
-        }
-    }
-
     /// Display a message by its identifier.
     pub fn display_message_id(&self, message_id: MessageId) -> String {
         self.display_message(&self.messages.get(message_id))
@@ -3349,7 +3480,11 @@ impl<
         let max_message_string_size = *self.max_message_string_size.read();
         let mut string = String::with_capacity(max_message_string_size);
 
-        string.push_str(&*self.agent_labels[message.source_index]);
+        if message.source_index != usize::max_value() {
+            string.push_str(&*self.agent_labels[message.source_index]);
+        } else {
+            string.push_str("Activity");
+        }
         string.push_str(" -> ");
 
         self.push_message_payload(message, false, false, &mut string);
@@ -3735,7 +3870,7 @@ impl<
 
         let mut path = vec![PathTransition {
             from_configuration_id: current_configuration_id,
-            delivered_message_id: None,
+            delivered_message_id: MessageId::invalid(),
             agent_index: usize::max_value(),
             to_configuration_id: current_configuration_id,
             to_condition_name: Some(current_name.to_string()),
@@ -3761,45 +3896,6 @@ impl<
         });
 
         path
-    }
-
-    fn agent_index_of_outgoing(
-        &self,
-        from_configuration: &<Self as MetaModel>::Configuration,
-        outgoing: &<Self as MetaModel>::Outgoing,
-    ) -> usize {
-        if outgoing.delivered_message_index.is_valid() {
-            let message_id =
-                from_configuration.message_ids[outgoing.delivered_message_index.to_usize()];
-            let message = self.messages.get(message_id);
-            return message.target_index;
-        }
-        let to_configuration = self.configurations.get(outgoing.to_configuration_id);
-
-        for to_message_id in to_configuration
-            .message_ids
-            .iter()
-            .take_while(|to_message_id| to_message_id.is_valid())
-        {
-            if !self.to_message_kept_in_transition(
-                *to_message_id,
-                &from_configuration,
-                outgoing.delivered_message_index,
-            ) {
-                let message = self.messages.get(*to_message_id);
-                return message.source_index;
-            }
-        }
-
-        // BEGIN NOT TESTED
-        from_configuration
-            .state_ids
-            .iter()
-            .take_while(|state_id| state_id.is_valid())
-            .zip(to_configuration.state_ids.iter())
-            .position(|(from_state_id, to_state_id)| from_state_id != to_state_id)
-            .unwrap()
-        // END NOT TESTED
     }
 
     fn collect_path_step(
@@ -3832,13 +3928,11 @@ impl<
             .unwrap();
         let outgoing = from_outgoings[outgoing_index];
 
-        let from_configuration = self.configurations.get(from_configuration_id);
-        let agent_index = self.agent_index_of_outgoing(&from_configuration, &outgoing);
-        let delivered_message_id = if outgoing.delivered_message_index.is_valid() {
-            Some(from_configuration.message_ids[outgoing.delivered_message_index.to_usize()])
-        } else {
-            None
-        };
+        let agent_index = self
+            .messages
+            .get(outgoing.delivered_message_id)
+            .target_index;
+        let delivered_message_id = outgoing.delivered_message_id;
 
         path.push(PathTransition {
             from_configuration_id,
@@ -3855,7 +3949,7 @@ impl<
                 writeln!(
                     stdout,
                     "BY {}",
-                    self.event_label(transition.agent_index, transition.delivered_message_id)
+                    self.display_message_id(transition.delivered_message_id)
                 )
                 .unwrap();
             }
@@ -3911,11 +4005,12 @@ impl<
         for message_id in 0..self.messages.len() {
             let message = self.messages.get(MessageId::from_usize(message_id));
 
-            let source_index = if condense.merge_instances {
-                self.agent_types[message.source_index].first_index()
-            } else {
-                message.source_index
-            };
+            let source_index =
+                if message.source_index != usize::max_value() && condense.merge_instances {
+                    self.agent_types[message.source_index].first_index()
+                } else {
+                    message.source_index
+                };
 
             let target_index = if condense.merge_instances {
                 self.agent_types[message.target_index].first_index()
@@ -3937,9 +4032,13 @@ impl<
                 Some(message.replaced.unwrap().to_string()) // NOT TESTED
             };
 
-            let order = match message.order {
-                MessageOrder::Ordered(_) => MessageOrder::Ordered(MessageIndex::invalid()),
-                order => order,
+            let order = if condense.final_replaced {
+                MessageOrder::Unordered
+            } else {
+                match message.order {
+                    MessageOrder::Ordered(_) => MessageOrder::Ordered(MessageIndex::invalid()),
+                    order => order,
+                }
             };
 
             let terse_message = TerseMessage {
@@ -3962,7 +4061,7 @@ impl<
         message_of_terse_id.shrink_to_fit();
     }
 
-    pub fn print_agent_states_diagram(
+    pub fn print_states_diagram(
         &self,
         condense: &Condense,
         agent_index: usize,
@@ -3978,9 +4077,7 @@ impl<
 
         let mut state_transition_index: usize = 0;
 
-        if condense.is_active() {
-            self.compute_terse(condense);
-        }
+        self.compute_terse(condense);
 
         let state_transitions = self.collect_agent_state_transitions(condense, agent_index);
         let mut contexts: Vec<&<Self as MetaModel>::AgentStateTransitionContext> =
@@ -3989,6 +4086,7 @@ impl<
 
         for context in contexts.iter() {
             let related_state_transitions = &state_transitions[context];
+
             let mut sent_keys: Vec<&Vec<MessageId>> = related_state_transitions.keys().collect();
             sent_keys.sort();
 
@@ -4074,7 +4172,6 @@ impl<
 
                 for sent_message_ids_key in delivered_sent_keys.iter() {
                     let sent_message_ids: &Vec<MessageId> = sent_message_ids_key;
-
                     self.print_agent_transition_cluster(
                         condense,
                         &mut emitted_states,
@@ -4296,7 +4393,7 @@ impl<
             writeln!(
                 stdout,
                 "T_{}_{} [ shape=diamond, label=\"\", fontsize=0, \
-                 width=0.15, height=0.15, style=filled, color=black ];",
+                 width=0.2, height=0.2, style=filled, color=black ];",
                 state_transition_index,
                 usize::max_value()
             )
@@ -4360,13 +4457,13 @@ impl<
         )
         .unwrap();
 
-        if condense.is_active() {
-            message_id = self.message_of_terse_id.read()[message_id.to_usize()];
-        }
+        message_id = self.message_of_terse_id.read()[message_id.to_usize()];
 
         let message = self.messages.get(message_id);
         if prefix == "D" {
-            let source = if condense.merge_instances {
+            let source = if message.source_index == usize::max_value() {
+                "Activity".to_string()
+            } else if condense.merge_instances {
                 self.agent_types[message.source_index].name()
             } else {
                 self.agent_labels[message.source_index].to_string()
@@ -4443,31 +4540,31 @@ impl<
         to_state_transition_index: usize,
         stdout: &mut dyn Write,
     ) {
-        let show_message_id = if condense.is_active() && from_message_id.is_valid() {
+        let show_message_id = if from_message_id.is_valid() {
             self.message_of_terse_id.read()[from_message_id.to_usize()]
         } else {
             from_message_id
         };
 
-        let arrowhead = if show_message_id.is_valid() {
+        let color = if !condense.final_replaced && show_message_id.is_valid() {
             match self.messages.get(show_message_id).order {
-                MessageOrder::Ordered(_) => "normalnonedot",
-                MessageOrder::Unordered => "normal",
-                MessageOrder::Immediate => "normalnormal",
+                MessageOrder::Ordered(_) => "Blue",
+                MessageOrder::Unordered => "Black",
+                MessageOrder::Immediate => "Crimson",
             }
         } else {
-            "normal"
+            "Black"
         };
 
         writeln!(
             stdout,
-            "D_{}_{}_{} -> T_{}_{} [ arrowhead={}, direction=forward, style=dashed ];",
+            "D_{}_{}_{} -> T_{}_{} [ color={}, style=dashed ];",
             to_state_transition_index,
             usize::max_value(),
             from_message_id.to_usize(),
             to_state_transition_index,
             usize::max_value(),
-            arrowhead
+            color
         )
         .unwrap();
     }
@@ -4519,31 +4616,31 @@ impl<
         }
 
         let to_message_id = to_message_id.unwrap();
-        let show_message_id = if condense.is_active() && to_message_id.is_valid() {
+        let show_message_id = if to_message_id.is_valid() {
             self.message_of_terse_id.read()[to_message_id.to_usize()]
         } else {
             to_message_id
         };
 
-        let arrowhead = if show_message_id.is_valid() {
+        let color = if !condense.final_replaced && show_message_id.is_valid() {
             match self.messages.get(show_message_id).order {
-                MessageOrder::Ordered(_) => "normalnonedot",
-                MessageOrder::Unordered => "normal",
-                MessageOrder::Immediate => "normalnormal",
+                MessageOrder::Ordered(_) => "Blue",
+                MessageOrder::Unordered => "Black",
+                MessageOrder::Immediate => "Crimson",
             }
         } else {
-            "normal" // NOT TESTED
+            "Black" // NOT TESTED
         };
 
         writeln!(
             stdout,
-            "T_{}_{} -> S_{}_{}_{} [ arrowhead={}, direction=forward, style=dashed ];",
+            "T_{}_{} -> S_{}_{}_{} [ color={}, style=dashed ];",
             from_state_transition_index,
             from_alternative_index.unwrap_or(usize::max_value()),
             from_state_transition_index,
             from_alternative_index.unwrap_or(usize::max_value()),
             to_message_id.to_usize(),
-            arrowhead
+            color
         )
         .unwrap();
     }
@@ -4562,23 +4659,21 @@ impl<
             let to_configuration = self.configurations.get(to_configuration_id);
             let did_change_state = to_configuration.state_ids[agent_index]
                 != from_configuration.state_ids[agent_index];
-
             let from_outgoings = all_outgoings[from_configuration_id.to_usize()].read();
             let outgoing_index = from_outgoings
                 .iter()
                 .position(|outgoing| outgoing.to_configuration_id == to_configuration_id)
                 .unwrap();
             let outgoing = from_outgoings[outgoing_index];
+            let delivered_message = self.messages.get(path_transition.delivered_message_id);
+            let is_activity = delivered_message.source_index == usize::max_value();
 
-            if let Some(delivered_message_id) = path_transition.delivered_message_id {
-                sequence_steps.push(SequenceStep::Received(
-                    agent_index,
-                    did_change_state,
-                    delivered_message_id,
-                ));
-            } else {
-                sequence_steps.push(SequenceStep::Activity(agent_index, did_change_state));
-            }
+            sequence_steps.push(SequenceStep::Received {
+                agent_index,
+                did_change_state,
+                is_activity,
+                message_id: path_transition.delivered_message_id,
+            });
 
             to_configuration
                 .message_ids
@@ -4588,14 +4683,14 @@ impl<
                     !self.to_message_kept_in_transition(
                         **to_message_id,
                         &from_configuration,
-                        outgoing.delivered_message_index,
+                        outgoing.delivered_message_id,
                     )
                 })
                 .for_each(|to_message_id| {
                     let to_message = self.messages.get(*to_message_id);
                     assert!(agent_index == to_message.source_index);
 
-                    let replaced_message_id = to_message.replaced.map(|replaced_payload| {
+                    let replaced = to_message.replaced.map(|replaced_payload| {
                         *from_configuration
                             .message_ids
                             .iter()
@@ -4608,37 +4703,30 @@ impl<
                             })
                             .unwrap()
                     });
-                    sequence_steps.push(SequenceStep::Emitted(
+                    sequence_steps.push(SequenceStep::Emitted {
                         agent_index,
                         did_change_state,
-                        *to_message_id,
-                        replaced_message_id,
-                    ));
+                        message_id: *to_message_id,
+                        replaced,
+                    });
                 });
 
             if did_change_state {
                 let agent_type = &self.agent_types[agent_index];
                 let agent_instance = self.agent_instance(agent_index);
+                let state_id = to_configuration.state_ids[agent_index];
                 let is_deferring =
                     agent_type.state_is_deferring(agent_instance, &to_configuration.state_ids);
-                sequence_steps.push(SequenceStep::NewState(
+                sequence_steps.push(SequenceStep::NewState {
                     agent_index,
-                    to_configuration.state_ids[agent_index],
+                    state_id,
                     is_deferring,
-                ));
+                });
             }
         }
 
         sequence_steps
     }
-
-    //  NoStep
-    //  Activity(usize, bool)
-    //  Received(usize, bool, MessageId)
-    //  Emitted(usize, bool, MessageId, Option<MessageId>)
-    //  Passed(usize, bool, usize, bool, MessageId, Option<MessageId>)
-    //  NewState(usize, StateId, bool)
-    //  NewStates(usize, StateId, bool, usize, StateId, bool)
 
     fn patch_sequence_steps(&self, sequence_steps: &mut [<Self as MetaModel>::SequenceStep]) {
         let mut last_patched = 0;
@@ -4650,75 +4738,108 @@ impl<
                 (SequenceStep::NoStep, SequenceStep::NoStep) => SequencePatch::Keep,
                 (_step, SequenceStep::NoStep) => SequencePatch::Swap,
 
-                (SequenceStep::Activity(_agent_index, _did_change), _step) => SequencePatch::Keep,
-                (_step, SequenceStep::Activity(_agent_index, _did_change)) => SequencePatch::Keep,
+                (
+                    SequenceStep::Received {
+                        is_activity: true, ..
+                    },
+                    _,
+                ) => SequencePatch::Keep,
+                (
+                    _,
+                    SequenceStep::Received {
+                        is_activity: true, ..
+                    },
+                ) => SequencePatch::Keep,
 
                 // BEGIN MAYBE TESTED
                 (
-                    SequenceStep::Received(_last_agent_index, _last_did_change, last_message_id),
-                    SequenceStep::Received(_next_agent_index, _next_did_change, next_message_id),
+                    SequenceStep::Received {
+                        message_id: last_message_id,
+                        ..
+                    },
+                    SequenceStep::Received {
+                        message_id: next_message_id,
+                        ..
+                    },
                 ) => self.swap_immediate(last_message_id, next_message_id),
+
                 // END MAYBE TESTED
                 (
-                    SequenceStep::Emitted(
-                        _last_agent_index,
-                        _last_did_change,
-                        last_message_id,
-                        _last_replaced,
-                    ),
-                    SequenceStep::Received(_next_agent_index, _next_did_change, next_message_id),
+                    SequenceStep::Emitted {
+                        message_id: last_message_id,
+                        ..
+                    },
+                    SequenceStep::Received {
+                        message_id: next_message_id,
+                        ..
+                    },
                 ) if last_message_id != next_message_id => SequencePatch::Swap,
 
                 (
-                    SequenceStep::Emitted(
-                        last_agent_index,
-                        last_did_change,
-                        last_message_id,
-                        last_replaced,
-                    ),
-                    SequenceStep::Received(next_agent_index, next_did_change, next_message_id),
-                ) if last_message_id == next_message_id => {
-                    SequencePatch::Merge(SequenceStep::Passed(
-                        last_agent_index,
-                        last_did_change,
-                        next_agent_index,
-                        next_did_change,
-                        last_message_id,
-                        last_replaced,
-                    ))
+                    SequenceStep::Emitted {
+                        agent_index: source_index,
+                        did_change_state: source_did_change_state,
+                        message_id: source_message_id,
+                        replaced,
+                    },
+                    SequenceStep::Received {
+                        agent_index: target_index,
+                        did_change_state: target_did_change_state,
+                        is_activity: false,
+                        message_id: target_message_id,
+                    },
+                ) if source_message_id == target_message_id => {
+                    SequencePatch::Merge(SequenceStep::Passed {
+                        source_index,
+                        source_did_change_state,
+                        target_index,
+                        target_did_change_state,
+                        message_id: target_message_id,
+                        replaced,
+                    })
                 }
 
                 (
-                    SequenceStep::Emitted(
-                        _last_agent_index,
-                        _last_did_change,
-                        last_message_id,
-                        _last_replaced,
-                    ),
-                    SequenceStep::Emitted(
-                        _next_agent_index,
-                        _next_did_change,
-                        next_message_id,
-                        _next_replaced,
-                    ),
+                    SequenceStep::Emitted {
+                        message_id: last_message_id,
+                        ..
+                    },
+                    SequenceStep::Emitted {
+                        message_id: next_message_id,
+                        ..
+                    },
                 ) => self.swap_immediate(last_message_id, next_message_id),
 
                 (
-                    SequenceStep::NewState(last_agent_index, _last_state_id, _last_is_deferred),
-                    SequenceStep::Received(next_agent_index, _next_did_change, _next_message_id),
+                    SequenceStep::NewState {
+                        agent_index: last_agent_index,
+                        ..
+                    },
+                    SequenceStep::Received {
+                        agent_index: next_agent_index,
+                        ..
+                    },
                 ) if last_agent_index != next_agent_index => SequencePatch::Swap,
 
                 (
-                    SequenceStep::NewState(last_agent_index, last_state_id, last_is_deferred),
-                    SequenceStep::NewState(next_agent_index, next_state_id, next_is_deferred),
-                ) => SequencePatch::Merge(SequenceStep::NewStates(
-                    last_agent_index,
-                    last_state_id,
-                    last_is_deferred,
-                    next_agent_index,
-                    next_state_id,
-                    next_is_deferred,
-                )),
+                    SequenceStep::NewState {
+                        agent_index: first_agent_index,
+                        state_id: first_state_id,
+                        is_deferring: first_is_deferring,
+                    },
+                    SequenceStep::NewState {
+                        agent_index: second_agent_index,
+                        state_id: second_state_id,
+                        is_deferring: second_is_deferring,
+                    },
+                ) => SequencePatch::Merge(SequenceStep::NewStates {
+                    first_agent_index,
+                    first_state_id,
+                    first_is_deferring,
+                    second_agent_index,
+                    second_state_id,
+                    second_is_deferring,
+                }),
 
                 _ => SequencePatch::Keep,
             };
@@ -5002,22 +5123,39 @@ impl<
         match sequence_step {
             SequenceStep::NoStep => {}
 
-            SequenceStep::Activity(agent_index, did_change) => {
-                writeln!(stdout, "?o-> A{}", agent_index).unwrap();
-                if did_change {
+            SequenceStep::Received {
+                agent_index,
+                did_change_state,
+                is_activity: true,
+                message_id,
+            } => {
+                let message = self.messages.get(message_id);
+                writeln!(
+                    stdout,
+                    "?o-> A{} : {}",
+                    agent_index,
+                    self.display_sequence_message(&message, true)
+                )
+                .unwrap();
+                if did_change_state {
                     writeln!(stdout, "deactivate A{}", agent_index).unwrap();
-                    sequence_state.has_reactivation_message = false;
                 }
+                sequence_state.has_reactivation_message = !did_change_state;
             }
 
-            SequenceStep::Received(agent_index, did_change, message_id) => {
+            SequenceStep::Received {
+                agent_index,
+                did_change_state,
+                is_activity: false,
+                message_id,
+            } => {
+                let message = self.messages.get(message_id);
                 let first_message_id = self.first_message_id(message_id);
                 let timeline_index = *sequence_state
                     .message_timelines
                     .get(&first_message_id)
                     .unwrap();
 
-                let message = self.messages.get(message_id);
                 let arrow = match message.order {
                     MessageOrder::Immediate => "-[#Crimson]>",
                     MessageOrder::Unordered => "->",
@@ -5035,13 +5173,18 @@ impl<
                 writeln!(stdout, "deactivate T{}", timeline_index).unwrap();
                 sequence_state.message_timelines.remove(&first_message_id);
                 sequence_state.timelines[timeline_index] = None;
-                if did_change {
+                if did_change_state {
                     writeln!(stdout, "deactivate A{}", agent_index).unwrap();
                 }
-                sequence_state.has_reactivation_message = !did_change;
+                sequence_state.has_reactivation_message = !did_change_state;
             }
 
-            SequenceStep::Emitted(agent_index, did_change, message_id, replaced) => {
+            SequenceStep::Emitted {
+                agent_index,
+                did_change_state,
+                message_id,
+                replaced,
+            } => {
                 let timeline_index = match replaced // MAYBE TESTED
                 {
                     Some(replaced_message_id) => {
@@ -5080,20 +5223,20 @@ impl<
                 if replaced.is_none() {
                     writeln!(stdout, "activate T{} #Silver", timeline_index).unwrap();
                 }
-                if did_change {
+                if did_change_state {
                     writeln!(stdout, "deactivate A{}", agent_index).unwrap();
                 }
-                sequence_state.has_reactivation_message = !did_change;
+                sequence_state.has_reactivation_message = !did_change_state;
             }
 
-            SequenceStep::Passed(
+            SequenceStep::Passed {
                 source_index,
-                source_did_change,
+                source_did_change_state,
                 target_index,
-                target_did_change,
+                target_did_change_state,
                 message_id,
                 replaced,
-            ) => {
+            } => {
                 let replaced_timeline_index = replaced.map(|replaced_message_id| {
                     let replaced_first_message_id = self.first_message_id(replaced_message_id);
                     let timeline_index = *sequence_state
@@ -5125,18 +5268,23 @@ impl<
                     writeln!(stdout, "deactivate T{}", timeline_index).unwrap();
                     sequence_state.has_reactivation_message = false;
                 }
-                if source_did_change {
+                if source_did_change_state {
                     writeln!(stdout, "deactivate A{}", source_index).unwrap();
                     sequence_state.has_reactivation_message = false;
                 }
-                if target_did_change {
+                if target_did_change_state {
                     writeln!(stdout, "deactivate A{}", target_index).unwrap();
                     sequence_state.has_reactivation_message = false;
                 }
-                sequence_state.has_reactivation_message = !source_did_change && !target_did_change;
+                sequence_state.has_reactivation_message =
+                    !source_did_change_state && !target_did_change_state;
             }
 
-            SequenceStep::NewState(agent_index, state_id, is_deferring) => {
+            SequenceStep::NewState {
+                agent_index,
+                state_id,
+                is_deferring,
+            } => {
                 self.reactivate(&mut sequence_state, stdout);
                 if is_deferring {
                     writeln!(stdout, "activate A{} #CadetBlue", agent_index).unwrap();
@@ -5148,45 +5296,45 @@ impl<
                 writeln!(stdout, "rnote over A{} : {}", agent_index, agent_state).unwrap();
             }
 
-            SequenceStep::NewStates(
-                last_agent_index,
-                last_state_id,
-                last_is_deferring,
-                next_agent_index,
-                next_state_id,
-                next_is_deferring,
-            ) => {
+            SequenceStep::NewStates {
+                first_agent_index,
+                first_state_id,
+                first_is_deferring,
+                second_agent_index,
+                second_state_id,
+                second_is_deferring,
+            } => {
                 self.reactivate(&mut sequence_state, stdout);
 
-                if last_is_deferring {
+                if first_is_deferring {
                     // BEGIN NOT TESTED
-                    writeln!(stdout, "activate A{} #CadetBlue", last_agent_index).unwrap();
+                    writeln!(stdout, "activate A{} #CadetBlue", first_agent_index).unwrap();
                     // END NOT TESTED
                 } else {
-                    writeln!(stdout, "activate A{} #MediumPurple", last_agent_index).unwrap();
+                    writeln!(stdout, "activate A{} #MediumPurple", first_agent_index).unwrap();
                 }
 
-                if next_is_deferring {
-                    writeln!(stdout, "activate A{} #CadetBlue", next_agent_index).unwrap();
+                if second_is_deferring {
+                    writeln!(stdout, "activate A{} #CadetBlue", second_agent_index).unwrap();
                 } else {
-                    writeln!(stdout, "activate A{} #MediumPurple", next_agent_index).unwrap();
+                    writeln!(stdout, "activate A{} #MediumPurple", second_agent_index).unwrap();
                 }
 
-                let last_agent_type = &self.agent_types[last_agent_index];
-                let last_agent_state = last_agent_type.display_state(last_state_id);
+                let first_agent_type = &self.agent_types[first_agent_index];
+                let first_agent_state = first_agent_type.display_state(first_state_id);
                 writeln!(
                     stdout,
                     "rnote over A{} : {}",
-                    last_agent_index, last_agent_state
+                    first_agent_index, first_agent_state
                 )
                 .unwrap();
 
-                let next_agent_type = &self.agent_types[next_agent_index];
-                let next_agent_state = next_agent_type.display_state(next_state_id);
+                let second_agent_type = &self.agent_types[second_agent_index];
+                let second_agent_state = second_agent_type.display_state(second_state_id);
                 writeln!(
                     stdout,
                     "/ rnote over A{} : {}",
-                    next_agent_index, next_agent_state
+                    second_agent_index, second_agent_state
                 )
                 .unwrap();
             }
@@ -5245,7 +5393,7 @@ impl<
                         agent_index,
                         &from_configuration,
                         &to_configuration,
-                        outgoing.delivered_message_index,
+                        outgoing.delivered_message_id,
                         &mut state_transitions,
                     );
                 });
@@ -5259,7 +5407,7 @@ impl<
         agent_index: usize,
         from_configuration: &<Self as MetaModel>::Configuration,
         to_configuration: &<Self as MetaModel>::Configuration,
-        delivered_message_index: MessageIndex,
+        mut delivered_message_id: MessageId,
         state_transitions: &mut <Self as MetaModel>::AgentStateTransitions,
     ) {
         let agent_type = &self.agent_types[agent_index];
@@ -5291,33 +5439,16 @@ impl<
                 if !self.to_message_kept_in_transition(
                     *to_message_id,
                     &from_configuration,
-                    delivered_message_index,
+                    delivered_message_id,
                 ) {
-                    let message_id = if condense.is_active() {
-                        self.terse_of_message_id.read()[to_message_id.to_usize()]
-                    } else {
-                        *to_message_id
-                    };
+                    let message_id = self.terse_of_message_id.read()[to_message_id.to_usize()];
                     sent_message_ids.push(message_id);
                     sent_message_ids.sort();
                 }
             });
 
-        let mut delivered_message_id = MessageId::invalid();
-        let mut is_delivered_to_us = false;
-        if delivered_message_index.is_valid() {
-            delivered_message_id =
-                from_configuration.message_ids[delivered_message_index.to_usize()];
-            let delivered_message = self.messages.get(delivered_message_id);
-            if delivered_message.target_index == agent_index {
-                is_delivered_to_us = true;
-                if condense.is_active() {
-                    delivered_message_id =
-                        self.terse_of_message_id.read()[delivered_message_id.to_usize()];
-                }
-            }
-        }
-
+        let delivered_message = self.messages.get(delivered_message_id);
+        let is_delivered_to_us = delivered_message.target_index == agent_index;
         if !is_delivered_to_us
             && context.from_state_id == context.to_state_id
             && sent_message_ids.is_empty()
@@ -5340,6 +5471,8 @@ impl<
             .get_mut(&sent_message_ids.to_vec())
             .unwrap();
 
+        delivered_message_id = self.terse_of_message_id.read()[delivered_message_id.to_usize()];
+
         if !delivered_message_ids
             .iter()
             .any(|message_id| *message_id == delivered_message_id)
@@ -5353,12 +5486,12 @@ impl<
         &self,
         to_message_id: MessageId,
         from_configuration: &<Self as MetaModel>::Configuration,
-        delivered_message_index: MessageIndex,
+        delivered_message_id: MessageId,
     ) -> bool {
         if self.message_exists_in_configuration(
             to_message_id,
             from_configuration,
-            Some(delivered_message_index),
+            Some(delivered_message_id),
         ) {
             return true;
         }
@@ -5368,7 +5501,7 @@ impl<
             Some(incr_message_id) => self.message_exists_in_configuration(
                 incr_message_id,
                 from_configuration,
-                Some(delivered_message_index),
+                Some(delivered_message_id),
             ),
         }
     }
@@ -5377,18 +5510,16 @@ impl<
         &self,
         message_id: MessageId,
         configuration: &<Self as MetaModel>::Configuration,
-        exclude_message_index: Option<MessageIndex>,
+        exclude_message_id: Option<MessageId>,
     ) -> bool {
         configuration
             .message_ids
             .iter()
             .take_while(|configuration_message_id| configuration_message_id.is_valid())
-            .enumerate()
-            .filter(|(configuration_message_index, _)| {
-                Some(MessageIndex::from_usize(*configuration_message_index))
-                    != exclude_message_index
+            .filter(|configuration_message_id| {
+                Some(**configuration_message_id) != exclude_message_id
             })
-            .any(|(_, configuration_message_id)| *configuration_message_id == message_id)
+            .any(|configuration_message_id| *configuration_message_id == message_id)
     }
 }
 
@@ -5626,27 +5757,12 @@ impl<
                         .unwrap();
 
                         outgoings.read().iter().for_each(|outgoing| {
-                            let event_label = if outgoing.delivered_message_index.is_valid() {
-                                self.event_label(
-                                    usize::max_value(),
-                                    Some(
-                                        from_configuration.message_ids
-                                            [outgoing.delivered_message_index.to_usize()],
-                                    ),
-                                )
-                            } else {
-                                let agent_index =
-                                    self.agent_index_of_outgoing(&from_configuration, &outgoing);
-                                self.event_label(agent_index, None)
-                            };
-
-                            writeln!(
-                                stdout,
-                                "- BY {}\n  TO {}",
-                                event_label,
-                                self.display_configuration_id(outgoing.to_configuration_id)
-                            )
-                            .unwrap();
+                            let delivered_label =
+                                self.display_message_id(outgoing.delivered_message_id);
+                            let to_label =
+                                self.display_configuration_id(outgoing.to_configuration_id);
+                            writeln!(stdout, "- BY {}\n  TO {}", delivered_label, to_label,)
+                                .unwrap();
                         });
                     });
                 true
@@ -5724,7 +5840,7 @@ impl<
                     .unwrap_or_else(|| panic!("unknown agent {}", agent_label));
 
                 self.do_compute(arg_matches);
-                self.print_agent_states_diagram(&condense, agent_index, stdout);
+                self.print_states_diagram(&condense, agent_index, stdout);
 
                 true
             }

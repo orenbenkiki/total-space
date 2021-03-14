@@ -18,6 +18,8 @@ declare_global_agent_index! {SERVER}
 // BEGIN MAYBE TESTED
 #[derive(PartialEq, Eq, Hash, Copy, Clone, Debug, IntoStaticStr)]
 enum Payload {
+    Need,
+    Completed,
     Request { client: usize },
     Response,
 }
@@ -47,18 +49,19 @@ impl_data_like! {
 impl Validated for ClientState {}
 
 impl AgentState<ClientState, Payload> for ClientState {
-    fn activity(&self, instance: usize) -> Reaction<Self, Payload> {
+    fn activity(&self, _instance: usize) -> Activity<Payload> {
         match self {
-            Self::Wait => Reaction::Ignore,
-            Self::Idle => Reaction::Do1(Action::ChangeAndSend1(
-                Self::Wait,
-                Emit::Unordered(Payload::Request { client: instance }, agent_index!(SERVER)),
-            )),
+            Self::Wait => Activity::Passive,
+            Self::Idle => Activity::Process1(Payload::Need),
         }
     }
 
-    fn receive_message(&self, _instance: usize, payload: &Payload) -> Reaction<Self, Payload> {
+    fn receive_message(&self, instance: usize, payload: &Payload) -> Reaction<Self, Payload> {
         match (self, payload) {
+            (Self::Idle, Payload::Need) => Reaction::Do1(Action::ChangeAndSend1(
+                Self::Wait,
+                Emit::Unordered(Payload::Request { client: instance }, agent_index!(SERVER)),
+            )),
             (Self::Wait, Payload::Response) => Reaction::Do1(Action::Change(Self::Idle)),
             _ => Reaction::Unexpected, // NOT TESTED
         }
@@ -86,13 +89,10 @@ impl_data_like! {
 impl Validated for ServerState {}
 
 impl AgentState<ServerState, Payload> for ServerState {
-    fn activity(&self, _instance: usize) -> Reaction<Self, Payload> {
+    fn activity(&self, _instance: usize) -> Activity<Payload> {
         match self {
-            Self::Listen => Reaction::Ignore,
-            Self::Work { client } => Reaction::Do1(Action::ChangeAndSend1(
-                Self::Listen,
-                Emit::Unordered(Payload::Response, agent_index!(CLIENTS[*client])),
-            )),
+            Self::Listen => Activity::Passive,
+            Self::Work { .. } => Activity::Process1(Payload::Completed),
         }
     }
 
@@ -101,13 +101,17 @@ impl AgentState<ServerState, Payload> for ServerState {
             (Self::Listen, Payload::Request { client }) => {
                 Reaction::Do1(Action::Change(Self::Work { client: *client }))
             }
-            (Self::Work { client: _ }, Payload::Request { client: _ }) => Reaction::Defer,
+            (Self::Work { client }, Payload::Completed) => Reaction::Do1(Action::ChangeAndSend1(
+                Self::Listen,
+                Emit::Unordered(Payload::Response, agent_index!(CLIENTS[*client])),
+            )),
+            (Self::Work { .. }, Payload::Request { .. }) => Reaction::Defer,
             _ => Reaction::Unexpected, // NOT TESTED
         }
     }
 
     fn is_deferring(&self) -> bool {
-        matches!(self, &Self::Work { client: _ })
+        matches!(self, &Self::Work { .. })
     }
 
     fn max_in_flight_messages(&self) -> Option<usize> {

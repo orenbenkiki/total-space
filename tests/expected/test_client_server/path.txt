@@ -1,25 +1,25 @@
 INIT C:IDL & S:LST
-BY C activity
+BY Activity -> Need -> C
 2MSG C:WAT & S:LST | C -> REQ -> S & C -> * PNG -> S
-BY message C -> * PNG -> S
+BY C -> * PNG -> S
 TO C:WAT & S:LST | C -> REQ -> S
-BY message C -> REQ -> S
+BY C -> REQ -> S
 TO C:WAT & S:WRK
-BY S activity
+BY Activity -> Completed -> S
 TO C:WAT & S:LST | S -> RSP -> C
-BY message S -> RSP -> C
+BY S -> RSP -> C
 INIT C:IDL & S:LST
-BY C activity
+BY Activity -> Worry -> C
 TO C:IDL & S:LST | C -> PNG -> S
-BY C activity
+BY Activity -> Worry -> C
 UNORDERED_REPLACEMENT C:IDL & S:LST | C -> PNG => PNG -> S
-BY C activity
+BY Activity -> Need -> C
 IMMEDIATE_REPLACEMENT C:WAT & S:LST | C -> REQ -> S & C -> * PNG => PNG -> S
-BY message C -> * PNG => PNG -> S
+BY C -> * PNG => PNG -> S
 TO C:WAT & S:LST | C -> REQ -> S
-BY message C -> REQ -> S
+BY C -> REQ -> S
 TO C:WAT & S:WRK
-BY S activity
+BY Activity -> Completed -> S
 TO C:WAT & S:LST | S -> RSP -> C
-BY message S -> RSP -> C
+BY S -> RSP -> C
 INIT C:IDL & S:LST

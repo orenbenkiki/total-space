@@ -1,15 +1,15 @@
 1MSG C(0):WAT & C(1):IDL & SRV:LST | C(0) -> REQ(C=0) -> SRV
-BY C(1) activity
+BY Activity -> Need -> C(1)
 TO C(0):WAT & C(1):WAT & SRV:LST | C(0) -> REQ(C=0) -> SRV & C(1) -> REQ(C=1) -> SRV
-BY message C(0) -> REQ(C=0) -> SRV
+BY C(0) -> REQ(C=0) -> SRV
 1MSG C(0):WAT & C(1):WAT & SRV:WRK(C=0) | C(1) -> REQ(C=1) -> SRV
-BY SRV activity
+BY Activity -> Completed -> SRV
 2MSG C(0):WAT & C(1):WAT & SRV:LST | C(1) -> REQ(C=1) -> SRV & SRV -> RSP -> C(0)
-BY message C(1) -> REQ(C=1) -> SRV
+BY C(1) -> REQ(C=1) -> SRV
 TO C(0):WAT & C(1):WAT & SRV:WRK(C=1) | SRV -> RSP -> C(0)
-BY SRV activity
+BY Activity -> Completed -> SRV
 TO C(0):WAT & C(1):WAT & SRV:LST | SRV -> RSP -> C(1) & SRV -> RSP -> C(0)
-BY message SRV -> RSP -> C(1)
+BY SRV -> RSP -> C(1)
 TO C(0):WAT & C(1):IDL & SRV:LST | SRV -> RSP -> C(0)
-BY message SRV -> RSP -> C(0)
+BY SRV -> RSP -> C(0)
 INIT C(0):IDL & C(1):IDL & SRV:LST

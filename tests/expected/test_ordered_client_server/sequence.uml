@@ -16,7 +16,7 @@ participant "Server" as A1 order 10200
 activate A1 #CadetBlue
 rnote over A0 : Idle
 / rnote over A1 : Listen
-?o-> A0
+?o-> A0 : Need
 deactivate A0
 control " " as T0 order 10101
 A0 -[#Blue]> T0 : Request(1)
@@ -27,7 +27,7 @@ autonumber stop
 autonumber resume
 activate A0 #MediumPurple
 rnote over A0 : Wait(1)
-?o-> A0
+?o-> A0 : Need
 deactivate A0
 T0 -[#Blue]> A1 : Request(1)
 deactivate T0
@@ -42,7 +42,7 @@ activate A0 #MediumPurple
 activate A1 #CadetBlue
 rnote over A0 : Wait(3)
 / rnote over A1 : Work(1)
-?o-> A1
+?o-> A1 : Completed
 deactivate A1
 control " " as T1 order 10199
 A1 -[#Blue]> T1 : Response(1)
@@ -61,7 +61,7 @@ autonumber stop
 autonumber resume
 activate A1 #CadetBlue
 rnote over A1 : Work(2)
-?o-> A1
+?o-> A1 : Completed
 deactivate A1
 T1 -[#Blue]> A0 : Response(1)
 deactivate T1

@@ -18,6 +18,9 @@ declare_global_agent_index! {SERVER}
 // BEGIN MAYBE TESTED
 #[derive(PartialEq, Eq, Hash, Copy, Clone, Debug, IntoStaticStr)]
 enum Payload {
+    Need,
+    Worry,
+    Completed,
     Ping,
     Request,
     Response,
@@ -52,26 +55,23 @@ fn is_maybe_ping(payload: Option<Payload>) -> bool {
 }
 
 impl AgentState<ClientState, Payload> for ClientState {
-    fn activity(&self, _instance: usize) -> Reaction<Self, Payload> {
+    fn activity(&self, _instance: usize) -> Activity<Payload> {
         match self {
-            Self::Wait => Reaction::Ignore,
-            Self::Idle => Reaction::Do1Of2(
-                Action::ChangeAndSend2(
-                    Self::Wait,
-                    Emit::Unordered(Payload::Request, agent_index!(SERVER)),
-                    Emit::ImmediateReplacement(is_maybe_ping, Payload::Ping, agent_index!(SERVER)),
-                ),
-                Action::Send1(Emit::UnorderedReplacement(
-                    is_maybe_ping,
-                    Payload::Ping,
-                    agent_index!(SERVER),
-                )),
-            ),
+            Self::Wait => Activity::Passive,
+            Self::Idle => Activity::Process1Of2(Payload::Need, Payload::Worry),
         }
     }
 
     fn receive_message(&self, _instance: usize, payload: &Payload) -> Reaction<Self, Payload> {
         match (self, payload) {
+            (Self::Idle, Payload::Need) => Reaction::Do1(Action::ChangeAndSend2(
+                Self::Wait,
+                Emit::Unordered(Payload::Request, agent_index!(SERVER)),
+                Emit::ImmediateReplacement(is_maybe_ping, Payload::Ping, agent_index!(SERVER)),
+            )),
+            (Self::Idle, Payload::Worry) => Reaction::Do1(Action::Send1(
+                Emit::UnorderedReplacement(is_maybe_ping, Payload::Ping, agent_index!(SERVER)),
+            )),
             (Self::Wait, Payload::Response) => Reaction::Do1(Action::Change(Self::Idle)),
             _ => Reaction::Unexpected, // NOT TESTED
         }
@@ -94,13 +94,10 @@ impl_data_like! { ServerState = Self::Listen, "Listen" => "LST", "Work" => "WRK"
 impl Validated for ServerState {}
 
 impl AgentState<ServerState, Payload> for ServerState {
-    fn activity(&self, _instance: usize) -> Reaction<Self, Payload> {
+    fn activity(&self, _instance: usize) -> Activity<Payload> {
         match self {
-            Self::Listen => Reaction::Ignore,
-            Self::Work => Reaction::Do1(Action::ChangeAndSend1(
-                Self::Listen,
-                Emit::Unordered(Payload::Response, agent_index!(CLIENT)),
-            )),
+            Self::Listen => Activity::Passive,
+            Self::Work => Activity::Process1(Payload::Completed),
         }
     }
 
@@ -108,6 +105,10 @@ impl AgentState<ServerState, Payload> for ServerState {
         match (self, payload) {
             (_, Payload::Ping) => Reaction::Ignore,
             (Self::Listen, Payload::Request) => Reaction::Do1(Action::Change(Self::Work)),
+            (Self::Work, Payload::Completed) => Reaction::Do1(Action::ChangeAndSend1(
+                Self::Listen,
+                Emit::Unordered(Payload::Response, agent_index!(CLIENT)),
+            )),
             (Self::Work, Payload::Request) => Reaction::Defer, // NOT TESTED
             _ => Reaction::Unexpected,                         // NOT TESTED
         }
