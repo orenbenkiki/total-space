@@ -832,11 +832,11 @@ impl<State: DataLike, StateId: IndexLike, Payload: DataLike>
             Reaction::Ignore => Reaction::Ignore,
             Reaction::Defer => Reaction::Defer,
             Reaction::Do1(action) => Reaction::Do1(self.translate_action(action)),
+            // BEGIN NOT TESTED
             Reaction::Do1Of2(action1, action2) => Reaction::Do1Of2(
                 self.translate_action(action1),
                 self.translate_action(action2),
             ),
-            // BEGIN NOT TESTED
             Reaction::Do1Of3(action1, action2, action3) => Reaction::Do1Of3(
                 self.translate_action(action1),
                 self.translate_action(action2),
@@ -2547,6 +2547,7 @@ impl<
     ) {
         let configuration = self.configurations.get(configuration_id);
         if self.print_progress_every > 0
+            && configuration_id.to_usize() > 0
             && configuration_id.to_usize() % self.print_progress_every == 0
         {
             eprintln!(
@@ -2608,6 +2609,7 @@ impl<
         let agent_instance = self.agent_instance(agent_index);
         match agent_type.activity(agent_instance, &from_configuration.state_ids) {
             Activity::Passive => {}
+
             Activity::Process1(payload1) => {
                 self.activity_message(
                     parallel_scope,
@@ -2617,6 +2619,7 @@ impl<
                     payload1,
                 );
             }
+
             Activity::Process1Of2(payload1, payload2) => {
                 self.activity_message(
                     parallel_scope,
@@ -2633,6 +2636,8 @@ impl<
                     payload2,
                 );
             }
+
+            // BEGIN NOT TESTED
             Activity::Process1Of3(payload1, payload2, payload3) => {
                 self.activity_message(
                     parallel_scope,
@@ -2656,6 +2661,7 @@ impl<
                     payload3,
                 );
             }
+
             Activity::Process1Of4(payload1, payload2, payload3, payload4) => {
                 self.activity_message(
                     parallel_scope,
@@ -2685,7 +2691,7 @@ impl<
                     agent_index,
                     payload4,
                 );
-            }
+            } // END NOT TESTED
         }
     }
 
@@ -2780,18 +2786,19 @@ impl<
         context: <Self as MetaModel>::Context,
         reaction: <Self as MetaModel>::Reaction,
     ) {
-        match reaction {
+        match reaction // MAYBE TESTED
+        {
             Reaction::Unexpected => self.unexpected_message(context), // MAYBE TESTED
             Reaction::Defer => self.defer_message(context),
             Reaction::Ignore => self.ignore_message(parallel_scope, context),
             Reaction::Do1(action1) => self.perform_action(parallel_scope, context, action1),
 
+            // BEGIN NOT TESTED
             Reaction::Do1Of2(action1, action2) => {
                 self.perform_action(parallel_scope, context.clone(), action1);
                 self.perform_action(parallel_scope, context, action2);
             }
 
-            // BEGIN NOT TESTED
             Reaction::Do1Of3(action1, action2, action3) => {
                 self.perform_action(parallel_scope, context.clone(), action1);
                 self.perform_action(parallel_scope, context.clone(), action2);
@@ -4027,7 +4034,7 @@ impl<
             } else if condense.names_only {
                 Some(message.replaced.unwrap().name())
             } else {
-                Some(message.replaced.unwrap().to_string()) // NOT TESTED
+                Some(message.replaced.unwrap().to_string())
             };
 
             let order = if condense.final_replaced {
@@ -4431,20 +4438,6 @@ impl<
         }
 
         let mut message_id = message_id.unwrap();
-
-        if !message_id.is_valid() {
-            writeln!(
-                stdout,
-                "{}_{}_{}_{} [ label=\"Activity\", shape=plain ];",
-                prefix,
-                state_transition_index,
-                alternative_index.unwrap_or(usize::max_value()),
-                message_id.to_usize()
-            )
-            .unwrap();
-            return;
-        }
-
         write!(
             stdout,
             "{}_{}_{}_{} [ label=\"",
@@ -4456,7 +4449,6 @@ impl<
         .unwrap();
 
         message_id = self.message_of_terse_id.read()[message_id.to_usize()];
-
         let message = self.messages.get(message_id);
         if prefix == "D" {
             let source = if message.source_index == usize::max_value() {
@@ -4541,7 +4533,7 @@ impl<
         let show_message_id = if from_message_id.is_valid() {
             self.message_of_terse_id.read()[from_message_id.to_usize()]
         } else {
-            from_message_id
+            from_message_id // NOT TESTED
         };
 
         let color = if !condense.final_replaced && show_message_id.is_valid() {
@@ -4617,7 +4609,7 @@ impl<
         let show_message_id = if to_message_id.is_valid() {
             self.message_of_terse_id.read()[to_message_id.to_usize()]
         } else {
-            to_message_id
+            to_message_id // NOT TESTED
         };
 
         let color = if !condense.final_replaced && show_message_id.is_valid() {
@@ -4627,7 +4619,7 @@ impl<
                 MessageOrder::Immediate => "Crimson",
             }
         } else {
-            "Black" // NOT TESTED
+            "Black"
         };
 
         writeln!(
@@ -5343,7 +5335,7 @@ impl<
     ) {
         if !sequence_state.has_reactivation_message {
             writeln!(stdout, "autonumber stop").unwrap();
-            writeln!(stdout, "[-[#White]\\ A0").unwrap();
+            writeln!(stdout, "[<[#White]-- A0").unwrap();
             writeln!(stdout, "autonumber resume").unwrap();
             sequence_state.has_reactivation_message = true;
         }

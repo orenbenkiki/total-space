@@ -20,7 +20,7 @@ rnote over A0 : IDL
 / rnote over A1 : IDL
 / rnote over A2 : LST
 autonumber stop
-[-[#White]\ A0
+[<[#White]-- A0
 autonumber resume
 deactivate A0
 note over A0 : Need
@@ -30,7 +30,7 @@ activate T0 #Silver
 activate A0 #MediumPurple
 rnote over A0 : WAT
 autonumber stop
-[-[#White]\ A0
+[<[#White]-- A0
 autonumber resume
 deactivate A1
 note over A1 : Need
@@ -45,7 +45,7 @@ activate A2 #CadetBlue
 rnote over A1 : WAT
 / rnote over A2 : WRK(C=0)
 autonumber stop
-[-[#White]\ A0
+[<[#White]-- A0
 autonumber resume
 deactivate A2
 note over A2 : Completed
@@ -58,19 +58,19 @@ T1 -> A2 : REQ(C=1)
 deactivate T1
 deactivate A2
 autonumber stop
-[-[#White]\ A0
+[<[#White]-- A0
 autonumber resume
 activate A2 #CadetBlue
 rnote over A2 : WRK(C=1)
 autonumber stop
-[-[#White]\ A0
+[<[#White]-- A0
 autonumber resume
 deactivate A2
 note over A2 : Completed
 A2 -> A1 : RSP
 deactivate A1
 autonumber stop
-[-[#White]\ A0
+[<[#White]-- A0
 autonumber resume
 activate A2 #MediumPurple
 activate A1 #MediumPurple
@@ -80,12 +80,12 @@ T2 -> A0 : RSP
 deactivate T2
 deactivate A0
 autonumber stop
-[-[#White]\ A0
+[<[#White]-- A0
 autonumber resume
 activate A0 #MediumPurple
 rnote over A0 : IDL
 autonumber stop
-[-[#White]\ A0
+[<[#White]-- A0
 autonumber resume
 deactivate A0
 deactivate A1

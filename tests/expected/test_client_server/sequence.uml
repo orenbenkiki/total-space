@@ -17,7 +17,7 @@ activate A1 #CadetBlue
 rnote over A0 : IDL
 / rnote over A1 : LST
 autonumber stop
-[-[#White]\ A0
+[<[#White]-- A0
 autonumber resume
 deactivate A0
 note over A0 : Need
@@ -25,21 +25,21 @@ A0 -[#Crimson]> A1 : PNG
 A0 -> A1 : REQ
 deactivate A1
 autonumber stop
-[-[#White]\ A0
+[<[#White]-- A0
 autonumber resume
 activate A0 #MediumPurple
 activate A1 #CadetBlue
 rnote over A0 : WAT
 / rnote over A1 : WRK
 autonumber stop
-[-[#White]\ A0
+[<[#White]-- A0
 autonumber resume
 deactivate A1
 note over A1 : Completed
 A1 -> A0 : RSP
 deactivate A0
 autonumber stop
-[-[#White]\ A0
+[<[#White]-- A0
 autonumber resume
 activate A1 #MediumPurple
 activate A0 #MediumPurple
@@ -52,7 +52,7 @@ activate T0 #Silver
 note over A0 : Worry
 A0 -> T0 : &#8658; PNG
 autonumber stop
-[-[#White]\ A0
+[<[#White]-- A0
 autonumber resume
 deactivate A0
 note over A0 : Need
@@ -61,28 +61,28 @@ deactivate T0
 A0 -> A1 : REQ
 deactivate A1
 autonumber stop
-[-[#White]\ A0
+[<[#White]-- A0
 autonumber resume
 activate A0 #MediumPurple
 activate A1 #CadetBlue
 rnote over A0 : WAT
 / rnote over A1 : WRK
 autonumber stop
-[-[#White]\ A0
+[<[#White]-- A0
 autonumber resume
 deactivate A1
 note over A1 : Completed
 A1 -> A0 : RSP
 deactivate A0
 autonumber stop
-[-[#White]\ A0
+[<[#White]-- A0
 autonumber resume
 activate A1 #MediumPurple
 activate A0 #MediumPurple
 rnote over A1 : LST
 / rnote over A0 : IDL
 autonumber stop
-[-[#White]\ A0
+[<[#White]-- A0
 autonumber resume
 deactivate A0
 deactivate A1

@@ -17,7 +17,7 @@ activate A1 #CadetBlue
 rnote over A0 : Idle
 / rnote over A1 : Listen
 autonumber stop
-[-[#White]\ A0
+[<[#White]-- A0
 autonumber resume
 deactivate A0
 note over A0 : Need
@@ -27,7 +27,7 @@ activate T0 #Silver
 activate A0 #MediumPurple
 rnote over A0 : Wait(1)
 autonumber stop
-[-[#White]\ A0
+[<[#White]-- A0
 autonumber resume
 deactivate A0
 note over A0 : Need
@@ -41,7 +41,7 @@ activate A1 #CadetBlue
 rnote over A0 : Wait(3)
 / rnote over A1 : Work(1)
 autonumber stop
-[-[#White]\ A0
+[<[#White]-- A0
 autonumber resume
 deactivate A1
 note over A1 : Completed
@@ -54,12 +54,12 @@ T0 -[#Blue]> A1 : Request(2)
 deactivate T0
 deactivate A1
 autonumber stop
-[-[#White]\ A0
+[<[#White]-- A0
 autonumber resume
 activate A1 #CadetBlue
 rnote over A1 : Work(2)
 autonumber stop
-[-[#White]\ A0
+[<[#White]-- A0
 autonumber resume
 deactivate A1
 note over A1 : Completed
@@ -76,12 +76,12 @@ T1 -[#Blue]> A0 : Response(2)
 deactivate T1
 deactivate A0
 autonumber stop
-[-[#White]\ A0
+[<[#White]-- A0
 autonumber resume
 activate A0 #MediumPurple
 rnote over A0 : Idle
 autonumber stop
-[-[#White]\ A0
+[<[#White]-- A0
 autonumber resume
 deactivate A0
 deactivate A1
