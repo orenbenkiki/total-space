@@ -47,4 +47,4 @@ slow:
 TODO = todox  # ALLOW TODOX
 
 $(TODO):
-	(cargo fmt && cargo test $(TODO) -- --test-threads 1 --nocapture) 2>&1 | tee junk
+	(cargo fmt && RUST_BACKTRACE=1 cargo test $(TODO) -- --test-threads 1 --nocapture) 2>&1 | tee junk

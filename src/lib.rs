@@ -2466,6 +2466,16 @@ impl<
             &mut agent_labels,
         );
 
+        let outgoings = RwLock::new(Vec::new());
+        let incomings = RwLock::new(Vec::new());
+
+        outgoings
+            .write()
+            .resize_with(size, || RwLock::new(Vec::new()));
+        incomings
+            .write()
+            .resize_with(size, || RwLock::new(Vec::new()));
+
         let model = Self {
             agent_types,
             agent_labels,
@@ -2490,8 +2500,8 @@ impl<
                 InvalidId::invalid().to_usize(),
                 InvalidId::invalid().to_usize(),
             ),
-            outgoings: RwLock::new(Vec::new()),
-            incomings: RwLock::new(Vec::new()),
+            outgoings,
+            incomings,
             max_message_string_size: RwLock::new(0),
             max_invalid_string_size: RwLock::new(0),
             max_configuration_string_size: RwLock::new(0),
