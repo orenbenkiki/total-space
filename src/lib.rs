@@ -323,11 +323,6 @@ impl<T: KeyLike + Default, I: IndexLike> Memoize<T, I> {
         self.len() == 0
     }
 
-    /// Given a value, look it up in the memory.
-    pub fn lookup(&self, value: &T) -> Option<I> {
-        self.id_by_value.read(value, |_value, id| *id)
-    }
-
     /// Given a value that may or may not exist in the memory, ensure it exists it and return its
     /// short identifier.
     pub fn store(&self, value: T) -> Stored<I> {
@@ -632,7 +627,7 @@ pub struct AgentTypeData<State: DataLike, StateId: IndexLike, Payload: DataLike>
     name_of_terse: RwLock<Vec<String>>,
 
     /// The order of each instance (for sequence diagrams).
-    instance_orders: Vec<usize>,
+    order_of_instances: Vec<usize>,
 
     /// The previous agent type in the chain.
     prev_agent_type: Option<Arc<dyn AgentType<StateId, Payload> + Send + Sync>>,
@@ -706,11 +701,11 @@ impl<State: DataLike, StateId: IndexLike, Payload: DataLike>
         let states = Memoize::new(StateId::invalid().to_usize(), StateId::invalid().to_usize());
         states.store(default_state);
 
-        let instance_orders = vec![0; count];
+        let order_of_instances = vec![0; count];
 
         Self {
             name,
-            instance_orders,
+            order_of_instances,
             is_singleton,
             terse_of_state: RwLock::new(vec![]),
             name_of_terse: RwLock::new(vec![]),
@@ -723,8 +718,23 @@ impl<State: DataLike, StateId: IndexLike, Payload: DataLike>
         }
     }
 
+    // BEGIN NOT TESTED
+
+    /// Set the horizontal order of an instance of the agent in a sequence diagram.
+    pub fn set_order(&mut self, instance: usize, order: usize) {
+        assert!(
+            instance < self.instances_count(),
+            "instance: {} count: {}",
+            instance,
+            self.instances_count()
+        );
+        self.order_of_instances[instance] = order;
+    }
+
+    // END NOT TESTED
+
     /// Compute mapping between full and terse state identifiers.
-    pub fn impl_compute_terse(&self) {
+    fn impl_compute_terse(&self) {
         let mut terse_of_state = self.terse_of_state.write();
         let mut name_of_terse = self.name_of_terse.write();
 
@@ -1034,11 +1044,11 @@ impl<State: DataLike, StateId: IndexLike, Payload: DataLike> AgentInstances<Stat
     }
 
     fn instances_count(&self) -> usize {
-        self.instance_orders.len()
+        self.order_of_instances.len()
     }
 
     fn instance_order(&self, instance: usize) -> usize {
-        self.instance_orders[instance]
+        self.order_of_instances[instance]
     }
 
     fn display_state(&self, state_id: StateId) -> String {
@@ -1240,6 +1250,15 @@ impl<
 
         parts
     }
+
+    // BEGIN NOT TESTED
+
+    /// Set the horizontal order of an instance of the agent in a sequence diagram.
+    pub fn set_order(&mut self, instance: usize, order: usize) {
+        self.agent_type_data.set_order(instance, order);
+    }
+
+    // END NOT TESTED
 }
 
 // BEGIN NOT TESTED
@@ -1268,6 +1287,11 @@ impl<
         });
 
         (parts1, parts2)
+    }
+
+    /// Set the horizontal order of an instance of the agent in a sequence diagram.
+    pub fn set_order(&mut self, instance: usize, order: usize) {
+        self.agent_type_data.set_order(instance, order);
     }
 }
 // END NOT TESTED
@@ -1565,21 +1589,21 @@ pub struct Message<Payload: DataLike> {
 
 /// A message in-flight between agents, considering only names.
 #[derive(PartialEq, Eq, PartialOrd, Ord, Hash, Clone, Debug)]
-pub struct TerseMessage {
+struct TerseMessage {
     /// The terse message order.
-    pub order: MessageOrder,
+    order: MessageOrder,
 
     /// The source agent index.
-    pub source_index: usize,
+    source_index: usize,
 
     /// The target agent index.
-    pub target_index: usize,
+    target_index: usize,
 
     /// The actual payload (name only).
-    pub payload: String,
+    payload: String,
 
     /// The replaced message, if any (name only).
-    pub replaced: Option<String>,
+    replaced: Option<String>,
 }
 
 impl<Payload: DataLike> Default for Message<Payload> {
@@ -1758,28 +1782,28 @@ impl<
 
 /// A transition from a given configuration.
 #[derive(Copy, Clone, Debug)]
-pub struct Outgoing<MessageId: IndexLike, ConfigurationId: IndexLike> {
+struct Outgoing<MessageId: IndexLike, ConfigurationId: IndexLike> {
     /// The identifier of the target configuration.
-    pub to_configuration_id: ConfigurationId,
+    to_configuration_id: ConfigurationId,
 
     /// The identifier of the message that was delivered to its target agent to reach the target
     /// configuration.
-    pub delivered_message_id: MessageId,
+    delivered_message_id: MessageId,
 }
 
 /// A transition to a given configuration.
 #[derive(Copy, Clone, Debug)]
-pub struct Incoming<MessageId: IndexLike, ConfigurationId: IndexLike> {
+struct Incoming<MessageId: IndexLike, ConfigurationId: IndexLike> {
     /// The identifier of the source configuration.
-    pub from_configuration_id: ConfigurationId,
+    from_configuration_id: ConfigurationId,
 
     /// The identifier of the message that was delivered to its target agent to reach the target
     /// configuration.
-    pub delivered_message_id: MessageId,
+    delivered_message_id: MessageId,
 }
 
 /// Specify the number of threads to use.
-pub enum Threads {
+enum Threads {
     /// Use all the logical processors.
     Logical,
 
@@ -1792,7 +1816,7 @@ pub enum Threads {
 
 impl Threads {
     /// Get the actual number of threads to use.
-    pub fn count(&self) -> usize {
+    fn count(&self) -> usize {
         match self {
             Threads::Logical => num_cpus::get(),
             Threads::Physical => num_cpus::get_physical(),
@@ -1812,112 +1836,80 @@ pub struct Model<
     const MAX_MESSAGES: usize,
 > {
     /// The type of each agent.
-    pub agent_types: Vec<<Self as MetaModel>::AgentTypeArc>,
+    agent_types: Vec<<Self as MetaModel>::AgentTypeArc>,
 
     /// The label of each agent.
-    pub agent_labels: Vec<Arc<String>>,
+    agent_labels: Vec<Arc<String>>,
 
     /// The first index of the same type of each agent.
-    pub first_indices: Vec<usize>,
+    first_indices: Vec<usize>,
 
     /// Validation functions for the configuration.
-    pub validators: Vec<<Self as MetaModel>::Validator>,
+    validators: Vec<<Self as MetaModel>::Validator>,
 
     /// Memoization of the configurations.
-    pub configurations: Memoize<<Self as MetaModel>::Configuration, ConfigurationId>,
+    configurations: Memoize<<Self as MetaModel>::Configuration, ConfigurationId>,
 
     /// Memoization of the in-flight messages.
-    pub messages: Memoize<Message<Payload>, MessageId>,
+    messages: Memoize<Message<Payload>, MessageId>,
 
     /// Map the full message identifier to the terse message identifier.
-    pub terse_of_message_id: RwLock<Vec<MessageId>>,
+    terse_of_message_id: RwLock<Vec<MessageId>>,
 
     /// Map the terse message identifier to the full message identifier.
-    pub message_of_terse_id: RwLock<Vec<MessageId>>,
+    message_of_terse_id: RwLock<Vec<MessageId>>,
 
     /// Map ordered message identifiers to their smaller order.
-    pub decr_order_messages: SccHashMap<MessageId, MessageId, RandomState>,
+    decr_order_messages: SccHashMap<MessageId, MessageId, RandomState>,
 
     /// Map ordered message identifiers to their larger order.
-    pub incr_order_messages: SccHashMap<MessageId, MessageId, RandomState>,
+    incr_order_messages: SccHashMap<MessageId, MessageId, RandomState>,
 
     /// Memoization of the invalid conditions.
-    pub invalids: Memoize<<Self as MetaModel>::Invalid, InvalidId>,
+    invalids: Memoize<<Self as MetaModel>::Invalid, InvalidId>,
 
     /// For each configuration, which configuration is reachable from it.
-    pub outgoings: RwLock<Vec<RwLock<Vec<<Self as MetaModel>::Outgoing>>>>,
+    outgoings: RwLock<Vec<RwLock<Vec<<Self as ModelTypes>::Outgoing>>>>,
 
     /// For each configuration, which configuration can reach it.
-    pub incomings: RwLock<Vec<RwLock<Vec<<Self as MetaModel>::Incoming>>>>,
+    incomings: RwLock<Vec<RwLock<Vec<<Self as ModelTypes>::Incoming>>>>,
 
     /// The maximal message string size we have seen so far.
-    pub max_message_string_size: RwLock<usize>,
+    max_message_string_size: RwLock<usize>,
 
     /// The maximal invalid condition string size we have seen so far.
-    pub max_invalid_string_size: RwLock<usize>,
+    max_invalid_string_size: RwLock<usize>,
 
     /// The maximal configuration string size we have seen so far.
-    pub max_configuration_string_size: RwLock<usize>,
+    max_configuration_string_size: RwLock<usize>,
 
     /// Whether to print each new configuration as we reach it.
-    pub print_progress_every: usize,
+    print_progress_every: usize,
 
     /// Whether we'll be testing if the initial configuration is reachable from every configuration.
-    pub ensure_init_is_reachable: bool,
+    ensure_init_is_reachable: bool,
 
     /// A step that, if reached, we can abort the computation.
-    pub early_abort_step: Option<PathStep<Self>>,
+    early_abort_step: Option<PathStep<Self>>,
 
     /// Whether we have actually reached the early abort step so can stop computing.
-    pub early_abort: RwLock<bool>,
+    early_abort: RwLock<bool>,
 
     /// Whether to allow for invalid configurations.
-    pub allow_invalid_configurations: bool,
+    allow_invalid_configurations: bool,
 
     /// The number of threads to use for computing the model's configurations.
     ///
     /// If zero, uses all the available processors.
-    pub threads: Threads,
+    threads: Threads,
 
     /// Named conditions on a configuration.
-    pub conditions: SccHashMap<String, (<Self as MetaModel>::Condition, &'static str), RandomState>,
-}
-
-/// How a message relates to the previous configuration.
-#[derive(PartialEq, Eq, Copy, Clone, Debug)]
-pub enum PrevMessage {
-    /// Not applicable.
-    NotApplicable,
-
-    /// The message is newly sent and did not exist in the previous configuration.
-    NotThere,
-
-    /// The message existed in the previous configuration in some index (possibly with a different order).
-    Kept(usize),
-
-    /// The message replaced another message in the previous configuration in some index.
-    Replaced(usize),
-}
-
-/// How a message relates to the next configuration.
-#[derive(PartialEq, Eq, Copy, Clone, Debug)]
-pub enum NextMessage {
-    /// Not applicable.
-    NotApplicable,
-
-    /// The message will be delivered to reach the next configuration.
-    Delivered,
-
-    /// The message will existed in the next configuration in some index (possibly with a different order).
-    Kept(usize),
-
-    /// The message will be replaced by another message in the next configuration in some index.
-    Replaced(usize),
+    conditions: SccHashMap<String, (<Self as MetaModel>::Condition, &'static str), RandomState>,
 }
 
 /// The additional control timelines associated with a specific agent.
 #[derive(Clone, Debug)]
-pub struct AgentTimelines {
+struct AgentTimelines {
     /// The indices of the control timelines to the left of the agent, ordered from closer to
     /// further.
     left: Vec<usize>,
@@ -1929,23 +1921,23 @@ pub struct AgentTimelines {
 
 /// The current state of a sequence diagram.
 #[derive(Clone, Debug)]
-pub struct SequenceState<MessageId: IndexLike, const MAX_AGENTS: usize, const MAX_MESSAGES: usize> {
+struct SequenceState<MessageId: IndexLike, const MAX_AGENTS: usize, const MAX_MESSAGES: usize> {
     /// For each timeline, the message it contains.
-    pub timelines: Vec<Option<MessageId>>,
+    timelines: Vec<Option<MessageId>>,
 
     /// For each message in the current configuration, the timeline it is on, if any.
-    pub message_timelines: StdHashMap<MessageId, usize>,
+    message_timelines: StdHashMap<MessageId, usize>,
 
     /// The additional control timelines of each agent.
-    pub agents_timelines: Vec<AgentTimelines>,
+    agents_timelines: Vec<AgentTimelines>,
 
     /// Whether we have any received messages since the last deactivation.
-    pub has_reactivation_message: bool,
+    has_reactivation_message: bool,
 }
 
 /// A single step in a sequence diagram.
 #[derive(Copy, Clone, Debug)]
-pub enum SequenceStep<StateId: IndexLike, MessageId: IndexLike> {
+enum SequenceStep<StateId: IndexLike, MessageId: IndexLike> {
     /// No step (created when merging steps).
     NoStep,
 
@@ -1995,7 +1987,7 @@ pub enum SequenceStep<StateId: IndexLike, MessageId: IndexLike> {
 
 /// How to patch a pair of sequence steps
 #[derive(Debug)]
-pub enum SequencePatch<StateId: IndexLike, MessageId: IndexLike> {
+enum SequencePatch<StateId: IndexLike, MessageId: IndexLike> {
     /// Keep them as-is.
     Keep,
 
@@ -2008,30 +2000,26 @@ pub enum SequencePatch<StateId: IndexLike, MessageId: IndexLike> {
 
 /// A transition between configurations along a path.
 #[derive(Debug)]
-pub struct PathTransition<
-    MessageId: IndexLike,
-    ConfigurationId: IndexLike,
-    const MAX_MESSAGES: usize,
-> {
+struct PathTransition<MessageId: IndexLike, ConfigurationId: IndexLike, const MAX_MESSAGES: usize> {
     /// The source configuration identifier.
-    pub from_configuration_id: ConfigurationId,
+    from_configuration_id: ConfigurationId,
 
     /// The identifier of the delivered message, if any.
-    pub delivered_message_id: MessageId,
+    delivered_message_id: MessageId,
 
     /// The agent that received the message.
-    pub agent_index: usize,
+    agent_index: usize,
 
     /// The target configuration identifier.
-    pub to_configuration_id: ConfigurationId,
+    to_configuration_id: ConfigurationId,
 
     /// The name of the condition the target configuration satisfies.
-    pub to_condition_name: Option<String>,
+    to_condition_name: Option<String>,
 }
 
 /// Control appearence of state graphs.
 #[derive(Debug)]
-pub struct Condense {
+struct Condense {
     /// Only use names, ignore details of state and payload.
     names_only: bool,
 
@@ -2044,22 +2032,22 @@ pub struct Condense {
 
 /// Identify related set of transition between agent states in the diagram.
 #[derive(PartialEq, Eq, PartialOrd, Ord, Hash, Copy, Clone, Debug)]
-pub struct AgentStateTransitionContext<StateId: IndexLike> {
+struct AgentStateTransitionContext<StateId: IndexLike> {
     /// The source configuration identifier.
-    pub from_state_id: StateId,
+    from_state_id: StateId,
 
     /// Whether the agent starting state was deferring.
-    pub from_is_deferring: bool,
+    from_is_deferring: bool,
 
     /// The target configuration identifier.
-    pub to_state_id: StateId,
+    to_state_id: StateId,
 
     /// Whether the agent end state was deferring.
-    pub to_is_deferring: bool,
+    to_is_deferring: bool,
 }
 
 /// A path step (possibly negated named condition).
-pub struct PathStep<Model: MetaModel> {
+struct PathStep<Model: MetaModel> {
     /// The condition function.
     condition: fn(&Model, Model::ConfigurationId) -> bool,
 
@@ -2083,7 +2071,7 @@ impl<Model: MetaModel> PathStep<Model> {
 
 // END MAYBE TESTED
 
-/// Allow querying the model's meta-parameters.
+/// Allow querying the model's meta-parameters for public types.
 pub trait MetaModel {
     /// The type of state identifiers.
     type StateId;
@@ -2130,6 +2118,12 @@ pub trait MetaModel {
     /// The type of a configuration validation function.
     type Validator;
 
+    /// A condition on model configurations.
+    type Condition;
+}
+
+/// Allow querying the model's meta-parameters for private types.
+trait ModelTypes: MetaModel {
     /// The type of the incoming transitions.
     type Incoming;
 
@@ -2138,9 +2132,6 @@ pub trait MetaModel {
 
     /// The context for processing event handling by an agent.
     type Context;
-
-    /// A condition on model configurations.
-    type Condition;
 
     /// A path step (possibly negated named condition).
     type PathStep;
@@ -2172,7 +2163,7 @@ pub trait MetaModel {
 
 /// The context for processing event handling by an agent.
 #[derive(Clone)]
-pub struct Context<
+struct Context<
     StateId: IndexLike,
     MessageId: IndexLike,
     InvalidId: IndexLike,
@@ -2183,35 +2174,35 @@ pub struct Context<
 > {
     /// The index of the message of the source configuration that was delivered to its target agent
     /// to reach the target configuration.
-    pub delivered_message_index: MessageIndex,
+    delivered_message_index: MessageIndex,
 
     /// The identifier of the message that the agent received, or `None` if the agent received an
     /// activity event.
-    pub delivered_message_id: MessageId,
+    delivered_message_id: MessageId,
 
     /// Whether the delivered message was an immediate message.
-    pub is_immediate: bool,
+    is_immediate: bool,
 
     /// The index of the agent that reacted to the event.
-    pub agent_index: usize,
+    agent_index: usize,
 
     /// The type of the agent that reacted to the event.
-    pub agent_type: Arc<dyn AgentType<StateId, Payload> + Send + Sync>,
+    agent_type: Arc<dyn AgentType<StateId, Payload> + Send + Sync>,
 
     /// The index of the source agent in its type.
-    pub agent_instance: usize,
+    agent_instance: usize,
 
     /// The identifier of the state of the agent when handling the event.
-    pub agent_from_state_id: StateId,
+    agent_from_state_id: StateId,
 
     /// The incoming transition into the new configuration to be generated.
-    pub incoming: Incoming<MessageId, ConfigurationId>,
+    incoming: Incoming<MessageId, ConfigurationId>,
 
     /// The configuration when delivering the event.
-    pub from_configuration: Configuration<StateId, MessageId, InvalidId, MAX_AGENTS, MAX_MESSAGES>,
+    from_configuration: Configuration<StateId, MessageId, InvalidId, MAX_AGENTS, MAX_MESSAGES>,
 
     /// Incrementally updated to become the target configuration.
-    pub to_configuration: Configuration<StateId, MessageId, InvalidId, MAX_AGENTS, MAX_MESSAGES>,
+    to_configuration: Configuration<StateId, MessageId, InvalidId, MAX_AGENTS, MAX_MESSAGES>,
 }
 
 // END MAYBE TESTED
@@ -2245,11 +2236,24 @@ impl<
     type Validator = fn(
         &Configuration<StateId, MessageId, InvalidId, MAX_AGENTS, MAX_MESSAGES>,
     ) -> Option<&'static str>;
+    type Condition = fn(&Self, ConfigurationId) -> bool;
+}
+
+impl<
+        StateId: IndexLike,
+        MessageId: IndexLike,
+        InvalidId: IndexLike,
+        ConfigurationId: IndexLike,
+        Payload: DataLike,
+        const MAX_AGENTS: usize,
+        const MAX_MESSAGES: usize,
+    > ModelTypes
+    for Model<StateId, MessageId, InvalidId, ConfigurationId, Payload, MAX_AGENTS, MAX_MESSAGES>
+{
     type Incoming = Incoming<MessageId, ConfigurationId>;
     type Outgoing = Outgoing<MessageId, ConfigurationId>;
     type Context =
         Context<StateId, MessageId, InvalidId, ConfigurationId, Payload, MAX_AGENTS, MAX_MESSAGES>;
-    type Condition = fn(&Self, ConfigurationId) -> bool;
     type PathStep = PathStep<Self>;
     type SequenceStep = SequenceStep<StateId, MessageId>;
     type SequencePatch = SequencePatch<StateId, MessageId>;
@@ -2734,7 +2738,7 @@ impl<
     }
 
     /// Compute all the configurations of the model, if needed.
-    pub fn compute(&self) {
+    fn compute(&self) {
         if self.configurations.len() != 1 {
             return;
         }
@@ -2757,7 +2761,7 @@ impl<
     fn reach_configuration<'a>(
         &'a self,
         parallel_scope: &ParallelScope<'a>,
-        mut context: <Self as MetaModel>::Context,
+        mut context: <Self as ModelTypes>::Context,
     ) {
         self.validate_configuration(&mut context);
 
@@ -3060,7 +3064,7 @@ impl<
     fn process_reaction<'a>(
         &'a self,
         parallel_scope: &ParallelScope<'a>,
-        context: <Self as MetaModel>::Context,
+        context: <Self as ModelTypes>::Context,
         reaction: <Self as MetaModel>::Reaction,
     ) {
         match reaction // MAYBE TESTED
@@ -3094,7 +3098,7 @@ impl<
     fn perform_action<'a>(
         &'a self,
         parallel_scope: &ParallelScope<'a>,
-        mut context: <Self as MetaModel>::Context,
+        mut context: <Self as ModelTypes>::Context,
         action: <Self as MetaModel>::Action,
     ) {
         match action {
@@ -3179,7 +3183,7 @@ impl<
 
     fn collect_emit(
         &self,
-        mut context: &mut <Self as MetaModel>::Context,
+        mut context: &mut <Self as ModelTypes>::Context,
         emit: <Self as MetaModel>::Emit,
     ) {
         match emit {
@@ -3330,7 +3334,7 @@ impl<
 
     fn replace_message(
         &self,
-        context: &mut <Self as MetaModel>::Context,
+        context: &mut <Self as ModelTypes>::Context,
         callback: fn(Option<Payload>) -> bool,
         order: MessageOrder,
         payload: &Payload,
@@ -3503,7 +3507,7 @@ impl<
 
     fn emit_message(
         &self,
-        context: &mut <Self as MetaModel>::Context,
+        context: &mut <Self as ModelTypes>::Context,
         message: <Self as MetaModel>::Message,
     ) {
         let is_immediate = message.order == MessageOrder::Immediate;
@@ -3549,7 +3553,7 @@ impl<
     }
 
     // BEGIN NOT TESTED
-    fn unexpected_message(&self, context: <Self as MetaModel>::Context) {
+    fn unexpected_message(&self, context: <Self as ModelTypes>::Context) {
         let agent_label = self.agent_labels[context.agent_index].clone();
         let delivered_label = self.display_message_id(context.delivered_message_id);
         let from_configuration = self.display_configuration(&context.from_configuration);
@@ -3563,12 +3567,12 @@ impl<
     fn ignore_message<'a>(
         &'a self,
         parallel_scope: &ParallelScope<'a>,
-        context: <Self as MetaModel>::Context,
+        context: <Self as ModelTypes>::Context,
     ) {
         self.reach_configuration(parallel_scope, context);
     }
 
-    fn defer_message(&self, context: <Self as MetaModel>::Context) {
+    fn defer_message(&self, context: <Self as ModelTypes>::Context) {
         if !context.delivered_message_index.is_valid() {
             // BEGIN NOT TESTED
             let agent_label = self.agent_labels[context.agent_index].clone();
@@ -3615,7 +3619,7 @@ impl<
         }
     }
 
-    fn validate_configuration(&self, context: &mut <Self as MetaModel>::Context) {
+    fn validate_configuration(&self, context: &mut <Self as ModelTypes>::Context) {
         if context.to_configuration.invalid_id.is_valid() {
             return;
         }
@@ -3708,7 +3712,7 @@ impl<
     }
 
     /// Return the total number of agents.
-    pub fn agents_count(&self) -> usize {
+    fn agents_count(&self) -> usize {
         self.agent_labels.len()
     }
 
@@ -3743,7 +3747,7 @@ impl<
     }
 
     /// Return the index of the agent instance within its type.
-    pub fn agent_instance(&self, agent_index: usize) -> usize {
+    fn agent_instance(&self, agent_index: usize) -> usize {
         agent_index - self.first_indices[agent_index]
     }
 
@@ -3786,7 +3790,7 @@ impl<
     }
 
     /// Display a message in the sequence diagram.
-    pub fn display_sequence_message(
+    fn display_sequence_message(
         &self,
         message: &<Self as MetaModel>::Message,
         is_final: bool,
@@ -3799,7 +3803,7 @@ impl<
     }
 
     /// Display a message.
-    pub fn push_message_payload(
+    fn push_message_payload(
         &self,
         message: &<Self as MetaModel>::Message,
         is_sequence: bool,
@@ -4022,7 +4026,7 @@ impl<
 
     fn step_matches_configuration(
         &self,
-        step: &<Self as MetaModel>::PathStep,
+        step: &<Self as ModelTypes>::PathStep,
         configuration_id: ConfigurationId,
     ) -> bool {
         let mut is_match = (step.condition)(self, configuration_id);
@@ -4036,7 +4040,7 @@ impl<
         &self,
         from_configuration_id: ConfigurationId,
         from_name: &str,
-        to_step: &<Self as MetaModel>::PathStep,
+        to_step: &<Self as ModelTypes>::PathStep,
         pending_configuration_ids: &mut VecDeque<ConfigurationId>,
         prev_configuration_ids: &mut [ConfigurationId],
     ) -> ConfigurationId {
@@ -4085,8 +4089,8 @@ impl<
         &self,
         subcommand_name: &str,
         matches: &ArgMatches,
-    ) -> Vec<<Self as MetaModel>::PathStep> {
-        let steps: Vec<<Self as MetaModel>::PathStep> = matches
+    ) -> Vec<<Self as ModelTypes>::PathStep> {
+        let steps: Vec<<Self as ModelTypes>::PathStep> = matches
             .values_of("CONDITION")
             .unwrap_or_else(|| {
                 // BEGIN NOT TESTED
@@ -4124,8 +4128,8 @@ impl<
 
     fn collect_path(
         &self,
-        mut steps: Vec<<Self as MetaModel>::PathStep>,
-    ) -> Vec<<Self as MetaModel>::PathTransition> {
+        mut steps: Vec<<Self as ModelTypes>::PathStep>,
+    ) -> Vec<<Self as ModelTypes>::PathTransition> {
         let mut prev_configuration_ids =
             vec![ConfigurationId::invalid(); self.configurations.len()];
 
@@ -4186,7 +4190,7 @@ impl<
         to_configuration_id: ConfigurationId,
         to_name: Option<&str>,
         prev_configuration_ids: &[ConfigurationId],
-        mut path: &mut Vec<<Self as MetaModel>::PathTransition>,
+        mut path: &mut Vec<<Self as ModelTypes>::PathTransition>,
     ) {
         let prev_configuration_id = prev_configuration_ids[to_configuration_id.to_usize()];
         assert!(prev_configuration_id.is_valid());
@@ -4225,7 +4229,7 @@ impl<
         });
     }
 
-    fn print_path(&self, path: &[<Self as MetaModel>::PathTransition], stdout: &mut dyn Write) {
+    fn print_path(&self, path: &[<Self as ModelTypes>::PathTransition], stdout: &mut dyn Write) {
         path.iter().for_each(|transition| {
             if transition.to_configuration_id != transition.from_configuration_id {
                 writeln!(
@@ -4343,7 +4347,7 @@ impl<
         message_of_terse_id.shrink_to_fit();
     }
 
-    pub fn print_states_diagram(
+    fn print_states_diagram(
         &self,
         condense: &Condense,
         agent_index: usize,
@@ -4362,7 +4366,7 @@ impl<
         self.compute_terse(condense);
 
         let state_transitions = self.collect_agent_state_transitions(condense, agent_index);
-        let mut contexts: Vec<&<Self as MetaModel>::AgentStateTransitionContext> =
+        let mut contexts: Vec<&<Self as ModelTypes>::AgentStateTransitionContext> =
             state_transitions.keys().collect();
         contexts.sort();
 
@@ -4372,7 +4376,7 @@ impl<
             let mut sent_keys: Vec<&Vec<MessageId>> = related_state_transitions.keys().collect();
             sent_keys.sort();
 
-            let mut sent_by_delivered = <Self as MetaModel>::AgentStateSentByDelivered::new();
+            let mut sent_by_delivered = <Self as ModelTypes>::AgentStateSentByDelivered::new();
 
             for sent_message_ids_key in sent_keys.iter() {
                 let sent_message_ids: &Vec<MessageId> = sent_message_ids_key;
@@ -4523,7 +4527,7 @@ impl<
         condense: &Condense,
         emitted_states: &mut [bool],
         agent_index: usize,
-        context: &<Self as MetaModel>::AgentStateTransitionContext,
+        context: &<Self as ModelTypes>::AgentStateTransitionContext,
         delivered_message_ids: &[MessageId],
         state_transition_index: usize,
         has_alternatives: bool,
@@ -4914,9 +4918,9 @@ impl<
 
     fn collect_sequence_steps(
         &self,
-        path: &[<Self as MetaModel>::PathTransition],
-    ) -> Vec<<Self as MetaModel>::SequenceStep> {
-        let mut sequence_steps: Vec<<Self as MetaModel>::SequenceStep> = vec![];
+        path: &[<Self as ModelTypes>::PathTransition],
+    ) -> Vec<<Self as ModelTypes>::SequenceStep> {
+        let mut sequence_steps: Vec<<Self as ModelTypes>::SequenceStep> = vec![];
         let all_outgoings = self.outgoings.read();
         for path_transition in path {
             let agent_index = path_transition.agent_index;
@@ -4994,7 +4998,7 @@ impl<
         sequence_steps
     }
 
-    fn patch_sequence_steps(&self, sequence_steps: &mut [<Self as MetaModel>::SequenceStep]) {
+    fn patch_sequence_steps(&self, sequence_steps: &mut [<Self as ModelTypes>::SequenceStep]) {
         let mut last_patched = 0;
         while last_patched + 1 < sequence_steps.len() {
             let last_step = sequence_steps[last_patched];
@@ -5138,7 +5142,7 @@ impl<
         &self,
         last_message_id: MessageId,
         next_message_id: MessageId,
-    ) -> <Self as MetaModel>::SequencePatch {
+    ) -> <Self as ModelTypes>::SequencePatch {
         let last_message = self.messages.get(last_message_id);
         let next_message = self.messages.get(next_message_id);
         if next_message.order == MessageOrder::Immediate
@@ -5154,7 +5158,7 @@ impl<
         &self,
         first_configuration: &<Self as MetaModel>::Configuration,
         last_configuration: &<Self as MetaModel>::Configuration,
-        sequence_steps: &[<Self as MetaModel>::SequenceStep],
+        sequence_steps: &[<Self as ModelTypes>::SequenceStep],
         stdout: &mut dyn Write,
     ) {
         writeln!(stdout, "@startuml").unwrap();
@@ -5240,7 +5244,7 @@ impl<
 
     fn print_first_timelines(
         &self,
-        mut sequence_state: &mut <Self as MetaModel>::SequenceState,
+        mut sequence_state: &mut <Self as ModelTypes>::SequenceState,
         first_configuration: &<Self as MetaModel>::Configuration,
         stdout: &mut dyn Write,
     ) {
@@ -5273,7 +5277,7 @@ impl<
 
     fn find_sequence_timeline(
         &self,
-        sequence_state: &mut <Self as MetaModel>::SequenceState,
+        sequence_state: &mut <Self as ModelTypes>::SequenceState,
         message_id: MessageId,
         stdout: &mut dyn Write,
     ) -> usize {
@@ -5337,7 +5341,7 @@ impl<
 
     fn print_sequence_first_notes(
         &self,
-        sequence_state: &<Self as MetaModel>::SequenceState,
+        sequence_state: &<Self as ModelTypes>::SequenceState,
         first_configuration: &<Self as MetaModel>::Configuration,
         stdout: &mut dyn Write,
     ) {
@@ -5380,8 +5384,8 @@ impl<
 
     fn print_sequence_step(
         &self,
-        mut sequence_state: &mut <Self as MetaModel>::SequenceState,
-        sequence_step: <Self as MetaModel>::SequenceStep,
+        mut sequence_state: &mut <Self as ModelTypes>::SequenceState,
+        sequence_step: <Self as ModelTypes>::SequenceStep,
         stdout: &mut dyn Write,
     ) {
         match sequence_step {
@@ -5607,7 +5611,7 @@ impl<
 
     fn reactivate(
         &self,
-        mut sequence_state: &mut <Self as MetaModel>::SequenceState,
+        mut sequence_state: &mut <Self as ModelTypes>::SequenceState,
         stdout: &mut dyn Write,
     ) {
         if !sequence_state.has_reactivation_message {
@@ -5620,7 +5624,7 @@ impl<
 
     fn print_sequence_final(
         &self,
-        mut sequence_state: &mut <Self as MetaModel>::SequenceState,
+        mut sequence_state: &mut <Self as ModelTypes>::SequenceState,
         stdout: &mut dyn Write,
     ) {
         sequence_state.has_reactivation_message = false;
@@ -5639,8 +5643,8 @@ impl<
         &self,
         condense: &Condense,
         agent_index: usize,
-    ) -> <Self as MetaModel>::AgentStateTransitions {
-        let mut state_transitions = <Self as MetaModel>::AgentStateTransitions::default();
+    ) -> <Self as ModelTypes>::AgentStateTransitions {
+        let mut state_transitions = <Self as ModelTypes>::AgentStateTransitions::default();
         self.outgoings
             .read()
             .iter()
@@ -5672,7 +5676,7 @@ impl<
         from_configuration: &<Self as MetaModel>::Configuration,
         to_configuration: &<Self as MetaModel>::Configuration,
         mut delivered_message_id: MessageId,
-        state_transitions: &mut <Self as MetaModel>::AgentStateTransitions,
+        state_transitions: &mut <Self as ModelTypes>::AgentStateTransitions,
     ) {
         let agent_type = &self.agent_types[agent_index];
         let agent_instance = self.agent_instance(agent_index);
