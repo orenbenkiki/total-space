@@ -641,10 +641,10 @@ pub struct AgentTypeData<State: DataLike, StateId: IndexLike, Payload: DataLike>
     _payload: PhantomData<Payload>,
 }
 
-/// The data we need to implement an agent type.
+/// The data we need to implement an container agent type.
 ///
 /// This should be placed in a `Singleton` to allow the agent states to get services from it.
-pub struct ContainerTypeData<
+pub struct ContainerOf1TypeData<
     State: DataLike,
     Part: DataLike,
     StateId: IndexLike,
@@ -656,6 +656,27 @@ pub struct ContainerTypeData<
 
     /// Access part states (for a container).
     part_type: Arc<dyn PartType<Part, StateId> + Send + Sync>,
+}
+
+/// The data we need to implement an container agent type.
+///
+/// This should be placed in a `Singleton` to allow the agent states to get services from it.
+pub struct ContainerOf2TypeData<
+    State: DataLike,
+    Part1: DataLike,
+    Part2: DataLike,
+    StateId: IndexLike,
+    Payload: DataLike,
+    const MAX_PARTS: usize,
+> {
+    /// The basic agent type data.
+    agent_type_data: AgentTypeData<State, StateId, Payload>,
+
+    /// Access first parts states (for a container).
+    part1_type: Arc<dyn PartType<Part1, StateId> + Send + Sync>,
+
+    /// Access second parts states (for a container).
+    part2_type: Arc<dyn PartType<Part2, StateId> + Send + Sync>,
 }
 
 // END MAYBE TESTED
@@ -737,7 +758,7 @@ impl<
         StateId: IndexLike,
         Payload: DataLike,
         const MAX_PARTS: usize,
-    > ContainerTypeData<State, Part, StateId, Payload, MAX_PARTS>
+    > ContainerOf1TypeData<State, Part, StateId, Payload, MAX_PARTS>
 {
     /// Create new agent type data with the specified name and number of instances.
     pub fn new(
@@ -752,6 +773,33 @@ impl<
         }
     }
 }
+
+// BEGIN NOT TESTED
+impl<
+        State: DataLike,
+        Part1: DataLike,
+        Part2: DataLike,
+        StateId: IndexLike,
+        Payload: DataLike,
+        const MAX_PARTS: usize,
+    > ContainerOf2TypeData<State, Part1, Part2, StateId, Payload, MAX_PARTS>
+{
+    /// Create new agent type data with the specified name and number of instances.
+    pub fn new(
+        name: &'static str,
+        instances: Instances,
+        part1_type: Arc<dyn PartType<Part1, StateId> + Send + Sync>,
+        part2_type: Arc<dyn PartType<Part2, StateId> + Send + Sync>,
+        prev_type: Arc<dyn AgentType<StateId, Payload> + Send + Sync>,
+    ) -> Self {
+        Self {
+            agent_type_data: AgentTypeData::new(name, instances, Some(prev_type)),
+            part1_type,
+            part2_type,
+        }
+    }
+}
+// END NOT TESTED
 
 impl<State: DataLike, StateId: IndexLike, Payload: DataLike> PartType<State, StateId>
     for AgentTypeData<State, StateId, Payload>
@@ -793,7 +841,7 @@ pub trait AgentState<State: DataLike, Payload: DataLike> {
 }
 
 /// A trait for a container agent state.
-pub trait ContainerState<State: DataLike, Part: DataLike, Payload: DataLike> {
+pub trait ContainerOf1State<State: DataLike, Part: DataLike, Payload: DataLike> {
     /// Return the actions that may be taken by an agent instance with this state when receiving a
     /// message.
     fn receive_message(
@@ -819,6 +867,44 @@ pub trait ContainerState<State: DataLike, Part: DataLike, Payload: DataLike> {
         None
     }
 }
+
+// BEGIN NOT TESTED
+
+/// A trait for a container agent state.
+pub trait ContainerOf2State<State: DataLike, Part1: DataLike, Part2: DataLike, Payload: DataLike> {
+    /// Return the actions that may be taken by an agent instance with this state when receiving a
+    /// message.
+    fn receive_message(
+        &self,
+        instance: usize,
+        payload: &Payload,
+        parts1: &[Part1],
+        parts2: &[Part2],
+    ) -> Reaction<State, Payload>;
+
+    /// Return the actions that may be taken by an agent with some state when time passes.
+    fn activity(
+        &self,
+        _instance: usize,
+        _parts1: &[Part1],
+        _parts2: &[Part2],
+    ) -> Activity<Payload> {
+        Activity::Passive
+    }
+
+    /// Whether any agent in this state is deferring messages.
+    fn is_deferring(&self, _parts1: &[Part1], _parts2: &[Part2]) -> bool {
+        false
+    }
+
+    /// The maximal number of messages sent by this agent which may be in-flight when it is in this
+    /// state.
+    fn max_in_flight_messages(&self, _parts1: &[Part1], _parts2: &[Part2]) -> Option<usize> {
+        None
+    }
+}
+
+// END NOT TESTED
 
 pub trait Validated {
     /// If this object is invalid, return why.
@@ -905,12 +991,28 @@ impl<
         StateId: IndexLike,
         Payload: DataLike,
         const MAX_PARTS: usize,
-    > Name for ContainerTypeData<State, Part, StateId, Payload, MAX_PARTS>
+    > Name for ContainerOf1TypeData<State, Part, StateId, Payload, MAX_PARTS>
 {
     fn name(&self) -> String {
         self.agent_type_data.name()
     }
 }
+
+// BEGIN NOT TESTED
+impl<
+        State: DataLike,
+        Part1: DataLike,
+        Part2: DataLike,
+        StateId: IndexLike,
+        Payload: DataLike,
+        const MAX_PARTS: usize,
+    > Name for ContainerOf2TypeData<State, Part1, Part2, StateId, Payload, MAX_PARTS>
+{
+    fn name(&self) -> String {
+        self.agent_type_data.name()
+    }
+}
+// END NOT TESTED
 
 impl<State: DataLike, StateId: IndexLike, Payload: DataLike> AgentInstances<StateId, Payload>
     for AgentTypeData<State, StateId, Payload>
@@ -953,13 +1055,13 @@ impl<State: DataLike, StateId: IndexLike, Payload: DataLike> AgentInstances<Stat
 }
 
 impl<
-        State: DataLike + ContainerState<State, Part, Payload>,
+        State: DataLike + ContainerOf1State<State, Part, Payload>,
         Part: DataLike + AgentState<Part, Payload>,
         StateId: IndexLike,
         Payload: DataLike,
         const MAX_PARTS: usize,
     > AgentInstances<StateId, Payload>
-    for ContainerTypeData<State, Part, StateId, Payload, MAX_PARTS>
+    for ContainerOf1TypeData<State, Part, StateId, Payload, MAX_PARTS>
 {
     fn prev_agent_type(&self) -> Option<Arc<dyn AgentType<StateId, Payload> + Send + Sync>> {
         self.agent_type_data.prev_agent_type.clone()
@@ -999,6 +1101,55 @@ impl<
     }
     // END NOT TESTED
 }
+
+// BEGIN NOT TESTED
+impl<
+        State: DataLike + ContainerOf2State<State, Part1, Part2, Payload>,
+        Part1: DataLike + AgentState<Part1, Payload>,
+        Part2: DataLike + AgentState<Part2, Payload>,
+        StateId: IndexLike,
+        Payload: DataLike,
+        const MAX_PARTS: usize,
+    > AgentInstances<StateId, Payload>
+    for ContainerOf2TypeData<State, Part1, Part2, StateId, Payload, MAX_PARTS>
+{
+    fn prev_agent_type(&self) -> Option<Arc<dyn AgentType<StateId, Payload> + Send + Sync>> {
+        self.agent_type_data.prev_agent_type.clone()
+    }
+
+    fn first_index(&self) -> usize {
+        self.agent_type_data.first_index()
+    }
+
+    fn next_index(&self) -> usize {
+        self.agent_type_data.next_index()
+    }
+
+    fn is_singleton(&self) -> bool {
+        self.agent_type_data.is_singleton()
+    }
+
+    fn instances_count(&self) -> usize {
+        self.agent_type_data.instances_count()
+    }
+
+    fn instance_order(&self, instance: usize) -> usize {
+        self.agent_type_data.instance_order(instance)
+    }
+
+    fn display_state(&self, state_id: StateId) -> String {
+        self.agent_type_data.display_state(state_id)
+    }
+
+    fn terse_id(&self, state_id: StateId) -> StateId {
+        self.agent_type_data.terse_id(state_id)
+    }
+
+    fn display_terse(&self, terse_id: StateId) -> String {
+        self.agent_type_data.display_terse(terse_id)
+    }
+}
+// END NOT TESTED
 
 impl<State: DataLike + AgentState<State, Payload>, StateId: IndexLike, Payload: DataLike>
     AgentType<StateId, Payload> for AgentTypeData<State, StateId, Payload>
@@ -1072,29 +1223,63 @@ impl<State: DataLike + AgentState<State, Payload>, StateId: IndexLike, Payload: 
 }
 
 impl<
-        State: DataLike + ContainerState<State, Part, Payload>,
+        State: DataLike + ContainerOf1State<State, Part, Payload>,
         Part: DataLike + AgentState<Part, Payload>,
         StateId: IndexLike,
         Payload: DataLike,
         const MAX_PARTS: usize,
-    > ContainerTypeData<State, Part, StateId, Payload, MAX_PARTS>
+    > ContainerOf1TypeData<State, Part, StateId, Payload, MAX_PARTS>
 {
-    fn collect_parts(&self, state_ids: &[StateId], parts: &mut [Part; MAX_PARTS]) {
+    fn collect_parts(&self, state_ids: &[StateId]) -> [Part; MAX_PARTS] {
+        let mut parts = [Part::default(); MAX_PARTS];
         let part_first_index = self.part_type.part_first_index();
         (0..self.part_type.parts_count()).for_each(|part_instance| {
             let state_id = state_ids[part_first_index + part_instance];
             parts[part_instance] = self.part_type.part_state_by_id(state_id);
         });
+
+        parts
     }
 }
 
+// BEGIN NOT TESTED
 impl<
-        State: DataLike + ContainerState<State, Part, Payload>,
+        State: DataLike + ContainerOf2State<State, Part1, Part2, Payload>,
+        Part1: DataLike + AgentState<Part1, Payload>,
+        Part2: DataLike + AgentState<Part2, Payload>,
+        StateId: IndexLike,
+        Payload: DataLike,
+        const MAX_PARTS: usize,
+    > ContainerOf2TypeData<State, Part1, Part2, StateId, Payload, MAX_PARTS>
+{
+    fn collect_parts(&self, state_ids: &[StateId]) -> ([Part1; MAX_PARTS], [Part2; MAX_PARTS]) {
+        let mut parts1 = [Part1::default(); MAX_PARTS];
+        let part1_first_index = self.part1_type.part_first_index();
+        (0..self.part1_type.parts_count()).for_each(|part1_instance| {
+            let state_id = state_ids[part1_first_index + part1_instance];
+            parts1[part1_instance] = self.part1_type.part_state_by_id(state_id);
+        });
+
+        let mut parts2 = [Part2::default(); MAX_PARTS];
+        let part2_first_index = self.part2_type.part_first_index();
+        (0..self.part2_type.parts_count()).for_each(|part2_instance| {
+            let state_id = state_ids[part2_first_index + part2_instance];
+            parts2[part2_instance] = self.part2_type.part_state_by_id(state_id);
+        });
+
+        (parts1, parts2)
+    }
+}
+// END NOT TESTED
+
+impl<
+        State: DataLike + ContainerOf1State<State, Part, Payload>,
         Part: DataLike + AgentState<Part, Payload>,
         StateId: IndexLike,
         Payload: DataLike,
         const MAX_PARTS: usize,
-    > AgentType<StateId, Payload> for ContainerTypeData<State, Part, StateId, Payload, MAX_PARTS>
+    > AgentType<StateId, Payload>
+    for ContainerOf1TypeData<State, Part, StateId, Payload, MAX_PARTS>
 {
     fn receive_message(
         &self,
@@ -1109,15 +1294,13 @@ impl<
             self.instances_count() // NOT TESTED
         );
 
-        let mut parts_buffer = [Part::default(); MAX_PARTS];
-        self.collect_parts(state_ids, &mut parts_buffer);
-        let parts = &parts_buffer[0..self.part_type.parts_count()];
+        let parts = self.collect_parts(state_ids);
 
         let reaction = self
             .agent_type_data
             .states
             .get(state_ids[self.agent_type_data.first_index + instance])
-            .receive_message(instance, payload, parts);
+            .receive_message(instance, payload, &parts);
         self.agent_type_data.translate_reaction(reaction)
     }
 
@@ -1129,14 +1312,12 @@ impl<
             self.instances_count() // NOT TESTED
         );
 
-        let mut parts_buffer = [Part::default(); MAX_PARTS];
-        self.collect_parts(state_ids, &mut parts_buffer);
-        let parts = &parts_buffer[0..self.part_type.parts_count()];
+        let parts = self.collect_parts(state_ids);
 
         self.agent_type_data
             .states
             .get(state_ids[self.agent_type_data.first_index + instance])
-            .activity(instance, parts)
+            .activity(instance, &parts)
     }
 
     fn state_is_deferring(&self, instance: usize, state_ids: &[StateId]) -> bool {
@@ -1147,14 +1328,12 @@ impl<
             self.instances_count() // NOT TESTED
         );
 
-        let mut parts_buffer = [Part::default(); MAX_PARTS];
-        self.collect_parts(state_ids, &mut parts_buffer);
-        let parts = &parts_buffer[0..self.part_type.parts_count()];
+        let parts = self.collect_parts(state_ids);
 
         self.agent_type_data
             .states
             .get(state_ids[self.agent_type_data.first_index + instance])
-            .is_deferring(parts)
+            .is_deferring(&parts)
     }
 
     fn state_max_in_flight_messages(
@@ -1169,14 +1348,12 @@ impl<
             self.instances_count() // NOT TESTED
         );
 
-        let mut parts_buffer = [Part::default(); MAX_PARTS];
-        self.collect_parts(state_ids, &mut parts_buffer);
-        let parts = &parts_buffer[0..self.part_type.parts_count()];
+        let parts = self.collect_parts(state_ids);
 
         self.agent_type_data
             .states
             .get(state_ids[self.agent_type_data.first_index + instance])
-            .max_in_flight_messages(parts)
+            .max_in_flight_messages(&parts)
     }
 
     // BEGIN NOT TESTED
@@ -1189,6 +1366,102 @@ impl<
         self.agent_type_data.impl_compute_terse();
     }
 }
+
+// BEGIN NOT TESTED
+impl<
+        State: DataLike + ContainerOf2State<State, Part1, Part2, Payload>,
+        Part1: DataLike + AgentState<Part1, Payload>,
+        Part2: DataLike + AgentState<Part2, Payload>,
+        StateId: IndexLike,
+        Payload: DataLike,
+        const MAX_PARTS: usize,
+    > AgentType<StateId, Payload>
+    for ContainerOf2TypeData<State, Part1, Part2, StateId, Payload, MAX_PARTS>
+{
+    fn receive_message(
+        &self,
+        instance: usize,
+        state_ids: &[StateId],
+        payload: &Payload,
+    ) -> Reaction<StateId, Payload> {
+        debug_assert!(
+            instance < self.instances_count(),
+            "instance: {} count: {}",
+            instance,
+            self.instances_count()
+        );
+
+        let (parts1, parts2) = self.collect_parts(state_ids);
+
+        let reaction = self
+            .agent_type_data
+            .states
+            .get(state_ids[self.agent_type_data.first_index + instance])
+            .receive_message(instance, payload, &parts1, &parts2);
+        self.agent_type_data.translate_reaction(reaction)
+    }
+
+    fn activity(&self, instance: usize, state_ids: &[StateId]) -> Activity<Payload> {
+        debug_assert!(
+            instance < self.instances_count(),
+            "instance: {} count: {}",
+            instance,
+            self.instances_count()
+        );
+
+        let (parts1, parts2) = self.collect_parts(state_ids);
+
+        self.agent_type_data
+            .states
+            .get(state_ids[self.agent_type_data.first_index + instance])
+            .activity(instance, &parts1, &parts2)
+    }
+
+    fn state_is_deferring(&self, instance: usize, state_ids: &[StateId]) -> bool {
+        debug_assert!(
+            instance < self.instances_count(),
+            "instance: {} count: {}",
+            instance,
+            self.instances_count()
+        );
+
+        let (parts1, parts2) = self.collect_parts(state_ids);
+
+        self.agent_type_data
+            .states
+            .get(state_ids[self.agent_type_data.first_index + instance])
+            .is_deferring(&parts1, &parts2)
+    }
+
+    fn state_max_in_flight_messages(
+        &self,
+        instance: usize,
+        state_ids: &[StateId],
+    ) -> Option<usize> {
+        debug_assert!(
+            instance < self.instances_count(),
+            "instance: {} count: {}",
+            instance,
+            self.instances_count()
+        );
+
+        let (parts1, parts2) = self.collect_parts(state_ids);
+
+        self.agent_type_data
+            .states
+            .get(state_ids[self.agent_type_data.first_index + instance])
+            .max_in_flight_messages(&parts1, &parts2)
+    }
+
+    fn states_count(&self) -> usize {
+        self.agent_type_data.states.len()
+    }
+
+    fn compute_terse(&self) {
+        self.agent_type_data.impl_compute_terse();
+    }
+}
+// END NOT TESTED
 
 // BEGIN MAYBE TESTED
 
@@ -3668,8 +3941,8 @@ impl<
             self.threads = Threads::Count(1); // NOT TESTED
         }
 
-        let threads = arg_matches.value_of("progress").unwrap();
-        self.print_progress_every = usize::from_str(threads).expect("invalid progress rate");
+        let progress_every = arg_matches.value_of("progress").unwrap();
+        self.print_progress_every = usize::from_str(progress_every).expect("invalid progress rate");
         self.allow_invalid_configurations = arg_matches.is_present("invalid");
 
         self.ensure_init_is_reachable = arg_matches.is_present("reachable");

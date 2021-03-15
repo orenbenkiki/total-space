@@ -53,7 +53,7 @@ impl_data_like! {
 
 impl Validated for ManagerState {}
 
-impl ContainerState<ManagerState, ClientState, Payload> for ManagerState {
+impl ContainerOf1State<ManagerState, ClientState, Payload> for ManagerState {
     fn receive_message(
         &self,
         _instance: usize,
@@ -192,7 +192,7 @@ fn test_model(arg_matches: &ArgMatches) -> TestModel {
         Instances::Count(CLIENTS_COUNT),
         None,
     ));
-    let manager_type = Arc::new(ContainerTypeData::<
+    let manager_type = Arc::new(ContainerOf1TypeData::<
         ManagerState,
         ClientState,
         StateId,
