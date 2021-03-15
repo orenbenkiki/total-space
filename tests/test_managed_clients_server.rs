@@ -54,10 +54,6 @@ impl_data_like! {
 impl Validated for ManagerState {}
 
 impl ContainerState<ManagerState, ClientState, Payload> for ManagerState {
-    fn activity(&self, _instance: usize, _clients: &[ClientState]) -> Activity<Payload> {
-        Activity::Passive
-    }
-
     fn receive_message(
         &self,
         _instance: usize,

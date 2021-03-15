@@ -776,7 +776,9 @@ pub trait AgentState<State: DataLike, Payload: DataLike> {
     fn receive_message(&self, instance: usize, payload: &Payload) -> Reaction<State, Payload>;
 
     /// Return the actions that may be taken by an agent with some state when time passes.
-    fn activity(&self, instance: usize) -> Activity<Payload>;
+    fn activity(&self, _instance: usize) -> Activity<Payload> {
+        Activity::Passive
+    }
 
     /// Whether any agent in this state is deferring messages.
     fn is_deferring(&self) -> bool {
@@ -802,7 +804,9 @@ pub trait ContainerState<State: DataLike, Part: DataLike, Payload: DataLike> {
     ) -> Reaction<State, Payload>;
 
     /// Return the actions that may be taken by an agent with some state when time passes.
-    fn activity(&self, instance: usize, parts: &[Part]) -> Activity<Payload>;
+    fn activity(&self, _instance: usize, _parts: &[Part]) -> Activity<Payload> {
+        Activity::Passive
+    }
 
     /// Whether any agent in this state is deferring messages.
     fn is_deferring(&self, _parts: &[Part]) -> bool {
