@@ -480,12 +480,12 @@ pub enum Reaction<State: KeyLike, Payload: DataLike> {
 
     /// Defer handling the event.
     ///
-    /// This has the same effect as `DoOne(Action.Defer)`.
+    /// This has the same effect as `Do1(Action.Defer)`.
     Defer,
 
     /// Ignore the event.
     ///
-    /// This has the same effect as `DoOne(Action.Ignore)`.
+    /// This has the same effect as `Do1(Action.Ignore)`.
     Ignore,
 
     /// A single action (deterministic).
@@ -2726,9 +2726,9 @@ impl<
         if !self.allow_invalid_configurations && context.to_configuration.invalid_id.is_valid() {
             // BEGIN NOT TESTED
             panic!(
-                "reached an invalid configuration {}\n\
-                   by the message {}\n\
-                   from the valid configuration {}",
+                "reached an invalid configuration:\n{}\n\
+                 by the message {}\n\
+                 from the valid configuration:\n{}",
                 self.display_configuration_id(context.incoming.from_configuration_id),
                 self.display_message_id(context.delivered_message_id),
                 self.display_configuration(&context.to_configuration)
@@ -2785,12 +2785,15 @@ impl<
         configuration_id: ConfigurationId,
     ) {
         let configuration = self.configurations.get(configuration_id);
-        if self.print_progress_every > 0
-            && configuration_id.to_usize() > 0
-            && configuration_id.to_usize() % self.print_progress_every == 0
+        if self.print_progress_every == 1
+            // BEGIN NOT TESTED
+            || (self.print_progress_every > 0
+                && configuration_id.to_usize() > 0
+                && configuration_id.to_usize() % self.print_progress_every == 0)
+        // END NOT TESTED
         {
             eprintln!(
-                "{} - {}",
+                "#{}\n{}",
                 configuration_id.to_usize(),
                 self.display_configuration(&configuration)
             );
@@ -3482,7 +3485,7 @@ impl<
                     "the agent {} \
                      sends a duplicate message {} \
                      when responding to the message {} \
-                     while in the configuration {}",
+                     while in the configuration:\n{}",
                     source_label, message_label, delivered_label, from_configuration
                 );
                 // END NOT TESTED
@@ -3499,7 +3502,7 @@ impl<
         let delivered_label = self.display_message_id(context.delivered_message_id);
         let from_configuration = self.display_configuration(&context.from_configuration);
         panic!(
-            "the agent {} does not expect the message {} while in the configuration {}",
+            "the agent {} does not expect the message {} while in the configuration:\n{}",
             agent_label, delivered_label, from_configuration
         );
     }
@@ -3585,8 +3588,8 @@ impl<
                          sends too more messages {} \
                          than allowed {} \
                          when reacting to the message {} by moving\n\
-                         from the configuration {}\n\
-                         into the configuration {}",
+                         from the configuration:\n{}\n\
+                         into the configuration:\n{}",
                         agent_label,
                         in_flight_messages,
                         max_in_flight_messages,
@@ -3832,19 +3835,22 @@ impl<
         let max_configuration_string_size = *self.max_configuration_string_size.read();
         let mut string = String::with_capacity(max_configuration_string_size);
 
-        let mut prefix = "";
+        let mut prefix = "- ";
         (0..self.agents_count()).for_each(|agent_index| {
             let agent_type = &self.agent_types[agent_index];
             let agent_label = &self.agent_labels[agent_index];
             let agent_state_id = configuration.state_ids[agent_index];
-            string.push_str(prefix);
-            string.push_str(agent_label);
-            string.push(':');
-            string.push_str(&agent_type.display_state(agent_state_id));
-            prefix = " & ";
+            let agent_state = agent_type.display_state(agent_state_id);
+            if !agent_state.is_empty() {
+                string.push_str(prefix);
+                string.push_str(agent_label);
+                string.push(':');
+                string.push_str(&agent_state);
+                prefix = "\n& ";
+            }
         });
 
-        prefix = " | ";
+        prefix = "\n| ";
         configuration
             .message_ids
             .iter()
@@ -3852,12 +3858,12 @@ impl<
             .for_each(|message_id| {
                 string.push_str(prefix);
                 string.push_str(&self.display_message_id(*message_id));
-                prefix = " & ";
+                prefix = "\n& ";
             });
 
         if configuration.invalid_id.is_valid() {
             // BEGIN NOT TESTED
-            string.push_str(" ! ");
+            string.push_str("\n! ");
             string.push_str(&self.display_invalid_id(configuration.invalid_id));
             // END NOT TESTED
         }
@@ -3937,7 +3943,7 @@ impl<
             .for_each(|(configuration_id, _)| {
                 // BEGIN NOT TESTED
                 eprintln!(
-                    "there is no path back to initial state from the configuration {}",
+                    "there is no path back to initial state from the configuration:\n{}",
                     self.display_configuration_id(ConfigurationId::from_usize(configuration_id))
                 );
                 unreachable_count += 1;
@@ -4003,7 +4009,7 @@ impl<
         // BEGIN NOT TESTED
         panic!(
             "could not find a path from the condition {} to the condition {}\n\
-            starting from the configuration {}",
+            starting from the configuration:\n{}",
             from_name,
             to_step.name,
             self.display_configuration_id(from_configuration_id)
@@ -4157,26 +4163,31 @@ impl<
 
     fn print_path(&self, path: &[<Self as ModelTypes>::PathTransition], stdout: &mut dyn Write) {
         path.iter().for_each(|transition| {
-            if transition.to_configuration_id != transition.from_configuration_id {
+            let is_first = transition.to_configuration_id == transition.from_configuration_id;
+            if !is_first {
                 writeln!(
                     stdout,
-                    "BY {}",
+                    "BY: {}",
                     self.display_message_id(transition.delivered_message_id)
                 )
                 .unwrap();
             }
 
+            let prefix = if is_first { "FROM" } else { "TO" };
+
             match &transition.to_condition_name {
                 Some(condition_name) => writeln!(
                     stdout,
-                    "{} {}",
+                    "{} {}:\n{}\n",
+                    prefix,
                     condition_name,
                     self.display_configuration_id(transition.to_configuration_id)
                 )
                 .unwrap(),
                 None => writeln!(
                     stdout,
-                    "TO {}",
+                    "{}:\n{}\n",
+                    prefix,
                     self.display_configuration_id(transition.to_configuration_id)
                 )
                 .unwrap(),
@@ -5917,7 +5928,7 @@ impl<
                     .for_each(|configuration_id| {
                         writeln!(
                             stdout,
-                            "{}",
+                            "{}\n",
                             self.display_configuration_id(configuration_id)
                         )
                         .unwrap();
@@ -5945,7 +5956,7 @@ impl<
 
                         writeln!(
                             stdout,
-                            "FROM {}",
+                            "FROM:\n{}\n",
                             self.display_configuration(&from_configuration)
                         )
                         .unwrap();
@@ -5955,7 +5966,7 @@ impl<
                                 self.display_message_id(outgoing.delivered_message_id);
                             let to_label =
                                 self.display_configuration_id(outgoing.to_configuration_id);
-                            writeln!(stdout, "- BY {}\n  TO {}", delivered_label, to_label,)
+                            writeln!(stdout, "BY: {}\nTO:\n{}\n", delivered_label, to_label,)
                                 .unwrap();
                         });
                     });

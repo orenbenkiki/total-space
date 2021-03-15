@@ -1,15 +1,57 @@
-1MSG C(0):WAT & C(1):IDL & SRV:LST | C(0) -> REQ(C=0) -> SRV
-BY Activity -> Need -> C(1)
-TO C(0):WAT & C(1):WAT & SRV:LST | C(0) -> REQ(C=0) -> SRV & C(1) -> REQ(C=1) -> SRV
-BY C(0) -> REQ(C=0) -> SRV
-1MSG C(0):WAT & C(1):WAT & SRV:WRK(C=0) | C(1) -> REQ(C=1) -> SRV
-BY Activity -> Completed -> SRV
-2MSG C(0):WAT & C(1):WAT & SRV:LST | C(1) -> REQ(C=1) -> SRV & SRV -> RSP -> C(0)
-BY C(1) -> REQ(C=1) -> SRV
-TO C(0):WAT & C(1):WAT & SRV:WRK(C=1) | SRV -> RSP -> C(0)
-BY Activity -> Completed -> SRV
-TO C(0):WAT & C(1):WAT & SRV:LST | SRV -> RSP -> C(1) & SRV -> RSP -> C(0)
-BY SRV -> RSP -> C(1)
-TO C(0):WAT & C(1):IDL & SRV:LST | SRV -> RSP -> C(0)
-BY SRV -> RSP -> C(0)
-INIT C(0):IDL & C(1):IDL & SRV:LST
+FROM 1MSG:
+- C(0):WAT
+& C(1):IDL
+& SRV:LST
+| C(0) -> REQ(C=0) -> SRV
+
+BY: Activity -> Need -> C(1)
+TO:
+- C(0):WAT
+& C(1):WAT
+& SRV:LST
+| C(0) -> REQ(C=0) -> SRV
+& C(1) -> REQ(C=1) -> SRV
+
+BY: C(0) -> REQ(C=0) -> SRV
+TO 1MSG:
+- C(0):WAT
+& C(1):WAT
+& SRV:WRK(C=0)
+| C(1) -> REQ(C=1) -> SRV
+
+BY: Activity -> Completed -> SRV
+TO 2MSG:
+- C(0):WAT
+& C(1):WAT
+& SRV:LST
+| C(1) -> REQ(C=1) -> SRV
+& SRV -> RSP -> C(0)
+
+BY: C(1) -> REQ(C=1) -> SRV
+TO:
+- C(0):WAT
+& C(1):WAT
+& SRV:WRK(C=1)
+| SRV -> RSP -> C(0)
+
+BY: Activity -> Completed -> SRV
+TO:
+- C(0):WAT
+& C(1):WAT
+& SRV:LST
+| SRV -> RSP -> C(1)
+& SRV -> RSP -> C(0)
+
+BY: SRV -> RSP -> C(1)
+TO:
+- C(0):WAT
+& C(1):IDL
+& SRV:LST
+| SRV -> RSP -> C(0)
+
+BY: SRV -> RSP -> C(0)
+TO INIT:
+- C(0):IDL
+& C(1):IDL
+& SRV:LST
+

@@ -1,46 +1,161 @@
-FROM Client:Idle & Server:Listen
-- BY Activity -> Need -> Client
-  TO Client:Wait(1) & Server:Listen | Client -> @0 Request(1) -> Server
-FROM Client:Wait(1) & Server:Listen | Client -> @0 Request(1) -> Server
-- BY Activity -> Need -> Client
-  TO Client:Wait(3) & Server:Listen | Client -> @0 Request(1) -> Server & Client -> @1 Request(2) -> Server
-- BY Client -> @0 Request(1) -> Server
-  TO Client:Wait(1) & Server:Work(1)
-FROM Client:Wait(3) & Server:Listen | Client -> @0 Request(1) -> Server & Client -> @1 Request(2) -> Server
-- BY Client -> @0 Request(1) -> Server
-  TO Client:Wait(3) & Server:Work(1) | Client -> @0 Request(2) -> Server
-FROM Client:Wait(1) & Server:Work(1)
-- BY Activity -> Need -> Client
-  TO Client:Wait(3) & Server:Work(1) | Client -> @0 Request(2) -> Server
-- BY Activity -> Completed -> Server
-  TO Client:Wait(1) & Server:Listen | Server -> @0 Response(1) -> Client
-FROM Client:Wait(3) & Server:Work(1) | Client -> @0 Request(2) -> Server
-- BY Activity -> Completed -> Server
-  TO Client:Wait(3) & Server:Listen | Client -> @0 Request(2) -> Server & Server -> @0 Response(1) -> Client
-FROM Client:Wait(1) & Server:Listen | Server -> @0 Response(1) -> Client
-- BY Activity -> Need -> Client
-  TO Client:Wait(3) & Server:Listen | Client -> @0 Request(2) -> Server & Server -> @0 Response(1) -> Client
-- BY Server -> @0 Response(1) -> Client
-  TO Client:Idle & Server:Listen
-FROM Client:Wait(3) & Server:Listen | Client -> @0 Request(2) -> Server & Server -> @0 Response(1) -> Client
-- BY Client -> @0 Request(2) -> Server
-  TO Client:Wait(3) & Server:Work(2) | Server -> @0 Response(1) -> Client
-- BY Server -> @0 Response(1) -> Client
-  TO Client:Wait(2) & Server:Listen | Client -> @0 Request(2) -> Server
-FROM Client:Wait(3) & Server:Work(2) | Server -> @0 Response(1) -> Client
-- BY Activity -> Completed -> Server
-  TO Client:Wait(3) & Server:Listen | Server -> @0 Response(1) -> Client & Server -> @1 Response(2) -> Client
-- BY Server -> @0 Response(1) -> Client
-  TO Client:Wait(2) & Server:Work(2)
-FROM Client:Wait(2) & Server:Listen | Client -> @0 Request(2) -> Server
-- BY Client -> @0 Request(2) -> Server
-  TO Client:Wait(2) & Server:Work(2)
-FROM Client:Wait(2) & Server:Work(2)
-- BY Activity -> Completed -> Server
-  TO Client:Wait(2) & Server:Listen | Server -> @0 Response(2) -> Client
-FROM Client:Wait(2) & Server:Listen | Server -> @0 Response(2) -> Client
-- BY Server -> @0 Response(2) -> Client
-  TO Client:Idle & Server:Listen
-FROM Client:Wait(3) & Server:Listen | Server -> @0 Response(1) -> Client & Server -> @1 Response(2) -> Client
-- BY Server -> @0 Response(1) -> Client
-  TO Client:Wait(2) & Server:Listen | Server -> @0 Response(2) -> Client
+FROM:
+- Client:Idle
+& Server:Listen
+
+BY: Activity -> Need -> Client
+TO:
+- Client:Wait(1)
+& Server:Listen
+| Client -> @0 Request(1) -> Server
+
+FROM:
+- Client:Wait(1)
+& Server:Listen
+| Client -> @0 Request(1) -> Server
+
+BY: Activity -> Need -> Client
+TO:
+- Client:Wait(3)
+& Server:Listen
+| Client -> @0 Request(1) -> Server
+& Client -> @1 Request(2) -> Server
+
+BY: Client -> @0 Request(1) -> Server
+TO:
+- Client:Wait(1)
+& Server:Work(1)
+
+FROM:
+- Client:Wait(3)
+& Server:Listen
+| Client -> @0 Request(1) -> Server
+& Client -> @1 Request(2) -> Server
+
+BY: Client -> @0 Request(1) -> Server
+TO:
+- Client:Wait(3)
+& Server:Work(1)
+| Client -> @0 Request(2) -> Server
+
+FROM:
+- Client:Wait(1)
+& Server:Work(1)
+
+BY: Activity -> Need -> Client
+TO:
+- Client:Wait(3)
+& Server:Work(1)
+| Client -> @0 Request(2) -> Server
+
+BY: Activity -> Completed -> Server
+TO:
+- Client:Wait(1)
+& Server:Listen
+| Server -> @0 Response(1) -> Client
+
+FROM:
+- Client:Wait(3)
+& Server:Work(1)
+| Client -> @0 Request(2) -> Server
+
+BY: Activity -> Completed -> Server
+TO:
+- Client:Wait(3)
+& Server:Listen
+| Client -> @0 Request(2) -> Server
+& Server -> @0 Response(1) -> Client
+
+FROM:
+- Client:Wait(1)
+& Server:Listen
+| Server -> @0 Response(1) -> Client
+
+BY: Activity -> Need -> Client
+TO:
+- Client:Wait(3)
+& Server:Listen
+| Client -> @0 Request(2) -> Server
+& Server -> @0 Response(1) -> Client
+
+BY: Server -> @0 Response(1) -> Client
+TO:
+- Client:Idle
+& Server:Listen
+
+FROM:
+- Client:Wait(3)
+& Server:Listen
+| Client -> @0 Request(2) -> Server
+& Server -> @0 Response(1) -> Client
+
+BY: Client -> @0 Request(2) -> Server
+TO:
+- Client:Wait(3)
+& Server:Work(2)
+| Server -> @0 Response(1) -> Client
+
+BY: Server -> @0 Response(1) -> Client
+TO:
+- Client:Wait(2)
+& Server:Listen
+| Client -> @0 Request(2) -> Server
+
+FROM:
+- Client:Wait(3)
+& Server:Work(2)
+| Server -> @0 Response(1) -> Client
+
+BY: Activity -> Completed -> Server
+TO:
+- Client:Wait(3)
+& Server:Listen
+| Server -> @0 Response(1) -> Client
+& Server -> @1 Response(2) -> Client
+
+BY: Server -> @0 Response(1) -> Client
+TO:
+- Client:Wait(2)
+& Server:Work(2)
+
+FROM:
+- Client:Wait(2)
+& Server:Listen
+| Client -> @0 Request(2) -> Server
+
+BY: Client -> @0 Request(2) -> Server
+TO:
+- Client:Wait(2)
+& Server:Work(2)
+
+FROM:
+- Client:Wait(2)
+& Server:Work(2)
+
+BY: Activity -> Completed -> Server
+TO:
+- Client:Wait(2)
+& Server:Listen
+| Server -> @0 Response(2) -> Client
+
+FROM:
+- Client:Wait(2)
+& Server:Listen
+| Server -> @0 Response(2) -> Client
+
+BY: Server -> @0 Response(2) -> Client
+TO:
+- Client:Idle
+& Server:Listen
+
+FROM:
+- Client:Wait(3)
+& Server:Listen
+| Server -> @0 Response(1) -> Client
+& Server -> @1 Response(2) -> Client
+
+BY: Server -> @0 Response(1) -> Client
+TO:
+- Client:Wait(2)
+& Server:Listen
+| Server -> @0 Response(2) -> Client
+

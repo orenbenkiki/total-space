@@ -1,17 +1,54 @@
-INIT Client:Idle & Server:Listen
-BY Activity -> Need -> Client
-TO Client:Wait(1) & Server:Listen | Client -> @0 Request(1) -> Server
-BY Activity -> Need -> Client
-2MSG Client:Wait(3) & Server:Listen | Client -> @0 Request(1) -> Server & Client -> @1 Request(2) -> Server
-BY Client -> @0 Request(1) -> Server
-TO Client:Wait(3) & Server:Work(1) | Client -> @0 Request(2) -> Server
-BY Activity -> Completed -> Server
-TO Client:Wait(3) & Server:Listen | Client -> @0 Request(2) -> Server & Server -> @0 Response(1) -> Client
-BY Client -> @0 Request(2) -> Server
-TO Client:Wait(3) & Server:Work(2) | Server -> @0 Response(1) -> Client
-BY Activity -> Completed -> Server
-TO Client:Wait(3) & Server:Listen | Server -> @0 Response(1) -> Client & Server -> @1 Response(2) -> Client
-BY Server -> @0 Response(1) -> Client
-TO Client:Wait(2) & Server:Listen | Server -> @0 Response(2) -> Client
-BY Server -> @0 Response(2) -> Client
-INIT Client:Idle & Server:Listen
+FROM INIT:
+- Client:Idle
+& Server:Listen
+
+BY: Activity -> Need -> Client
+TO:
+- Client:Wait(1)
+& Server:Listen
+| Client -> @0 Request(1) -> Server
+
+BY: Activity -> Need -> Client
+TO 2MSG:
+- Client:Wait(3)
+& Server:Listen
+| Client -> @0 Request(1) -> Server
+& Client -> @1 Request(2) -> Server
+
+BY: Client -> @0 Request(1) -> Server
+TO:
+- Client:Wait(3)
+& Server:Work(1)
+| Client -> @0 Request(2) -> Server
+
+BY: Activity -> Completed -> Server
+TO:
+- Client:Wait(3)
+& Server:Listen
+| Client -> @0 Request(2) -> Server
+& Server -> @0 Response(1) -> Client
+
+BY: Client -> @0 Request(2) -> Server
+TO:
+- Client:Wait(3)
+& Server:Work(2)
+| Server -> @0 Response(1) -> Client
+
+BY: Activity -> Completed -> Server
+TO:
+- Client:Wait(3)
+& Server:Listen
+| Server -> @0 Response(1) -> Client
+& Server -> @1 Response(2) -> Client
+
+BY: Server -> @0 Response(1) -> Client
+TO:
+- Client:Wait(2)
+& Server:Listen
+| Server -> @0 Response(2) -> Client
+
+BY: Server -> @0 Response(2) -> Client
+TO INIT:
+- Client:Idle
+& Server:Listen
+

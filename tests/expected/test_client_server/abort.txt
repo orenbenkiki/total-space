@@ -1,3 +1,11 @@
-INIT C:IDL & S:LST
-BY Activity -> Need -> C
-!INIT C:WAT & S:LST | C -> REQ -> S & C -> * PNG -> S
+FROM INIT:
+- C:IDL
+& S:LST
+
+BY: Activity -> Need -> C
+TO !INIT:
+- C:WAT
+& S:LST
+| C -> REQ -> S
+& C -> * PNG -> S
+
