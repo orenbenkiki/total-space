@@ -8,17 +8,29 @@ FROM C(0):WAT & C(1):IDL & SRV:LST | C(0) -> REQ(C=0) -> SRV
   TO C(0):WAT & C(1):WAT & SRV:LST | C(0) -> REQ(C=0) -> SRV & C(1) -> REQ(C=1) -> SRV
 - BY C(0) -> REQ(C=0) -> SRV
   TO C(0):WAT & C(1):IDL & SRV:WRK(C=0)
+FROM C(0):IDL & C(1):WAT & SRV:LST | C(1) -> REQ(C=1) -> SRV
+- BY Activity -> Need -> C(0)
+  TO C(0):WAT & C(1):WAT & SRV:LST | C(0) -> REQ(C=0) -> SRV & C(1) -> REQ(C=1) -> SRV
+- BY C(1) -> REQ(C=1) -> SRV
+  TO C(0):IDL & C(1):WAT & SRV:WRK(C=1)
 FROM C(0):WAT & C(1):WAT & SRV:LST | C(0) -> REQ(C=0) -> SRV & C(1) -> REQ(C=1) -> SRV
 - BY C(0) -> REQ(C=0) -> SRV
   TO C(0):WAT & C(1):WAT & SRV:WRK(C=0) | C(1) -> REQ(C=1) -> SRV
 - BY C(1) -> REQ(C=1) -> SRV
   TO C(0):WAT & C(1):WAT & SRV:WRK(C=1) | C(0) -> REQ(C=0) -> SRV
-FROM C(0):WAT & C(1):WAT & SRV:WRK(C=0) | C(1) -> REQ(C=1) -> SRV
+FROM C(0):IDL & C(1):WAT & SRV:WRK(C=1)
+- BY Activity -> Need -> C(0)
+  TO C(0):WAT & C(1):WAT & SRV:WRK(C=1) | C(0) -> REQ(C=0) -> SRV
 - BY Activity -> Completed -> SRV
-  TO C(0):WAT & C(1):WAT & SRV:LST | C(1) -> REQ(C=1) -> SRV & SRV -> RSP -> C(0)
+  TO C(0):IDL & C(1):WAT & SRV:LST | SRV -> RSP -> C(1)
 FROM C(0):WAT & C(1):WAT & SRV:WRK(C=1) | C(0) -> REQ(C=0) -> SRV
 - BY Activity -> Completed -> SRV
   TO C(0):WAT & C(1):WAT & SRV:LST | C(0) -> REQ(C=0) -> SRV & SRV -> RSP -> C(1)
+FROM C(0):IDL & C(1):WAT & SRV:LST | SRV -> RSP -> C(1)
+- BY Activity -> Need -> C(0)
+  TO C(0):WAT & C(1):WAT & SRV:LST | C(0) -> REQ(C=0) -> SRV & SRV -> RSP -> C(1)
+- BY SRV -> RSP -> C(1)
+  TO C(0):IDL & C(1):IDL & SRV:LST
 FROM C(0):WAT & C(1):WAT & SRV:LST | C(0) -> REQ(C=0) -> SRV & SRV -> RSP -> C(1)
 - BY C(0) -> REQ(C=0) -> SRV
   TO C(0):WAT & C(1):WAT & SRV:WRK(C=0) | SRV -> RSP -> C(1)
@@ -39,6 +51,9 @@ FROM C(0):WAT & C(1):IDL & SRV:WRK(C=0)
   TO C(0):WAT & C(1):WAT & SRV:WRK(C=0) | C(1) -> REQ(C=1) -> SRV
 - BY Activity -> Completed -> SRV
   TO C(0):WAT & C(1):IDL & SRV:LST | SRV -> RSP -> C(0)
+FROM C(0):WAT & C(1):WAT & SRV:WRK(C=0) | C(1) -> REQ(C=1) -> SRV
+- BY Activity -> Completed -> SRV
+  TO C(0):WAT & C(1):WAT & SRV:LST | C(1) -> REQ(C=1) -> SRV & SRV -> RSP -> C(0)
 FROM C(0):WAT & C(1):IDL & SRV:LST | SRV -> RSP -> C(0)
 - BY Activity -> Need -> C(1)
   TO C(0):WAT & C(1):WAT & SRV:LST | C(1) -> REQ(C=1) -> SRV & SRV -> RSP -> C(0)
@@ -54,18 +69,3 @@ FROM C(0):WAT & C(1):WAT & SRV:WRK(C=1) | SRV -> RSP -> C(0)
   TO C(0):WAT & C(1):WAT & SRV:LST | SRV -> RSP -> C(1) & SRV -> RSP -> C(0)
 - BY SRV -> RSP -> C(0)
   TO C(0):IDL & C(1):WAT & SRV:WRK(C=1)
-FROM C(0):IDL & C(1):WAT & SRV:LST | C(1) -> REQ(C=1) -> SRV
-- BY Activity -> Need -> C(0)
-  TO C(0):WAT & C(1):WAT & SRV:LST | C(0) -> REQ(C=0) -> SRV & C(1) -> REQ(C=1) -> SRV
-- BY C(1) -> REQ(C=1) -> SRV
-  TO C(0):IDL & C(1):WAT & SRV:WRK(C=1)
-FROM C(0):IDL & C(1):WAT & SRV:WRK(C=1)
-- BY Activity -> Need -> C(0)
-  TO C(0):WAT & C(1):WAT & SRV:WRK(C=1) | C(0) -> REQ(C=0) -> SRV
-- BY Activity -> Completed -> SRV
-  TO C(0):IDL & C(1):WAT & SRV:LST | SRV -> RSP -> C(1)
-FROM C(0):IDL & C(1):WAT & SRV:LST | SRV -> RSP -> C(1)
-- BY Activity -> Need -> C(0)
-  TO C(0):WAT & C(1):WAT & SRV:LST | C(0) -> REQ(C=0) -> SRV & SRV -> RSP -> C(1)
-- BY SRV -> RSP -> C(1)
-  TO C(0):IDL & C(1):IDL & SRV:LST

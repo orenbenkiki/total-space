@@ -24,7 +24,6 @@ use clap::ArgMatches;
 use clap::SubCommand;
 use num_traits::FromPrimitive;
 use num_traits::ToPrimitive;
-use rayon::prelude::*;
 use rayon::scope;
 use rayon::Scope as ParallelScope;
 use rayon::ThreadPoolBuilder;
@@ -1657,9 +1656,6 @@ pub struct Configuration<
 
     /// The invalid condition, if any.
     pub invalid_id: InvalidId,
-
-    /// The index of the immediate message, or 255 if there is none.
-    pub immediate_index: MessageIndex,
 }
 
 // END MAYBE TESTED
@@ -1678,7 +1674,6 @@ impl<
             message_counts: [MessageIndex::invalid(); MAX_AGENTS],
             message_ids: [MessageId::invalid(); MAX_MESSAGES],
             invalid_id: InvalidId::invalid(),
-            immediate_index: MessageIndex::invalid(),
         }
     }
 }
@@ -1698,18 +1693,6 @@ impl<
 
         self.message_counts[source].decr();
 
-        if self.immediate_index.is_valid() {
-            match self.immediate_index.to_usize() {
-                immediate_index if immediate_index > message_index => {
-                    self.immediate_index.decr(); // NOT TESTED
-                }
-                immediate_index if immediate_index == message_index => {
-                    self.immediate_index = MessageIndex::invalid();
-                }
-                _ => {}
-            }
-        }
-
         loop {
             let next_message_index = message_index + 1;
             let next_message_id = if next_message_index < MAX_MESSAGES {
@@ -1726,8 +1709,7 @@ impl<
     }
 
     /// Add a message to the configuration.
-    fn add_message(&mut self, source_index: usize, message_id: MessageId, is_immediate: bool) {
-        debug_assert!(!is_immediate || !self.has_immediate());
+    fn add_message(&mut self, source_index: usize, message_id: MessageId) {
         debug_assert!(source_index != usize::max_value());
         debug_assert!(self.message_counts[source_index] < MessageIndex::invalid());
 
@@ -1738,38 +1720,8 @@ impl<
         );
 
         self.message_counts[source_index].incr();
-
         self.message_ids[MAX_MESSAGES - 1] = message_id;
-        let immediate_index = if is_immediate {
-            message_id
-        } else {
-            self.immediate_index().unwrap_or_else(MessageId::invalid)
-        };
-
         self.message_ids.sort();
-
-        if immediate_index.is_valid() {
-            let immediate_index = self
-                .message_ids
-                .iter()
-                .position(|&message_id| message_id == immediate_index)
-                .unwrap();
-            self.immediate_index = MessageIndex::from_usize(immediate_index);
-        }
-    }
-
-    /// Return whether there is an immediate message.
-    fn has_immediate(&self) -> bool {
-        self.immediate_index.is_valid()
-    }
-
-    /// Return the immediate message identifier, if any.
-    fn immediate_index(&self) -> Option<MessageId> {
-        if self.has_immediate() {
-            Some(self.message_ids[self.immediate_index.to_usize()])
-        } else {
-            None
-        }
     }
 
     /// Change the state of an agent in the configuration.
@@ -2472,9 +2424,6 @@ impl<
         outgoings
             .write()
             .resize_with(size, || RwLock::new(Vec::new()));
-        incomings
-            .write()
-            .resize_with(size, || RwLock::new(Vec::new()));
 
         let model = Self {
             agent_types,
@@ -2521,7 +2470,6 @@ impl<
             message_counts: [MessageIndex::from_usize(0); MAX_AGENTS],
             message_ids: [MessageId::invalid(); MAX_MESSAGES],
             invalid_id: InvalidId::invalid(),
-            immediate_index: MessageIndex::invalid(),
         };
 
         assert!(model.agents_count() > 0);
@@ -2848,45 +2796,39 @@ impl<
             );
         }
 
-        let messages_count = if configuration.has_immediate() {
-            1
+        let immediate_message = configuration
+            .message_ids
+            .iter()
+            .take_while(|message_id| message_id.is_valid())
+            .position(|message_id| self.messages.get(*message_id).order == MessageOrder::Immediate);
+
+        if let Some(message_index) = immediate_message {
+            self.message_event(
+                parallel_scope,
+                configuration_id,
+                configuration,
+                MessageIndex::from_usize(message_index),
+                configuration.message_ids[message_index],
+            );
         } else {
+            for agent_index in 0..self.agents_count() {
+                self.activity_event(parallel_scope, configuration_id, configuration, agent_index);
+            }
             configuration
                 .message_ids
                 .iter()
-                .position(|&message_id| !message_id.is_valid())
-                .unwrap_or(MAX_MESSAGES)
-        };
-        let events_count = self.agents_count() + messages_count;
-
-        (0..events_count).into_par_iter().for_each(|event_index| {
-            if event_index < self.agents_count() {
-                self.activity_event(parallel_scope, configuration_id, configuration, event_index);
-            } else if configuration.has_immediate() {
-                debug_assert!(event_index == self.agents_count());
-                let delivered_message_index = configuration.immediate_index;
-                let delivered_message_id =
-                    configuration.message_ids[delivered_message_index.to_usize()];
-                self.message_event(
-                    parallel_scope,
-                    configuration_id,
-                    configuration,
-                    delivered_message_index,
-                    delivered_message_id,
-                )
-            } else {
-                let message_index = event_index - self.agents_count();
-                let delivered_message_id = configuration.message_ids[message_index];
-                let delivered_message_index = MessageIndex::from_usize(message_index);
-                self.message_event(
-                    parallel_scope,
-                    configuration_id,
-                    configuration,
-                    delivered_message_index,
-                    delivered_message_id,
-                );
-            }
-        });
+                .take_while(|message_id| message_id.is_valid())
+                .enumerate()
+                .for_each(|(message_index, message_id)| {
+                    self.message_event(
+                        parallel_scope,
+                        configuration_id,
+                        configuration,
+                        MessageIndex::from_usize(message_index),
+                        *message_id,
+                    )
+                })
+        }
     }
 
     fn activity_event<'a>(
@@ -3490,7 +3432,6 @@ impl<
             }
 
             if did_modify {
-                assert!(!configuration.immediate_index.is_valid());
                 configuration.message_ids.sort();
             }
         }
@@ -3520,16 +3461,6 @@ impl<
         context: &mut <Self as ModelTypes>::Context,
         message: <Self as MetaModel>::Message,
     ) {
-        let is_immediate = message.order == MessageOrder::Immediate;
-        if is_immediate && context.to_configuration.has_immediate() {
-            // BEGIN NOT TESTED
-            panic!(
-                "sending a second immediate message {} while in the configuration {}",
-                self.display_message(&message),
-                self.display_configuration(&context.to_configuration)
-            );
-            // END NOT TESTED
-        }
         context
             .to_configuration
             .message_ids
@@ -3559,7 +3490,7 @@ impl<
         let message_id = self.messages.store(message).id;
         context
             .to_configuration
-            .add_message(context.agent_index, message_id, is_immediate);
+            .add_message(context.agent_index, message_id);
     }
 
     // BEGIN NOT TESTED
@@ -3962,31 +3893,16 @@ impl<
         self.ensure_init_is_reachable = arg_matches.is_present("reachable");
         if self.ensure_init_is_reachable {
             let mut incomings = self.incomings.write();
+            let outgoings = self.outgoings.read();
+
+            assert!(incomings.is_empty());
+            assert!(self.configurations.len() == 1);
+
             let incomings_capacity = incomings.capacity();
-            incomings.reserve(self.outgoings.read().capacity() - incomings_capacity);
-        }
+            incomings.reserve(outgoings.capacity() - incomings_capacity);
 
-        let size = self.configurations.capacity();
-
-        if self.ensure_init_is_reachable {
-            let mut incomings = self.incomings.write();
-            if incomings.len() < size {
-                let additional = size - incomings.len();
-                incomings.reserve(additional);
-                for _ in 0..additional {
-                    incomings.push(RwLock::new(vec![]));
-                }
-            }
-        }
-
-        {
-            let mut outgoings = self.outgoings.write();
-            if outgoings.len() < size {
-                let additional = size - outgoings.len();
-                outgoings.reserve(additional);
-                for _ in 0..additional {
-                    outgoings.push(RwLock::new(vec![]));
-                }
+            while incomings.len() < outgoings.len() {
+                incomings.push(RwLock::new(vec![]));
             }
         }
 
