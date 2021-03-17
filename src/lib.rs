@@ -77,6 +77,9 @@ lazy_static! {
 
     /// The configuration identifier of an error we have seen.
     static ref ERROR_CONFIGURATION_ID: AtomicUsize = AtomicUsize::new(usize::max_value());
+
+    /// The mast of reachable configurations we have seen.
+    static ref REACHED_CONFIGURATIONS_MASK: Mutex<Vec<bool>> = Mutex::new(vec![]);
 }
 // END MAYBE TESTED
 
@@ -2744,6 +2747,9 @@ impl<
                 if ERROR_CONFIGURATION_ID.load(Ordering::Relaxed) != usize::max_value() {
                     sleep(Duration::from_secs(1));
                 } else {
+                    ERROR_CONFIGURATION_ID
+                        .store(error_configuration_id.to_usize(), Ordering::Relaxed);
+
                     eprintln!(
                         "ERROR: {}\n\
                          when delivering the message: {}\n\
@@ -2753,30 +2759,30 @@ impl<
                         self.display_message_id(context.delivered_message_id),
                         self.display_configuration_id(error_configuration_id),
                     );
-                    self.error_path("ERROR", error_configuration_id);
+
+                    let is_error = move |_model: &Self, configuration_id: ConfigurationId| {
+                        configuration_id
+                            == ConfigurationId::from_usize(
+                                ERROR_CONFIGURATION_ID.load(Ordering::Relaxed),
+                            )
+                    };
+                    let error_path_step = PathStep {
+                        condition: is_error,
+                        is_negated: false,
+                        name: "ERRPR".to_string(),
+                    };
+
+                    self.error_path(error_path_step);
                 }
             }
         }
     }
 
-    fn error_path(&self, name: &str, error_configuration_id: ConfigurationId) {
-        assert!(ERROR_CONFIGURATION_ID.load(Ordering::Relaxed) == usize::max_value());
-        ERROR_CONFIGURATION_ID.store(error_configuration_id.to_usize(), Ordering::Relaxed);
-
+    fn error_path(&self, error_path_step: PathStep<Self>) {
         let init_path_step = PathStep {
             condition: is_init,
             is_negated: false,
             name: "INIT".to_string(),
-        };
-
-        let is_error = move |_model: &Self, configuration_id: ConfigurationId| {
-            configuration_id
-                == ConfigurationId::from_usize(ERROR_CONFIGURATION_ID.load(Ordering::Relaxed))
-        };
-        let error_path_step = PathStep {
-            condition: is_error,
-            is_negated: false,
-            name: name.to_string(),
         };
 
         let path = self.collect_path(vec![init_path_step, error_path_step]);
@@ -3962,18 +3968,12 @@ impl<
                 });
         }
 
-        let mut unreachable_count = 0;
-        let mut unreachable_configuration_id = usize::max_value();
-        reached_configurations_mask
+        let unreachable_count = reached_configurations_mask
             .iter()
-            .enumerate()
-            .filter(|(_, is_reached)| !*is_reached)
-            .for_each(|(configuration_id, _)| {
-                // BEGIN NOT TESTED
-                unreachable_configuration_id = min(unreachable_configuration_id, configuration_id);
-                unreachable_count += 1;
-                // END NOT TESTED
-            });
+            .filter(|is_reached| !*is_reached)
+            .count();
+
+        *REACHED_CONFIGURATIONS_MASK.lock().unwrap() = reached_configurations_mask;
 
         if unreachable_count > 0 {
             // BEGIN NOT TESTED
@@ -3981,10 +3981,17 @@ impl<
                 "ERROR: there is no path back to initial state from {} configurations",
                 unreachable_count
             );
-            self.error_path(
-                "DEADEND",
-                ConfigurationId::from_usize(unreachable_configuration_id),
-            );
+
+            let is_reachable = move |_model: &Self, configuration_id: ConfigurationId| {
+                REACHED_CONFIGURATIONS_MASK.lock().unwrap()[configuration_id.to_usize()]
+            };
+            let error_path_step = PathStep {
+                condition: is_reachable,
+                is_negated: true,
+                name: "DEADEND".to_string(),
+            };
+
+            self.error_path(error_path_step);
             // END NOT TESTED
         }
     }
