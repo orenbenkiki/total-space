@@ -12,8 +12,10 @@ D_0_18446744073709551615_3 [ label="Activity &#8594;\nWorry", shape=plain ];
 D_0_18446744073709551615_3 -> T_0_18446744073709551615 [ color=Black, style=dashed ];
 S_0_18446744073709551615_4 [ label="PNG\n&#8594; S", shape=plain ];
 T_0_18446744073709551615 -> S_0_18446744073709551615_4 [ color=Black, style=dashed ];
+S_0_18446744073709551615_4 -> A_0_false [ style=invis ];
 S_0_18446744073709551615_6 [ label="PNG &#8658;\nPNG\n&#8594; S", shape=plain ];
 T_0_18446744073709551615 -> S_0_18446744073709551615_6 [ color=Black, style=dashed ];
+S_0_18446744073709551615_6 -> A_0_false [ style=invis ];
 }
 A_1_false [ label="WAT", shape=ellipse ];
 subgraph cluster_1 {
@@ -26,14 +28,18 @@ T_1_0 [ shape=point, height=0.015, width=0.015, style=filled ];
 T_1_18446744073709551615 -> T_1_0 [ arrowhead=none, direction=forward, style=dashed ];
 S_1_0_1 [ label="REQ\n&#8594; S", shape=plain ];
 T_1_0 -> S_1_0_1 [ color=Black, style=dashed ];
+S_1_18446744073709551615_1 -> A_1_false [ style=invis ];
 S_1_0_2 [ label="PNG\n&#8594; S", shape=plain ];
 T_1_0 -> S_1_0_2 [ color=Crimson, style=dashed ];
+S_1_18446744073709551615_2 -> A_1_false [ style=invis ];
 T_1_1 [ shape=point, height=0.015, width=0.015, style=filled ];
 T_1_18446744073709551615 -> T_1_1 [ arrowhead=none, direction=forward, style=dashed ];
 S_1_1_1 [ label="REQ\n&#8594; S", shape=plain ];
 T_1_1 -> S_1_1_1 [ color=Black, style=dashed ];
+S_1_18446744073709551615_1 -> A_1_false [ style=invis ];
 S_1_1_5 [ label="PNG &#8658;\nPNG\n&#8594; S", shape=plain ];
 T_1_1 -> S_1_1_5 [ color=Crimson, style=dashed ];
+S_1_18446744073709551615_5 -> A_1_false [ style=invis ];
 }
 subgraph cluster_2 {
 T_2_18446744073709551615 [ shape=point, height=0.015, width=0.015 ];

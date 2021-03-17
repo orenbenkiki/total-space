@@ -4542,6 +4542,7 @@ impl<
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn print_agent_transition_sent_edges(
         &self,
         condense: &Condense,
@@ -4603,7 +4604,8 @@ impl<
                 sent_message_id.to_usize(),
                 to_state_id.to_usize(),
                 to_is_deferring,
-            ).unwrap();
+            )
+            .unwrap();
         }
     }
 

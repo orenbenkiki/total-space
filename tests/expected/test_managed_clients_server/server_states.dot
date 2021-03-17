@@ -28,6 +28,7 @@ D_2_18446744073709551615_10 [ label="Activity &#8594;\nCompleted", shape=plain ]
 D_2_18446744073709551615_10 -> T_2_18446744073709551615 [ color=Black, style=dashed ];
 S_2_18446744073709551615_11 [ label="RSP\n&#8594; C(0)", shape=plain ];
 T_2_18446744073709551615 -> S_2_18446744073709551615_11 [ color=Black, style=dashed ];
+S_2_18446744073709551615_11 -> A_0_false [ style=invis ];
 }
 subgraph cluster_3 {
 T_3_18446744073709551615 [ shape=point, height=0.015, width=0.015 ];
@@ -37,5 +38,6 @@ D_3_18446744073709551615_10 [ label="Activity &#8594;\nCompleted", shape=plain ]
 D_3_18446744073709551615_10 -> T_3_18446744073709551615 [ color=Black, style=dashed ];
 S_3_18446744073709551615_12 [ label="RSP\n&#8594; C(1)", shape=plain ];
 T_3_18446744073709551615 -> S_3_18446744073709551615_12 [ color=Black, style=dashed ];
+S_3_18446744073709551615_12 -> A_0_false [ style=invis ];
 }
 }

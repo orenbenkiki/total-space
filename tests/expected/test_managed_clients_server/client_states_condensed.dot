@@ -13,6 +13,7 @@ D_0_18446744073709551615_0 [ label="Activity &#8594;\nNeed", shape=plain ];
 D_0_18446744073709551615_0 -> T_0_18446744073709551615 [ color=Black, style=dashed ];
 S_0_18446744073709551615_1 [ label="REQ\n&#8594; SRV", shape=plain ];
 T_0_18446744073709551615 -> S_0_18446744073709551615_1 [ color=Black, style=dashed ];
+S_0_18446744073709551615_1 -> A_1_false [ style=invis ];
 }
 A_2_false [ label="CHK", shape=ellipse ];
 subgraph cluster_1 {
@@ -23,6 +24,7 @@ D_1_18446744073709551615_2 [ label="Activity &#8594;\nWorry", shape=plain ];
 D_1_18446744073709551615_2 -> T_1_18446744073709551615 [ color=Black, style=dashed ];
 S_1_18446744073709551615_3 [ label="CHK\n&#8594; MGR", shape=plain ];
 T_1_18446744073709551615 -> S_1_18446744073709551615_3 [ color=Black, style=dashed ];
+S_1_18446744073709551615_3 -> A_2_false [ style=invis ];
 }
 subgraph cluster_2 {
 T_2_18446744073709551615 [ shape=point, height=0.015, width=0.015 ];
