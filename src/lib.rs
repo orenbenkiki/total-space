@@ -2716,6 +2716,7 @@ impl<
 
         ThreadPoolBuilder::new()
             .num_threads(self.threads.count())
+            .thread_name(|thread_index| format!("worker-{}", thread_index))
             .build()
             .unwrap()
             .install(|| {
