@@ -2849,19 +2849,6 @@ impl<
         configuration_id: ConfigurationId,
     ) {
         let configuration = self.configurations.get(configuration_id);
-        if self.print_progress_every == 1
-            // BEGIN NOT TESTED
-            || (self.print_progress_every > 0
-                && configuration_id.to_usize() > 0
-                && configuration_id.to_usize() % self.print_progress_every == 0)
-        // END NOT TESTED
-        {
-            eprintln!(
-                "#{}\n{}",
-                configuration_id.to_usize(),
-                self.display_configuration(&configuration)
-            );
-        }
 
         let immediate_message = configuration
             .message_ids
