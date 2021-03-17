@@ -4420,6 +4420,8 @@ impl<
                     self.print_agent_transition_sent_edges(
                         condense,
                         &sent_message_ids,
+                        context.to_state_id,
+                        context.to_is_deferring,
                         state_transition_index,
                         None,
                         stdout,
@@ -4455,6 +4457,8 @@ impl<
                     self.print_agent_transition_sent_edges(
                         condense,
                         &sent_message_ids,
+                        context.to_state_id,
+                        context.to_is_deferring,
                         state_transition_index,
                         Some(alternative_index),
                         stdout,
@@ -4542,6 +4546,8 @@ impl<
         &self,
         condense: &Condense,
         sent_message_ids: &[MessageId],
+        to_state_id: StateId,
+        to_is_deferring: bool,
         state_transition_index: usize,
         mut alternative_index: Option<usize>,
         stdout: &mut dyn Write,
@@ -4589,6 +4595,15 @@ impl<
                 Some(*sent_message_id),
                 stdout,
             );
+            writeln!(
+                stdout,
+                "S_{}_{}_{} -> A_{}_{} [ style=invis ];",
+                state_transition_index,
+                usize::max_value(),
+                sent_message_id.to_usize(),
+                to_state_id.to_usize(),
+                to_is_deferring,
+            ).unwrap();
         }
     }
 
