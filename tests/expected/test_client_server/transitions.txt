@@ -1,111 +1,111 @@
-FROM:
+FROM 0:
 - C:IDL
 & S:LST
 
 BY: Activity -> Need -> C
-TO:
+TO 1:
 - C:WAT
 & S:LST
 | C -> REQ -> S
 & C -> * PNG -> S
 
 BY: Activity -> Worry -> C
-TO:
+TO 2:
 - C:IDL
 & S:LST
 | C -> PNG -> S
 
-FROM:
+FROM 1:
 - C:WAT
 & S:LST
 | C -> REQ -> S
 & C -> * PNG -> S
 
 BY: C -> * PNG -> S
-TO:
+TO 5:
 - C:WAT
 & S:LST
 | C -> REQ -> S
 
-FROM:
+FROM 2:
 - C:IDL
 & S:LST
 | C -> PNG -> S
 
 BY: Activity -> Need -> C
-TO:
+TO 3:
 - C:WAT
 & S:LST
 | C -> REQ -> S
 & C -> * PNG => PNG -> S
 
 BY: Activity -> Worry -> C
-TO:
+TO 4:
 - C:IDL
 & S:LST
 | C -> PNG => PNG -> S
 
 BY: C -> PNG -> S
-TO:
+TO 0:
 - C:IDL
 & S:LST
 
-FROM:
+FROM 3:
 - C:WAT
 & S:LST
 | C -> REQ -> S
 & C -> * PNG => PNG -> S
 
 BY: C -> * PNG => PNG -> S
-TO:
+TO 5:
 - C:WAT
 & S:LST
 | C -> REQ -> S
 
-FROM:
+FROM 4:
 - C:IDL
 & S:LST
 | C -> PNG => PNG -> S
 
 BY: Activity -> Need -> C
-TO:
+TO 3:
 - C:WAT
 & S:LST
 | C -> REQ -> S
 & C -> * PNG => PNG -> S
 
 BY: C -> PNG => PNG -> S
-TO:
+TO 0:
 - C:IDL
 & S:LST
 
-FROM:
+FROM 5:
 - C:WAT
 & S:LST
 | C -> REQ -> S
 
 BY: C -> REQ -> S
-TO:
+TO 6:
 - C:WAT
 & S:WRK
 
-FROM:
+FROM 6:
 - C:WAT
 & S:WRK
 
 BY: Activity -> Completed -> S
-TO:
+TO 7:
 - C:WAT
 & S:LST
 | S -> RSP -> C
 
-FROM:
+FROM 7:
 - C:WAT
 & S:LST
 | S -> RSP -> C
 
 BY: S -> RSP -> C
-TO:
+TO 0:
 - C:IDL
 & S:LST
 

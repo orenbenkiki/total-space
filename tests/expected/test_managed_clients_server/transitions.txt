@@ -1,44 +1,44 @@
-FROM:
+FROM 0:
 - C(0):IDL
 & C(1):IDL
 & SRV:LST
 
 BY: Activity -> Need -> C(0)
-TO:
+TO 1:
 - C(0):WAT
 & C(1):IDL
 & SRV:LST
 | C(0) -> REQ(C=0) -> SRV
 
 BY: Activity -> Worry -> C(0)
-TO:
+TO 2:
 - C(0):CHK
 & C(1):IDL
 & SRV:LST
 | C(0) -> CHK(C=0) -> MGR
 
 BY: Activity -> Need -> C(1)
-TO:
+TO 3:
 - C(0):IDL
 & C(1):WAT
 & SRV:LST
 | C(1) -> REQ(C=1) -> SRV
 
 BY: Activity -> Worry -> C(1)
-TO:
+TO 4:
 - C(0):IDL
 & C(1):CHK
 & SRV:LST
 | C(1) -> CHK(C=1) -> MGR
 
-FROM:
+FROM 1:
 - C(0):WAT
 & C(1):IDL
 & SRV:LST
 | C(0) -> REQ(C=0) -> SRV
 
 BY: Activity -> Need -> C(1)
-TO:
+TO 30:
 - C(0):WAT
 & C(1):WAT
 & SRV:LST
@@ -46,7 +46,7 @@ TO:
 & C(1) -> REQ(C=1) -> SRV
 
 BY: Activity -> Worry -> C(1)
-TO:
+TO 5:
 - C(0):WAT
 & C(1):CHK
 & SRV:LST
@@ -54,19 +54,19 @@ TO:
 & C(1) -> CHK(C=1) -> MGR
 
 BY: C(0) -> REQ(C=0) -> SRV
-TO:
+TO 14:
 - C(0):WAT
 & C(1):IDL
 & SRV:WRK(C=0)
 
-FROM:
+FROM 2:
 - C(0):CHK
 & C(1):IDL
 & SRV:LST
 | C(0) -> CHK(C=0) -> MGR
 
 BY: Activity -> Need -> C(1)
-TO:
+TO 31:
 - C(0):CHK
 & C(1):WAT
 & SRV:LST
@@ -74,7 +74,7 @@ TO:
 & C(1) -> REQ(C=1) -> SRV
 
 BY: Activity -> Worry -> C(1)
-TO:
+TO 6:
 - C(0):CHK
 & C(1):CHK
 & SRV:LST
@@ -82,20 +82,20 @@ TO:
 & C(1) -> CHK(C=1) -> MGR
 
 BY: C(0) -> CHK(C=0) -> MGR
-TO:
+TO 33:
 - C(0):CHK
 & C(1):IDL
 & SRV:LST
 | MGR -> * CNF -> C(0)
 
-FROM:
+FROM 3:
 - C(0):IDL
 & C(1):WAT
 & SRV:LST
 | C(1) -> REQ(C=1) -> SRV
 
 BY: Activity -> Need -> C(0)
-TO:
+TO 30:
 - C(0):WAT
 & C(1):WAT
 & SRV:LST
@@ -103,7 +103,7 @@ TO:
 & C(1) -> REQ(C=1) -> SRV
 
 BY: Activity -> Worry -> C(0)
-TO:
+TO 31:
 - C(0):CHK
 & C(1):WAT
 & SRV:LST
@@ -111,19 +111,19 @@ TO:
 & C(1) -> REQ(C=1) -> SRV
 
 BY: C(1) -> REQ(C=1) -> SRV
-TO:
+TO 20:
 - C(0):IDL
 & C(1):WAT
 & SRV:WRK(C=1)
 
-FROM:
+FROM 4:
 - C(0):IDL
 & C(1):CHK
 & SRV:LST
 | C(1) -> CHK(C=1) -> MGR
 
 BY: Activity -> Need -> C(0)
-TO:
+TO 5:
 - C(0):WAT
 & C(1):CHK
 & SRV:LST
@@ -131,7 +131,7 @@ TO:
 & C(1) -> CHK(C=1) -> MGR
 
 BY: Activity -> Worry -> C(0)
-TO:
+TO 6:
 - C(0):CHK
 & C(1):CHK
 & SRV:LST
@@ -139,13 +139,13 @@ TO:
 & C(1) -> CHK(C=1) -> MGR
 
 BY: C(1) -> CHK(C=1) -> MGR
-TO:
+TO 7:
 - C(0):IDL
 & C(1):CHK
 & SRV:LST
 | MGR -> * CNF -> C(1)
 
-FROM:
+FROM 5:
 - C(0):WAT
 & C(1):CHK
 & SRV:LST
@@ -153,21 +153,21 @@ FROM:
 & C(1) -> CHK(C=1) -> MGR
 
 BY: C(0) -> REQ(C=0) -> SRV
-TO:
+TO 10:
 - C(0):WAT
 & C(1):CHK
 & SRV:WRK(C=0)
 | C(1) -> CHK(C=1) -> MGR
 
 BY: C(1) -> CHK(C=1) -> MGR
-TO:
+TO 11:
 - C(0):WAT
 & C(1):CHK
 & SRV:LST
 | C(0) -> REQ(C=0) -> SRV
 & MGR -> * CNF -> C(1)
 
-FROM:
+FROM 6:
 - C(0):CHK
 & C(1):CHK
 & SRV:LST
@@ -175,7 +175,7 @@ FROM:
 & C(1) -> CHK(C=1) -> MGR
 
 BY: C(0) -> CHK(C=0) -> MGR
-TO:
+TO 8:
 - C(0):CHK
 & C(1):CHK
 & SRV:LST
@@ -183,26 +183,26 @@ TO:
 & MGR -> * CNF -> C(0)
 
 BY: C(1) -> CHK(C=1) -> MGR
-TO:
+TO 9:
 - C(0):CHK
 & C(1):CHK
 & SRV:LST
 | C(0) -> CHK(C=0) -> MGR
 & MGR -> * CNF -> C(1)
 
-FROM:
+FROM 7:
 - C(0):IDL
 & C(1):CHK
 & SRV:LST
 | MGR -> * CNF -> C(1)
 
 BY: MGR -> * CNF -> C(1)
-TO:
+TO 0:
 - C(0):IDL
 & C(1):IDL
 & SRV:LST
 
-FROM:
+FROM 8:
 - C(0):CHK
 & C(1):CHK
 & SRV:LST
@@ -210,13 +210,13 @@ FROM:
 & MGR -> * CNF -> C(0)
 
 BY: MGR -> * CNF -> C(0)
-TO:
+TO 4:
 - C(0):IDL
 & C(1):CHK
 & SRV:LST
 | C(1) -> CHK(C=1) -> MGR
 
-FROM:
+FROM 9:
 - C(0):CHK
 & C(1):CHK
 & SRV:LST
@@ -224,20 +224,20 @@ FROM:
 & MGR -> * CNF -> C(1)
 
 BY: MGR -> * CNF -> C(1)
-TO:
+TO 2:
 - C(0):CHK
 & C(1):IDL
 & SRV:LST
 | C(0) -> CHK(C=0) -> MGR
 
-FROM:
+FROM 10:
 - C(0):WAT
 & C(1):CHK
 & SRV:WRK(C=0)
 | C(1) -> CHK(C=1) -> MGR
 
 BY: Activity -> Completed -> SRV
-TO:
+TO 12:
 - C(0):WAT
 & C(1):CHK
 & SRV:LST
@@ -245,13 +245,13 @@ TO:
 & SRV -> RSP -> C(0)
 
 BY: C(1) -> CHK(C=1) -> MGR
-TO:
+TO 13:
 - C(0):WAT
 & C(1):CHK
 & SRV:WRK(C=0)
 | MGR -> * CNF -> C(1)
 
-FROM:
+FROM 11:
 - C(0):WAT
 & C(1):CHK
 & SRV:LST
@@ -259,13 +259,13 @@ FROM:
 & MGR -> * CNF -> C(1)
 
 BY: MGR -> * CNF -> C(1)
-TO:
+TO 1:
 - C(0):WAT
 & C(1):IDL
 & SRV:LST
 | C(0) -> REQ(C=0) -> SRV
 
-FROM:
+FROM 12:
 - C(0):WAT
 & C(1):CHK
 & SRV:LST
@@ -273,7 +273,7 @@ FROM:
 & SRV -> RSP -> C(0)
 
 BY: C(1) -> CHK(C=1) -> MGR
-TO:
+TO 29:
 - C(0):WAT
 & C(1):CHK
 & SRV:LST
@@ -281,72 +281,72 @@ TO:
 & SRV -> RSP -> C(0)
 
 BY: SRV -> RSP -> C(0)
-TO:
+TO 4:
 - C(0):IDL
 & C(1):CHK
 & SRV:LST
 | C(1) -> CHK(C=1) -> MGR
 
-FROM:
+FROM 13:
 - C(0):WAT
 & C(1):CHK
 & SRV:WRK(C=0)
 | MGR -> * CNF -> C(1)
 
 BY: MGR -> * CNF -> C(1)
-TO:
+TO 14:
 - C(0):WAT
 & C(1):IDL
 & SRV:WRK(C=0)
 
-FROM:
+FROM 14:
 - C(0):WAT
 & C(1):IDL
 & SRV:WRK(C=0)
 
 BY: Activity -> Need -> C(1)
-TO:
+TO 15:
 - C(0):WAT
 & C(1):WAT
 & SRV:WRK(C=0)
 | C(1) -> REQ(C=1) -> SRV
 
 BY: Activity -> Worry -> C(1)
-TO:
+TO 10:
 - C(0):WAT
 & C(1):CHK
 & SRV:WRK(C=0)
 | C(1) -> CHK(C=1) -> MGR
 
 BY: Activity -> Completed -> SRV
-TO:
+TO 16:
 - C(0):WAT
 & C(1):IDL
 & SRV:LST
 | SRV -> RSP -> C(0)
 
-FROM:
+FROM 15:
 - C(0):WAT
 & C(1):WAT
 & SRV:WRK(C=0)
 | C(1) -> REQ(C=1) -> SRV
 
 BY: Activity -> Completed -> SRV
-TO:
+TO 17:
 - C(0):WAT
 & C(1):WAT
 & SRV:LST
 | C(1) -> REQ(C=1) -> SRV
 & SRV -> RSP -> C(0)
 
-FROM:
+FROM 16:
 - C(0):WAT
 & C(1):IDL
 & SRV:LST
 | SRV -> RSP -> C(0)
 
 BY: Activity -> Need -> C(1)
-TO:
+TO 17:
 - C(0):WAT
 & C(1):WAT
 & SRV:LST
@@ -354,7 +354,7 @@ TO:
 & SRV -> RSP -> C(0)
 
 BY: Activity -> Worry -> C(1)
-TO:
+TO 12:
 - C(0):WAT
 & C(1):CHK
 & SRV:LST
@@ -362,12 +362,12 @@ TO:
 & SRV -> RSP -> C(0)
 
 BY: SRV -> RSP -> C(0)
-TO:
+TO 0:
 - C(0):IDL
 & C(1):IDL
 & SRV:LST
 
-FROM:
+FROM 17:
 - C(0):WAT
 & C(1):WAT
 & SRV:LST
@@ -375,27 +375,27 @@ FROM:
 & SRV -> RSP -> C(0)
 
 BY: C(1) -> REQ(C=1) -> SRV
-TO:
+TO 18:
 - C(0):WAT
 & C(1):WAT
 & SRV:WRK(C=1)
 | SRV -> RSP -> C(0)
 
 BY: SRV -> RSP -> C(0)
-TO:
+TO 3:
 - C(0):IDL
 & C(1):WAT
 & SRV:LST
 | C(1) -> REQ(C=1) -> SRV
 
-FROM:
+FROM 18:
 - C(0):WAT
 & C(1):WAT
 & SRV:WRK(C=1)
 | SRV -> RSP -> C(0)
 
 BY: Activity -> Completed -> SRV
-TO:
+TO 19:
 - C(0):WAT
 & C(1):WAT
 & SRV:LST
@@ -403,12 +403,12 @@ TO:
 & SRV -> RSP -> C(1)
 
 BY: SRV -> RSP -> C(0)
-TO:
+TO 20:
 - C(0):IDL
 & C(1):WAT
 & SRV:WRK(C=1)
 
-FROM:
+FROM 19:
 - C(0):WAT
 & C(1):WAT
 & SRV:LST
@@ -416,67 +416,67 @@ FROM:
 & SRV -> RSP -> C(1)
 
 BY: SRV -> RSP -> C(0)
-TO:
+TO 23:
 - C(0):IDL
 & C(1):WAT
 & SRV:LST
 | SRV -> RSP -> C(1)
 
 BY: SRV -> RSP -> C(1)
-TO:
+TO 16:
 - C(0):WAT
 & C(1):IDL
 & SRV:LST
 | SRV -> RSP -> C(0)
 
-FROM:
+FROM 20:
 - C(0):IDL
 & C(1):WAT
 & SRV:WRK(C=1)
 
 BY: Activity -> Need -> C(0)
-TO:
+TO 21:
 - C(0):WAT
 & C(1):WAT
 & SRV:WRK(C=1)
 | C(0) -> REQ(C=0) -> SRV
 
 BY: Activity -> Worry -> C(0)
-TO:
+TO 22:
 - C(0):CHK
 & C(1):WAT
 & SRV:WRK(C=1)
 | C(0) -> CHK(C=0) -> MGR
 
 BY: Activity -> Completed -> SRV
-TO:
+TO 23:
 - C(0):IDL
 & C(1):WAT
 & SRV:LST
 | SRV -> RSP -> C(1)
 
-FROM:
+FROM 21:
 - C(0):WAT
 & C(1):WAT
 & SRV:WRK(C=1)
 | C(0) -> REQ(C=0) -> SRV
 
 BY: Activity -> Completed -> SRV
-TO:
+TO 24:
 - C(0):WAT
 & C(1):WAT
 & SRV:LST
 | C(0) -> REQ(C=0) -> SRV
 & SRV -> RSP -> C(1)
 
-FROM:
+FROM 22:
 - C(0):CHK
 & C(1):WAT
 & SRV:WRK(C=1)
 | C(0) -> CHK(C=0) -> MGR
 
 BY: Activity -> Completed -> SRV
-TO:
+TO 25:
 - C(0):CHK
 & C(1):WAT
 & SRV:LST
@@ -484,20 +484,20 @@ TO:
 & SRV -> RSP -> C(1)
 
 BY: C(0) -> CHK(C=0) -> MGR
-TO:
+TO 28:
 - C(0):CHK
 & C(1):WAT
 & SRV:WRK(C=1)
 | MGR -> * CNF -> C(0)
 
-FROM:
+FROM 23:
 - C(0):IDL
 & C(1):WAT
 & SRV:LST
 | SRV -> RSP -> C(1)
 
 BY: Activity -> Need -> C(0)
-TO:
+TO 24:
 - C(0):WAT
 & C(1):WAT
 & SRV:LST
@@ -505,7 +505,7 @@ TO:
 & SRV -> RSP -> C(1)
 
 BY: Activity -> Worry -> C(0)
-TO:
+TO 25:
 - C(0):CHK
 & C(1):WAT
 & SRV:LST
@@ -513,12 +513,12 @@ TO:
 & SRV -> RSP -> C(1)
 
 BY: SRV -> RSP -> C(1)
-TO:
+TO 0:
 - C(0):IDL
 & C(1):IDL
 & SRV:LST
 
-FROM:
+FROM 24:
 - C(0):WAT
 & C(1):WAT
 & SRV:LST
@@ -526,20 +526,20 @@ FROM:
 & SRV -> RSP -> C(1)
 
 BY: C(0) -> REQ(C=0) -> SRV
-TO:
+TO 27:
 - C(0):WAT
 & C(1):WAT
 & SRV:WRK(C=0)
 | SRV -> RSP -> C(1)
 
 BY: SRV -> RSP -> C(1)
-TO:
+TO 1:
 - C(0):WAT
 & C(1):IDL
 & SRV:LST
 | C(0) -> REQ(C=0) -> SRV
 
-FROM:
+FROM 25:
 - C(0):CHK
 & C(1):WAT
 & SRV:LST
@@ -547,7 +547,7 @@ FROM:
 & SRV -> RSP -> C(1)
 
 BY: C(0) -> CHK(C=0) -> MGR
-TO:
+TO 26:
 - C(0):CHK
 & C(1):WAT
 & SRV:LST
@@ -555,13 +555,13 @@ TO:
 & SRV -> RSP -> C(1)
 
 BY: SRV -> RSP -> C(1)
-TO:
+TO 2:
 - C(0):CHK
 & C(1):IDL
 & SRV:LST
 | C(0) -> CHK(C=0) -> MGR
 
-FROM:
+FROM 26:
 - C(0):CHK
 & C(1):WAT
 & SRV:LST
@@ -569,20 +569,20 @@ FROM:
 & SRV -> RSP -> C(1)
 
 BY: MGR -> * CNF -> C(0)
-TO:
+TO 23:
 - C(0):IDL
 & C(1):WAT
 & SRV:LST
 | SRV -> RSP -> C(1)
 
-FROM:
+FROM 27:
 - C(0):WAT
 & C(1):WAT
 & SRV:WRK(C=0)
 | SRV -> RSP -> C(1)
 
 BY: Activity -> Completed -> SRV
-TO:
+TO 19:
 - C(0):WAT
 & C(1):WAT
 & SRV:LST
@@ -590,24 +590,24 @@ TO:
 & SRV -> RSP -> C(1)
 
 BY: SRV -> RSP -> C(1)
-TO:
+TO 14:
 - C(0):WAT
 & C(1):IDL
 & SRV:WRK(C=0)
 
-FROM:
+FROM 28:
 - C(0):CHK
 & C(1):WAT
 & SRV:WRK(C=1)
 | MGR -> * CNF -> C(0)
 
 BY: MGR -> * CNF -> C(0)
-TO:
+TO 20:
 - C(0):IDL
 & C(1):WAT
 & SRV:WRK(C=1)
 
-FROM:
+FROM 29:
 - C(0):WAT
 & C(1):CHK
 & SRV:LST
@@ -615,13 +615,13 @@ FROM:
 & SRV -> RSP -> C(0)
 
 BY: MGR -> * CNF -> C(1)
-TO:
+TO 16:
 - C(0):WAT
 & C(1):IDL
 & SRV:LST
 | SRV -> RSP -> C(0)
 
-FROM:
+FROM 30:
 - C(0):WAT
 & C(1):WAT
 & SRV:LST
@@ -629,20 +629,20 @@ FROM:
 & C(1) -> REQ(C=1) -> SRV
 
 BY: C(0) -> REQ(C=0) -> SRV
-TO:
+TO 15:
 - C(0):WAT
 & C(1):WAT
 & SRV:WRK(C=0)
 | C(1) -> REQ(C=1) -> SRV
 
 BY: C(1) -> REQ(C=1) -> SRV
-TO:
+TO 21:
 - C(0):WAT
 & C(1):WAT
 & SRV:WRK(C=1)
 | C(0) -> REQ(C=0) -> SRV
 
-FROM:
+FROM 31:
 - C(0):CHK
 & C(1):WAT
 & SRV:LST
@@ -650,7 +650,7 @@ FROM:
 & C(1) -> REQ(C=1) -> SRV
 
 BY: C(0) -> CHK(C=0) -> MGR
-TO:
+TO 32:
 - C(0):CHK
 & C(1):WAT
 & SRV:LST
@@ -658,13 +658,13 @@ TO:
 & MGR -> * CNF -> C(0)
 
 BY: C(1) -> REQ(C=1) -> SRV
-TO:
+TO 22:
 - C(0):CHK
 & C(1):WAT
 & SRV:WRK(C=1)
 | C(0) -> CHK(C=0) -> MGR
 
-FROM:
+FROM 32:
 - C(0):CHK
 & C(1):WAT
 & SRV:LST
@@ -672,20 +672,20 @@ FROM:
 & MGR -> * CNF -> C(0)
 
 BY: MGR -> * CNF -> C(0)
-TO:
+TO 3:
 - C(0):IDL
 & C(1):WAT
 & SRV:LST
 | C(1) -> REQ(C=1) -> SRV
 
-FROM:
+FROM 33:
 - C(0):CHK
 & C(1):IDL
 & SRV:LST
 | MGR -> * CNF -> C(0)
 
 BY: MGR -> * CNF -> C(0)
-TO:
+TO 0:
 - C(0):IDL
 & C(1):IDL
 & SRV:LST

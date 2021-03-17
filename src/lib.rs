@@ -6102,7 +6102,8 @@ impl<
 
                         writeln!(
                             stdout,
-                            "FROM:\n{}\n",
+                            "FROM {}:\n{}\n",
+                            from_configuration_id.to_usize(),
                             self.display_configuration(&from_configuration)
                         )
                         .unwrap();
@@ -6112,8 +6113,14 @@ impl<
                                 self.display_message_id(outgoing.delivered_message_id);
                             let to_label =
                                 self.display_configuration_id(outgoing.to_configuration_id);
-                            writeln!(stdout, "BY: {}\nTO:\n{}\n", delivered_label, to_label,)
-                                .unwrap();
+                            writeln!(
+                                stdout,
+                                "BY: {}\nTO {}:\n{}\n",
+                                delivered_label,
+                                outgoing.to_configuration_id.to_usize(),
+                                to_label,
+                            )
+                            .unwrap();
                         });
                     });
                 true
