@@ -4987,6 +4987,15 @@ impl<
     }
 
     fn patch_sequence_steps(&self, sequence_steps: &mut [<Self as ModelTypes>::SequenceStep]) {
+        self.first_patch_sequence_steps(sequence_steps);
+        self.second_patch_sequence_steps(sequence_steps);
+        self.third_patch_sequence_steps(sequence_steps);
+    }
+
+    fn first_patch_sequence_steps(
+        &self,
+        sequence_steps: &mut [<Self as ModelTypes>::SequenceStep],
+    ) {
         let mut last_patched = 0;
         while last_patched + 1 < sequence_steps.len() {
             let last_step = sequence_steps[last_patched];
@@ -4994,7 +5003,7 @@ impl<
 
             let patch = match (last_step, next_step) {
                 (SequenceStep::NoStep, SequenceStep::NoStep) => SequencePatch::Keep,
-                (_step, SequenceStep::NoStep) => SequencePatch::Swap,
+                (_, SequenceStep::NoStep) => SequencePatch::Swap,
 
                 (
                     SequenceStep::Received {
@@ -5077,6 +5086,79 @@ impl<
                     },
                 ) if last_agent_index != next_agent_index => SequencePatch::Swap,
 
+                _ => SequencePatch::Keep,
+            };
+
+            last_patched = Self::apply_patch(sequence_steps, last_patched, patch);
+        }
+    }
+
+    fn second_patch_sequence_steps(
+        &self,
+        sequence_steps: &mut [<Self as ModelTypes>::SequenceStep],
+    ) {
+        let mut last_patched = 0;
+        while last_patched + 1 < sequence_steps.len() {
+            let last_step = sequence_steps[last_patched];
+            let next_step = sequence_steps[last_patched + 1];
+
+            let patch = match (last_step, next_step) {
+                (SequenceStep::NoStep, SequenceStep::NoStep) => SequencePatch::Keep,
+                (_, SequenceStep::NoStep) => SequencePatch::Swap,
+
+                (
+                    SequenceStep::Received {
+                        agent_index: last_agent_index,
+                        is_activity,
+                        ..
+                    },
+                    SequenceStep::NewState {
+                        agent_index: next_agent_index,
+                        ..
+                    },
+                ) if !is_activity && last_agent_index != next_agent_index => SequencePatch::Swap,
+
+                (
+                    SequenceStep::Passed {
+                        source_index,
+                        target_index,
+                        ..
+                    },
+                    SequenceStep::NewState { agent_index, .. },
+                ) if agent_index != source_index && agent_index != target_index => {
+                    SequencePatch::Swap // NOT TESTED
+                }
+
+                _ => SequencePatch::Keep,
+            };
+
+            last_patched = Self::apply_patch(sequence_steps, last_patched, patch);
+        }
+    }
+
+    fn third_patch_sequence_steps(
+        &self,
+        sequence_steps: &mut [<Self as ModelTypes>::SequenceStep],
+    ) {
+        let mut last_patched = 0;
+        while last_patched + 1 < sequence_steps.len() {
+            let last_step = sequence_steps[last_patched];
+            let next_step = sequence_steps[last_patched + 1];
+
+            let patch = match (last_step, next_step) {
+                (
+                    SequenceStep::Received {
+                        is_activity: true, ..
+                    },
+                    _,
+                ) => SequencePatch::Keep,
+                (
+                    _,
+                    SequenceStep::Received {
+                        is_activity: true, ..
+                    },
+                ) => SequencePatch::Keep,
+
                 (
                     SequenceStep::NewState {
                         agent_index: first_agent_index,
@@ -5100,30 +5182,37 @@ impl<
                 _ => SequencePatch::Keep,
             };
 
-            match patch {
-                SequencePatch::Keep => {
+            last_patched = Self::apply_patch(sequence_steps, last_patched, patch);
+        }
+    }
+
+    fn apply_patch(
+        sequence_steps: &mut [<Self as ModelTypes>::SequenceStep],
+        mut last_patched: usize,
+        patch: <Self as ModelTypes>::SequencePatch,
+    ) -> usize {
+        match patch {
+            SequencePatch::Keep => {
+                last_patched += 1;
+            }
+            SequencePatch::Swap => {
+                let last_step = sequence_steps[last_patched];
+                let next_step = sequence_steps[last_patched + 1];
+                sequence_steps[last_patched] = next_step;
+                sequence_steps[last_patched + 1] = last_step;
+                if last_patched > 0 {
+                    last_patched -= 1;
+                } else {
                     last_patched += 1;
                 }
-                SequencePatch::Swap => {
-                    sequence_steps[last_patched] = next_step;
-                    sequence_steps[last_patched + 1] = last_step;
-                    if last_patched > 0 {
-                        last_patched -= 1;
-                    } else {
-                        last_patched += 1;
-                    }
-                }
-                SequencePatch::Merge(merged_step) => {
-                    sequence_steps[last_patched] = SequenceStep::NoStep;
-                    sequence_steps[last_patched + 1] = merged_step;
-                    if last_patched > 0 {
-                        last_patched -= 1;
-                    } else {
-                        last_patched += 1; // NOT TESTED
-                    }
-                }
+            }
+            SequencePatch::Merge(merged_step) => {
+                sequence_steps[last_patched] = SequenceStep::NoStep;
+                sequence_steps[last_patched + 1] = merged_step;
+                last_patched += 1;
             }
         }
+        last_patched
     }
 
     fn swap_immediate(

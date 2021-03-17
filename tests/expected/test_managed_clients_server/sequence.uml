@@ -72,18 +72,15 @@ note over A3 : Completed
 T2 -> A0 : RSP
 deactivate T2
 deactivate A0
-A3 -> T2 : RSP
-activate T2 #Silver
-activate A3 #MediumPurple
-activate A0 #MediumPurple
-rnote over A3 : LST
-/ rnote over A0 : IDL
-T2 -> A1 : RSP
-deactivate T2
+A3 -> A1 : RSP
 deactivate A1
 autonumber stop
 [<[#White]-- A0
 autonumber resume
+activate A3 #MediumPurple
+activate A0 #MediumPurple
+rnote over A3 : LST
+/ rnote over A0 : IDL
 activate A1 #MediumPurple
 rnote over A1 : IDL
 autonumber stop
