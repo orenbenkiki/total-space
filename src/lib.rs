@@ -2735,28 +2735,34 @@ impl<
 
     // BEGIN NOT TESTED
     fn error(&self, context: &<Self as ModelTypes>::Context, reason: &str) -> ! {
-        while ERROR_CONFIGURATION_ID.load(Ordering::Relaxed) != usize::max_value() {
-            sleep(Duration::from_secs(1));
+        let error_configuration_id = context.incoming.from_configuration_id;
+        loop {
+            if ERROR_CONFIGURATION_ID.load(Ordering::Relaxed) != usize::max_value() {
+                sleep(Duration::from_secs(1));
+            } else {
+                let _lock = ERROR_MUTEX.lock();
+                if ERROR_CONFIGURATION_ID.load(Ordering::Relaxed) != usize::max_value() {
+                    sleep(Duration::from_secs(1));
+                } else {
+                    eprintln!(
+                        "ERROR: {}\n\
+                         when delivering the message: {}\n\
+                         in the configuration:\n{}\n\
+                         reached by path:\n",
+                        reason,
+                        self.display_message_id(context.delivered_message_id),
+                        self.display_configuration_id(error_configuration_id),
+                    );
+                    self.error_path("ERROR", error_configuration_id);
+                }
+            }
         }
+    }
 
-        let _lock = ERROR_MUTEX.lock();
+    fn error_path(&self, name: &str, error_configuration_id: ConfigurationId) {
+        assert!(ERROR_CONFIGURATION_ID.load(Ordering::Relaxed) == usize::max_value());
+        ERROR_CONFIGURATION_ID.store(error_configuration_id.to_usize(), Ordering::Relaxed);
 
-        eprintln!(
-            "ERROR: {}\n\
-             when delivering the message: {}\n\
-             in the configuration:\n{}\n\
-             reached by path:\n",
-            reason,
-            self.display_message_id(context.delivered_message_id),
-            self.display_configuration_id(context.incoming.from_configuration_id)
-        );
-
-        {
-            ERROR_CONFIGURATION_ID.store(
-                context.incoming.from_configuration_id.to_usize(),
-                Ordering::Relaxed,
-            );
-        }
         let init_path_step = PathStep {
             condition: is_init,
             is_negated: false,
@@ -2770,7 +2776,7 @@ impl<
         let error_path_step = PathStep {
             condition: is_error,
             is_negated: false,
-            name: "ERROR".to_string(),
+            name: name.to_string(),
         };
 
         let path = self.collect_path(vec![init_path_step, error_path_step]);
@@ -3957,24 +3963,30 @@ impl<
         }
 
         let mut unreachable_count = 0;
+        let mut unreachable_configuration_id = usize::max_value();
         reached_configurations_mask
             .iter()
             .enumerate()
             .filter(|(_, is_reached)| !*is_reached)
             .for_each(|(configuration_id, _)| {
                 // BEGIN NOT TESTED
-                eprintln!(
-                    "there is no path back to initial state from the configuration:\n{}",
-                    self.display_configuration_id(ConfigurationId::from_usize(configuration_id))
-                );
+                unreachable_configuration_id = min(unreachable_configuration_id, configuration_id);
                 unreachable_count += 1;
                 // END NOT TESTED
             });
-        assert!(
-            unreachable_count == 0,
-            "there is no path back to initial state from {} configurations",
-            unreachable_count
-        );
+
+        if unreachable_count > 0 {
+            // BEGIN NOT TESTED
+            eprintln!(
+                "ERROR: there is no path back to initial state from {} configurations",
+                unreachable_count
+            );
+            self.error_path(
+                "DEADEND",
+                ConfigurationId::from_usize(unreachable_configuration_id),
+            );
+            // END NOT TESTED
+        }
     }
 
     fn step_matches_configuration(
