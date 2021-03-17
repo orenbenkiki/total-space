@@ -22,6 +22,7 @@ use clap::App;
 use clap::Arg;
 use clap::ArgMatches;
 use clap::SubCommand;
+use lazy_static::*;
 use num_traits::FromPrimitive;
 use num_traits::ToPrimitive;
 use rayon::scope;
@@ -38,12 +39,14 @@ use std::fmt::Display;
 use std::fmt::Formatter;
 use std::fmt::Result as FormatterResult;
 use std::hash::Hash;
+use std::io::stderr;
 use std::io::Write;
 use std::marker::PhantomData;
 use std::str::FromStr;
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
+use std::sync::Mutex;
 
 /*
 use std::thread::current as current_thread;
@@ -63,6 +66,16 @@ const GROWTH_FACTOR: usize = 4;
 const RIGHT_ARROW: &str = "&#8594;";
 
 const RIGHT_DOUBLE_ARROW: &str = "&#8658;";
+
+// BEGIN MAYBE TESTED
+lazy_static! {
+    /// A mutex for reporting errors.
+    static ref ERROR_MUTEX: Mutex<()> = Mutex::new(());
+
+    /// The configuration identifier of an error we have seen.
+    static ref ERROR_CONFIGURATION_ID: AtomicUsize = AtomicUsize::new(usize::max_value());
+}
+// END MAYBE TESTED
 
 /// A trait for anything we use as a key in a HashMap.
 pub trait KeyLike = Eq + Hash + Copy + Debug + Sized + Send + Sync;
@@ -2716,6 +2729,48 @@ impl<
         }
     }
 
+    // BEGIN NOT TESTED
+    fn error(&self, context: &<Self as ModelTypes>::Context, reason: &str) -> ! {
+        let _lock = ERROR_MUTEX.lock();
+        eprintln!(
+            "ERROR: {}\n\
+             when delivering the message: {}\n\
+             in the configuration:\n{}\n\
+             reached by path:\n",
+            reason,
+            self.display_message_id(context.delivered_message_id),
+            self.display_configuration_id(context.incoming.from_configuration_id)
+        );
+
+        {
+            ERROR_CONFIGURATION_ID.store(
+                context.incoming.from_configuration_id.to_usize(),
+                Ordering::Relaxed,
+            );
+        }
+        let init_path_step = PathStep {
+            condition: is_init,
+            is_negated: false,
+            name: "INIT".to_string(),
+        };
+
+        let is_error = move |_model: &Self, configuration_id: ConfigurationId| {
+            configuration_id
+                == ConfigurationId::from_usize(ERROR_CONFIGURATION_ID.load(Ordering::Relaxed))
+        };
+        let error_path_step = PathStep {
+            condition: is_error,
+            is_negated: false,
+            name: "ERROR".to_string(),
+        };
+
+        let path = self.collect_path(vec![init_path_step, error_path_step]);
+        self.print_path(&path, &mut stderr());
+
+        panic!("ABORTING");
+    }
+    // END NOT TESTED
+
     fn reach_configuration<'a>(
         &'a self,
         parallel_scope: &ParallelScope<'a>,
@@ -2725,13 +2780,12 @@ impl<
 
         if !self.allow_invalid_configurations && context.to_configuration.invalid_id.is_valid() {
             // BEGIN NOT TESTED
-            panic!(
-                "reached an invalid configuration:\n{}\n\
-                 by the message {}\n\
-                 from the valid configuration:\n{}",
-                self.display_configuration_id(context.incoming.from_configuration_id),
-                self.display_message_id(context.delivered_message_id),
-                self.display_configuration(&context.to_configuration)
+            self.error(
+                &context,
+                &format!(
+                    "reached an invalid configuration\n{}",
+                    self.display_configuration(&context.to_configuration)
+                ),
             );
             // END NOT TESTED
         }
@@ -3024,7 +3078,7 @@ impl<
     ) {
         match reaction // MAYBE TESTED
         {
-            Reaction::Unexpected => self.unexpected_message(context), // MAYBE TESTED
+            Reaction::Unexpected => self.error(&context, "unexpected message"), // MAYBE TESTED
             Reaction::Defer => self.defer_message(context),
             Reaction::Ignore => self.ignore_message(parallel_scope, context),
             Reaction::Do1(action1) => self.perform_action(parallel_scope, context, action1),
@@ -3322,25 +3376,16 @@ impl<
                             payload: *payload,
                             replaced: None,
                         };
-
-                        let conflict_label = self.display_message(&conflict_message);
-                        let message_label = self.display_message(&message);
-                        let replacement_label = self.display_message(&replacement_message);
-                        let from_state = context
-                            .agent_type
-                            .display_state(context.agent_from_state_id);
-                        let delivered_label = self.display_message_id(context.delivered_message_id);
-                        panic!(
-                            "both the message {} \
-                             and the message {} \
-                             can be replaced by the ambiguous replacement message {} \
-                             when responding to the message {} \
-                             while in the state {}",
-                            conflict_label,
-                            message_label,
-                            replacement_label,
-                            delivered_label,
-                            from_state,
+                        self.error(
+                            context,
+                            &format!(
+                                "both the message {}\n\
+                                 and the message {}\n\
+                                 can be replaced by the ambiguous replacement message {}",
+                                self.display_message(&conflict_message),
+                                self.display_message(&message),
+                                self.display_message(&replacement_message),
+                            ),
                         );
                     } // END NOT TESTED
                 }
@@ -3363,16 +3408,12 @@ impl<
                     payload: *payload,
                     replaced: None,
                 };
-                let replacement_label = self.display_message(&replacement_message);
-                let delivered_label = self.display_message_id(context.delivered_message_id);
-                let from_state = context
-                    .agent_type
-                    .display_state(context.agent_from_state_id);
-                panic!(
-                    "nothing was replaced by the required replacement message {} \
-                             when responding to the message {} \
-                             while in the state {}",
-                    replacement_label, delivered_label, from_state,
+                self.error(
+                    context,
+                    &format!(
+                        "nothing was replaced by the required replacement message {}",
+                        self.display_message(&replacement_message)
+                    ),
                 );
                 // END NOT TESTED
             }
@@ -3475,18 +3516,14 @@ impl<
                     && to_message.target_index == message.target_index
                     && to_message.payload == message.payload
             })
-            .for_each(|to_message| {
+            .for_each(|_to_message| {
                 // BEGIN NOT TESTED
-                let source_label = self.agent_labels[to_message.source_index].clone();
-                let message_label = self.display_message(&to_message);
-                let delivered_label = self.display_message_id(context.delivered_message_id);
-                let from_configuration = self.display_configuration(&context.from_configuration);
-                panic!(
-                    "the agent {} \
-                     sends a duplicate message {} \
-                     when responding to the message {} \
-                     while in the configuration:\n{}",
-                    source_label, message_label, delivered_label, from_configuration
+                self.error(
+                    context,
+                    &format!(
+                        "sending a duplicate message {}",
+                        self.display_message(&message)
+                    ),
                 );
                 // END NOT TESTED
             });
@@ -3495,18 +3532,6 @@ impl<
             .to_configuration
             .add_message(context.agent_index, message_id);
     }
-
-    // BEGIN NOT TESTED
-    fn unexpected_message(&self, context: <Self as ModelTypes>::Context) {
-        let agent_label = self.agent_labels[context.agent_index].clone();
-        let delivered_label = self.display_message_id(context.delivered_message_id);
-        let from_configuration = self.display_configuration(&context.from_configuration);
-        panic!(
-            "the agent {} does not expect the message {} while in the configuration:\n{}",
-            agent_label, delivered_label, from_configuration
-        );
-    }
-    // END NOT TESTED
 
     fn ignore_message<'a>(
         &'a self,
@@ -3519,14 +3544,12 @@ impl<
     fn defer_message(&self, context: <Self as ModelTypes>::Context) {
         if !context.delivered_message_index.is_valid() {
             // BEGIN NOT TESTED
-            let agent_label = self.agent_labels[context.agent_index].clone();
-            let delivered_label = self.display_message_id(context.delivered_message_id);
-            let from_state = context
-                .agent_type
-                .display_state(context.agent_from_state_id);
-            panic!(
-                "the agent {} is deferring (should not be generating) the message {} while in the state {}",
-                agent_label, delivered_label, from_state
+            self.error(
+                &context,
+                &format!(
+                    "the agent {} is deferring an activity",
+                    self.agent_labels[context.agent_index]
+                ),
             );
             // END NOT TESTED
         } else {
@@ -3535,28 +3558,24 @@ impl<
                 &context.from_configuration.state_ids,
             ) {
                 // BEGIN NOT TESTED
-                let agent_label = self.agent_labels[context.agent_index].clone();
-                let delivered_label = self.display_message_id(context.delivered_message_id);
-                let from_state = context
-                    .agent_type
-                    .display_state(context.agent_from_state_id);
-                panic!(
-                    "the agent {} is deferring the message {} while in the non-deferring state {}",
-                    agent_label, delivered_label, from_state
+                self.error(
+                    &context,
+                    &format!(
+                        "the agent {} is deferring while in a non-deferring state",
+                        self.agent_labels[context.agent_index]
+                    ),
                 );
                 // END NOT TESTED
             }
 
             if context.is_immediate {
                 // BEGIN NOT TESTED
-                let agent_label = self.agent_labels[context.agent_index].clone();
-                let delivered_label = self.display_message_id(context.delivered_message_id);
-                let from_state = context
-                    .agent_type
-                    .display_state(context.agent_from_state_id);
-                panic!(
-                    "the agent {} is deferring the immediate {} while in the state {}",
-                    agent_label, delivered_label, from_state
+                self.error(
+                    &context,
+                    &format!(
+                        "the agent {} is deferring an immediate message",
+                        self.agent_labels[context.agent_index]
+                    ),
                 );
                 // END NOT TESTED
             }
@@ -3577,25 +3596,16 @@ impl<
                     context.to_configuration.message_counts[context.agent_index].to_usize();
                 if in_flight_messages > max_in_flight_messages {
                     // BEGIN NOT TESTED
-                    let agent_label = self.agent_labels[context.agent_index].clone();
-                    let delivered_label = self.display_message_id(context.delivered_message_id);
-                    let to_configuration = self.display_configuration(&context.to_configuration);
-                    let from_configuration =
-                        self.display_configuration(&context.from_configuration);
-
-                    panic!(
-                        "the agent {} \
-                         sends too more messages {} \
-                         than allowed {} \
-                         when reacting to the message {} by moving\n\
-                         from the configuration:\n{}\n\
-                         into the configuration:\n{}",
-                        agent_label,
-                        in_flight_messages,
-                        max_in_flight_messages,
-                        delivered_label,
-                        from_configuration,
-                        to_configuration
+                    self.error(
+                        context,
+                        &format!(
+                            "the agent {} is sending too more messages {} than allowed {}\n\
+                             in the reached configuration:\n{}",
+                            self.agent_labels[context.agent_index],
+                            in_flight_messages,
+                            max_in_flight_messages,
+                            &self.display_configuration(&context.to_configuration)
+                        ),
                     );
                     // END NOT TESTED
                 }
