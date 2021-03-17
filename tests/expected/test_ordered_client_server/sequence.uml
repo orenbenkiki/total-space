@@ -24,7 +24,7 @@ note over A0 : Need
 control " " as T0 order 10101
 A0 -[#Blue]> T0 : Request(1)
 activate T0 #Silver
-activate A0 #MediumPurple
+activate A0 #CadetBlue
 rnote over A0 : Wait(1)
 autonumber stop
 [<[#White]-- A0
@@ -36,8 +36,8 @@ deactivate T0
 deactivate A1
 A0 -[#Blue]> T0 : Request(2)
 activate T0 #Silver
-activate A0 #MediumPurple
-activate A1 #CadetBlue
+activate A0 #CadetBlue
+activate A1 #MediumPurple
 rnote over A0 : Wait(3)
 / rnote over A1 : Work(1)
 autonumber stop
@@ -48,7 +48,7 @@ note over A1 : Completed
 control " " as T1 order 10199
 A1 -[#Blue]> T1 : Response(1)
 activate T1 #Silver
-activate A1 #MediumPurple
+activate A1 #CadetBlue
 rnote over A1 : Listen
 T0 -[#Blue]> A1 : Request(2)
 deactivate T0
@@ -56,7 +56,7 @@ deactivate A1
 autonumber stop
 [<[#White]-- A0
 autonumber resume
-activate A1 #CadetBlue
+activate A1 #MediumPurple
 rnote over A1 : Work(2)
 autonumber stop
 [<[#White]-- A0
@@ -68,8 +68,8 @@ deactivate T1
 deactivate A0
 A1 -[#Blue]> T1 : Response(2)
 activate T1 #Silver
-activate A1 #MediumPurple
-activate A0 #MediumPurple
+activate A1 #CadetBlue
+activate A0 #CadetBlue
 rnote over A1 : Listen
 / rnote over A0 : Wait(2)
 T1 -[#Blue]> A0 : Response(2)
@@ -78,7 +78,7 @@ deactivate A0
 autonumber stop
 [<[#White]-- A0
 autonumber resume
-activate A0 #MediumPurple
+activate A0 #CadetBlue
 rnote over A0 : Idle
 autonumber stop
 [<[#White]-- A0

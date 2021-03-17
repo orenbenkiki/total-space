@@ -5631,9 +5631,9 @@ impl<
             } => {
                 self.reactivate(&mut sequence_state, stdout);
                 if is_deferring {
-                    writeln!(stdout, "activate A{} #CadetBlue", agent_index).unwrap();
-                } else {
                     writeln!(stdout, "activate A{} #MediumPurple", agent_index).unwrap();
+                } else {
+                    writeln!(stdout, "activate A{} #CadetBlue", agent_index).unwrap();
                 }
                 let agent_type = &self.agent_types[agent_index];
                 let agent_state = agent_type.display_state(state_id);
@@ -5653,16 +5653,16 @@ impl<
 
                 if first_is_deferring {
                     // BEGIN NOT TESTED
-                    writeln!(stdout, "activate A{} #CadetBlue", first_agent_index).unwrap();
+                    writeln!(stdout, "activate A{} #MediumPurple", first_agent_index).unwrap();
                     // END NOT TESTED
                 } else {
-                    writeln!(stdout, "activate A{} #MediumPurple", first_agent_index).unwrap();
+                    writeln!(stdout, "activate A{} #CadetBlue", first_agent_index).unwrap();
                 }
 
                 if second_is_deferring {
-                    writeln!(stdout, "activate A{} #CadetBlue", second_agent_index).unwrap();
-                } else {
                     writeln!(stdout, "activate A{} #MediumPurple", second_agent_index).unwrap();
+                } else {
+                    writeln!(stdout, "activate A{} #CadetBlue", second_agent_index).unwrap();
                 }
 
                 let first_agent_type = &self.agent_types[first_agent_index];

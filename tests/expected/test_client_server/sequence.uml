@@ -27,8 +27,8 @@ deactivate A1
 autonumber stop
 [<[#White]-- A0
 autonumber resume
-activate A0 #MediumPurple
-activate A1 #CadetBlue
+activate A0 #CadetBlue
+activate A1 #MediumPurple
 rnote over A0 : WAT
 / rnote over A1 : WRK
 autonumber stop
@@ -41,8 +41,8 @@ deactivate A0
 autonumber stop
 [<[#White]-- A0
 autonumber resume
-activate A1 #MediumPurple
-activate A0 #MediumPurple
+activate A1 #CadetBlue
+activate A0 #CadetBlue
 rnote over A1 : LST
 / rnote over A0 : IDL
 note over A0 : Worry
@@ -63,8 +63,8 @@ deactivate A1
 autonumber stop
 [<[#White]-- A0
 autonumber resume
-activate A0 #MediumPurple
-activate A1 #CadetBlue
+activate A0 #CadetBlue
+activate A1 #MediumPurple
 rnote over A0 : WAT
 / rnote over A1 : WRK
 autonumber stop
@@ -77,8 +77,8 @@ deactivate A0
 autonumber stop
 [<[#White]-- A0
 autonumber resume
-activate A1 #MediumPurple
-activate A0 #MediumPurple
+activate A1 #CadetBlue
+activate A0 #CadetBlue
 rnote over A1 : LST
 / rnote over A0 : IDL
 autonumber stop
