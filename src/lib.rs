@@ -42,11 +42,14 @@ use std::hash::Hash;
 use std::io::stderr;
 use std::io::Write;
 use std::marker::PhantomData;
+use std::process::exit;
 use std::str::FromStr;
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::sync::Mutex;
+use std::thread::sleep;
+use std::time::Duration;
 
 /*
 use std::thread::current as current_thread;
@@ -2732,7 +2735,12 @@ impl<
 
     // BEGIN NOT TESTED
     fn error(&self, context: &<Self as ModelTypes>::Context, reason: &str) -> ! {
+        while ERROR_CONFIGURATION_ID.load(Ordering::Relaxed) != usize::max_value() {
+            sleep(Duration::from_secs(1));
+        }
+
         let _lock = ERROR_MUTEX.lock();
+
         eprintln!(
             "ERROR: {}\n\
              when delivering the message: {}\n\
@@ -2768,7 +2776,8 @@ impl<
         let path = self.collect_path(vec![init_path_step, error_path_step]);
         self.print_path(&path, &mut stderr());
 
-        panic!("ABORTING");
+        eprintln!("ABORTING");
+        exit(1);
     }
     // END NOT TESTED
 
@@ -3631,6 +3640,20 @@ impl<
         let stored = self.configurations.store(configuration);
 
         if stored.is_new {
+            if self.print_progress_every == 1
+                || (self.print_progress_every > 0
+                // BEGIN NOT TESTED
+                    && stored.id.to_usize() > 0
+                    && stored.id.to_usize() % self.print_progress_every == 0)
+            // END NOT TESTED
+            {
+                eprintln!(
+                    "#{}\n{}",
+                    stored.id.to_usize(),
+                    self.display_configuration(&configuration)
+                );
+            }
+
             let remaining = self.outgoings.read().len() - stored.id.to_usize();
             if remaining < self.threads.count() {
                 let mut outgoings = self.outgoings.write();
@@ -5762,7 +5785,7 @@ pub fn add_clap<'a, 'b>(app: App<'a, 'b>) -> App<'a, 'b> {
         Arg::with_name("progress")
             .short("p")
             .long("progress-every")
-            .default_value("1000")
+            .default_value("0")
             .help("print configurations as they are reached"),
     )
     .arg(
