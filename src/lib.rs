@@ -4440,22 +4440,49 @@ impl<
         to_configuration_id: ConfigurationId,
         to_name: Option<&str>,
         prev_configuration_ids: &[ConfigurationId],
-        mut path: &mut Vec<<Self as ModelTypes>::PathTransition>,
+        path: &mut Vec<<Self as ModelTypes>::PathTransition>,
     ) {
-        let prev_configuration_id = prev_configuration_ids[to_configuration_id.to_usize()];
-        assert!(prev_configuration_id.is_valid());
+        let mut configuration_ids: Vec<ConfigurationId> = vec![to_configuration_id];
 
-        if prev_configuration_id != from_configuration_id {
-            self.collect_path_step(
-                from_configuration_id,
-                prev_configuration_id,
-                None,
-                &prev_configuration_ids,
-                &mut path,
+        let mut prev_configuration_id = to_configuration_id;
+        loop {
+            prev_configuration_id = prev_configuration_ids[prev_configuration_id.to_usize()];
+            assert!(prev_configuration_id.is_valid());
+            configuration_ids.push(prev_configuration_id);
+            if prev_configuration_id == from_configuration_id {
+                break;
+            }
+        }
+
+        configuration_ids.reverse();
+
+        for (prev_configuration_id, next_configuration_id) in configuration_ids
+            [..configuration_ids.len() - 1]
+            .iter()
+            .zip(configuration_ids[1..].iter())
+        {
+            let next_name = if *next_configuration_id == to_configuration_id {
+                to_name
+            } else {
+                None
+            };
+
+            self.collect_small_path_step(
+                *prev_configuration_id,
+                *next_configuration_id,
+                next_name,
+                path,
             );
         }
-        let from_configuration_id = prev_configuration_id;
+    }
 
+    fn collect_small_path_step(
+        &self,
+        from_configuration_id: ConfigurationId,
+        to_configuration_id: ConfigurationId,
+        to_name: Option<&str>,
+        path: &mut Vec<<Self as ModelTypes>::PathTransition>,
+    ) {
         let all_outgoings = self.outgoings.read();
         let from_outgoings = all_outgoings[from_configuration_id.to_usize()].read();
         let outgoing_index = from_outgoings
