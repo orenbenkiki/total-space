@@ -1,11 +1,11 @@
-FROM 1MSG:
+FROM 1MSG #1808550380764412454:
 - C(0):WAT
 & C(1):IDL
 & SRV:LST
 | C(0) -> REQ(C=0) -> SRV
 
 BY: Activity -> Need -> C(1)
-TO:
+TO #15833947160108607127:
 - C(0):WAT
 & C(1):WAT
 & SRV:LST
@@ -13,14 +13,14 @@ TO:
 & C(1) -> REQ(C=1) -> SRV
 
 BY: C(0) -> REQ(C=0) -> SRV
-TO 1MSG:
+TO 1MSG #1006373092062373396:
 - C(0):WAT
 & C(1):WAT
 & SRV:WRK(C=0)
 | C(1) -> REQ(C=1) -> SRV
 
 BY: Activity -> Completed -> SRV
-TO 2MSG:
+TO 2MSG #8778688095779673161:
 - C(0):WAT
 & C(1):WAT
 & SRV:LST
@@ -28,14 +28,14 @@ TO 2MSG:
 & SRV -> RSP -> C(0)
 
 BY: C(1) -> REQ(C=1) -> SRV
-TO:
+TO #17212590325094196859:
 - C(0):WAT
 & C(1):WAT
 & SRV:WRK(C=1)
 | SRV -> RSP -> C(0)
 
 BY: Activity -> Completed -> SRV
-TO:
+TO #14465023599820019137:
 - C(0):WAT
 & C(1):WAT
 & SRV:LST
@@ -43,14 +43,14 @@ TO:
 & SRV -> RSP -> C(0)
 
 BY: SRV -> RSP -> C(1)
-TO:
+TO #3368434354402013340:
 - C(0):WAT
 & C(1):IDL
 & SRV:LST
 | SRV -> RSP -> C(0)
 
 BY: SRV -> RSP -> C(0)
-TO INIT:
+TO INIT #4467017629037897612:
 - C(0):IDL
 & C(1):IDL
 & SRV:LST

@@ -31,6 +31,7 @@ use rayon::ThreadPoolBuilder;
 use scc::HashMap as SccHashMap;
 use std::cmp::max;
 use std::cmp::min;
+use std::collections::hash_map::DefaultHasher;
 use std::collections::hash_map::RandomState;
 use std::collections::HashMap as StdHashMap;
 use std::collections::VecDeque;
@@ -39,6 +40,7 @@ use std::fmt::Display;
 use std::fmt::Formatter;
 use std::fmt::Result as FormatterResult;
 use std::hash::Hash;
+use std::hash::Hasher;
 use std::io::stderr;
 use std::io::Write;
 use std::marker::PhantomData;
@@ -58,6 +60,12 @@ macro_rules! current_thread_name {
     () => { current_thread().name().unwrap_or("main") }
 }
 */
+
+fn calculate_hash<T: Hash>(value: &T) -> u64 {
+    let mut hasher = DefaultHasher::new();
+    value.hash(&mut hasher);
+    hasher.finish()
+}
 
 /// The RwLock type to use.
 ///
@@ -2736,14 +2744,18 @@ impl<
         }
     }
 
+    fn is_aborting() -> bool {
+        ERROR_CONFIGURATION_ID.load(Ordering::Relaxed) != usize::max_value()
+    }
+
     // BEGIN NOT TESTED
     fn error(&self, context: &<Self as ModelTypes>::Context, reason: &str) -> ! {
         let error_configuration_id = context.incoming.from_configuration_id;
         loop {
-            if ERROR_CONFIGURATION_ID.load(Ordering::Relaxed) != usize::max_value() {
+            if Self::is_aborting() {
                 sleep(Duration::from_secs(1));
             } else {
-                let _lock = ERROR_MUTEX.lock();
+                let _lock = ERROR_MUTEX.lock().unwrap();
                 if ERROR_CONFIGURATION_ID.load(Ordering::Relaxed) != usize::max_value() {
                     sleep(Duration::from_secs(1));
                 } else {
@@ -2769,7 +2781,7 @@ impl<
                     let error_path_step = PathStep {
                         condition: is_error,
                         is_negated: false,
-                        name: "ERRPR".to_string(),
+                        name: "ERROR".to_string(),
                     };
 
                     self.error_path(error_path_step);
@@ -2860,6 +2872,10 @@ impl<
         parallel_scope: &ParallelScope<'a>,
         configuration_id: ConfigurationId,
     ) {
+        if Self::is_aborting() {
+            return;
+        }
+
         let configuration = self.configurations.get(configuration_id);
 
         let immediate_message = configuration
@@ -3978,7 +3994,7 @@ impl<
         if unreachable_count > 0 {
             // BEGIN NOT TESTED
             eprintln!(
-                "ERROR: there is no path back to initial state from {} configurations",
+                "ERROR: there is no path back to initial state from {} configurations\n",
                 unreachable_count
             );
 
@@ -4215,20 +4231,24 @@ impl<
 
             let prefix = if is_first { "FROM" } else { "TO" };
 
+            let to_configuration = self.configurations.get(transition.to_configuration_id);
+
             match &transition.to_condition_name {
                 Some(condition_name) => writeln!(
                     stdout,
-                    "{} {}:\n{}\n",
+                    "{} {} #{}:\n{}\n",
                     prefix,
                     condition_name,
-                    self.display_configuration_id(transition.to_configuration_id)
+                    calculate_hash(&to_configuration),
+                    self.display_configuration(&to_configuration)
                 )
                 .unwrap(),
                 None => writeln!(
                     stdout,
-                    "{}:\n{}\n",
+                    "{} #{}:\n{}\n",
                     prefix,
-                    self.display_configuration_id(transition.to_configuration_id)
+                    calculate_hash(&to_configuration),
+                    self.display_configuration(&to_configuration)
                 )
                 .unwrap(),
             }
@@ -6102,8 +6122,9 @@ impl<
 
                         writeln!(
                             stdout,
-                            "FROM {}:\n{}\n",
+                            "FROM {} #{}:\n{}\n",
                             from_configuration_id.to_usize(),
+                            calculate_hash(&from_configuration),
                             self.display_configuration(&from_configuration)
                         )
                         .unwrap();
@@ -6111,13 +6132,15 @@ impl<
                         outgoings.read().iter().for_each(|outgoing| {
                             let delivered_label =
                                 self.display_message_id(outgoing.delivered_message_id);
-                            let to_label =
-                                self.display_configuration_id(outgoing.to_configuration_id);
+                            let to_configuration =
+                                self.configurations.get(outgoing.to_configuration_id);
+                            let to_label = self.display_configuration(&to_configuration);
                             writeln!(
                                 stdout,
-                                "BY: {}\nTO {}:\n{}\n",
+                                "BY: {}\nTO {} #{}:\n{}\n",
                                 delivered_label,
                                 outgoing.to_configuration_id.to_usize(),
+                                calculate_hash(&to_configuration),
                                 to_label,
                             )
                             .unwrap();

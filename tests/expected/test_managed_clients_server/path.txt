@@ -1,17 +1,17 @@
-FROM INIT:
+FROM INIT #9141599388944691351:
 - C(0):IDL
 & C(1):IDL
 & SRV:LST
 
 BY: Activity -> Need -> C(0)
-TO:
+TO #3135207176995030483:
 - C(0):WAT
 & C(1):IDL
 & SRV:LST
 | C(0) -> REQ(C=0) -> SRV
 
 BY: Activity -> Need -> C(1)
-TO 2MSG:
+TO 2MSG #5514163120178254412:
 - C(0):WAT
 & C(1):WAT
 & SRV:LST
@@ -19,14 +19,14 @@ TO 2MSG:
 & C(1) -> REQ(C=1) -> SRV
 
 BY: C(0) -> REQ(C=0) -> SRV
-TO:
+TO #16424685584151301795:
 - C(0):WAT
 & C(1):WAT
 & SRV:WRK(C=0)
 | C(1) -> REQ(C=1) -> SRV
 
 BY: Activity -> Completed -> SRV
-TO:
+TO #16662721351891678317:
 - C(0):WAT
 & C(1):WAT
 & SRV:LST
@@ -34,14 +34,14 @@ TO:
 & SRV -> RSP -> C(0)
 
 BY: C(1) -> REQ(C=1) -> SRV
-TO:
+TO #10696123006964176284:
 - C(0):WAT
 & C(1):WAT
 & SRV:WRK(C=1)
 | SRV -> RSP -> C(0)
 
 BY: Activity -> Completed -> SRV
-TO:
+TO #7352978833204038995:
 - C(0):WAT
 & C(1):WAT
 & SRV:LST
@@ -49,14 +49,14 @@ TO:
 & SRV -> RSP -> C(1)
 
 BY: SRV -> RSP -> C(0)
-TO:
+TO #13272002897501492845:
 - C(0):IDL
 & C(1):WAT
 & SRV:LST
 | SRV -> RSP -> C(1)
 
 BY: SRV -> RSP -> C(1)
-TO INIT:
+TO INIT #9141599388944691351:
 - C(0):IDL
 & C(1):IDL
 & SRV:LST
