@@ -4231,7 +4231,8 @@ impl<
 
             let prefix = if is_first { "FROM" } else { "TO" };
 
-            let to_configuration = self.configurations.get(transition.to_configuration_id);
+            let to_configuration_label =
+                self.display_configuration_id(transition.to_configuration_id);
 
             match &transition.to_condition_name {
                 Some(condition_name) => writeln!(
@@ -4239,16 +4240,16 @@ impl<
                     "{} {} #{}:\n{}\n",
                     prefix,
                     condition_name,
-                    calculate_hash(&to_configuration),
-                    self.display_configuration(&to_configuration)
+                    calculate_hash(&to_configuration_label),
+                    to_configuration_label,
                 )
                 .unwrap(),
                 None => writeln!(
                     stdout,
                     "{} #{}:\n{}\n",
                     prefix,
-                    calculate_hash(&to_configuration),
-                    self.display_configuration(&to_configuration)
+                    calculate_hash(&to_configuration_label),
+                    to_configuration_label,
                 )
                 .unwrap(),
             }
@@ -6118,30 +6119,30 @@ impl<
                     .for_each(|(from_configuration_id, outgoings)| {
                         let from_configuration_id =
                             ConfigurationId::from_usize(from_configuration_id);
-                        let from_configuration = self.configurations.get(from_configuration_id);
+                        let from_configuration_label =
+                            self.display_configuration_id(from_configuration_id);
 
                         writeln!(
                             stdout,
                             "FROM {} #{}:\n{}\n",
                             from_configuration_id.to_usize(),
-                            calculate_hash(&from_configuration),
-                            self.display_configuration(&from_configuration)
+                            calculate_hash(&from_configuration_label),
+                            from_configuration_label,
                         )
                         .unwrap();
 
                         outgoings.read().iter().for_each(|outgoing| {
                             let delivered_label =
                                 self.display_message_id(outgoing.delivered_message_id);
-                            let to_configuration =
-                                self.configurations.get(outgoing.to_configuration_id);
-                            let to_label = self.display_configuration(&to_configuration);
+                            let to_configuration_label =
+                                self.display_configuration_id(outgoing.to_configuration_id);
                             writeln!(
                                 stdout,
                                 "BY: {}\nTO {} #{}:\n{}\n",
                                 delivered_label,
                                 outgoing.to_configuration_id.to_usize(),
-                                calculate_hash(&to_configuration),
-                                to_label,
+                                calculate_hash(&to_configuration_label),
+                                to_configuration_label,
                             )
                             .unwrap();
                         });
