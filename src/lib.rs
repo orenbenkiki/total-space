@@ -478,6 +478,46 @@ pub enum Action<State: KeyLike, Payload: DataLike> {
         Emit<Payload>,
         Emit<Payload>,
     ),
+
+    /// Consume (handle) the event, keep the state the same, send five messages.
+    Send5(
+        Emit<Payload>,
+        Emit<Payload>,
+        Emit<Payload>,
+        Emit<Payload>,
+        Emit<Payload>,
+    ),
+
+    /// Consume (handle) the event, change the agent state, send five messages.
+    ChangeAndSend5(
+        State,
+        Emit<Payload>,
+        Emit<Payload>,
+        Emit<Payload>,
+        Emit<Payload>,
+        Emit<Payload>,
+    ),
+
+    /// Consume (handle) the event, keep the state the same, send six messages.
+    Send6(
+        Emit<Payload>,
+        Emit<Payload>,
+        Emit<Payload>,
+        Emit<Payload>,
+        Emit<Payload>,
+        Emit<Payload>,
+    ),
+
+    /// Consume (handle) the event, change the agent state, send six messages.
+    ChangeAndSend6(
+        State,
+        Emit<Payload>,
+        Emit<Payload>,
+        Emit<Payload>,
+        Emit<Payload>,
+        Emit<Payload>,
+        Emit<Payload>,
+    ),
 }
 
 /// The reaction of an agent to time passing.
@@ -497,6 +537,12 @@ pub enum Activity<Payload: DataLike> {
 
     /// The agent activity generates one of four messages, to be delivered to it for processing.
     Process1Of4(Payload, Payload, Payload, Payload),
+
+    /// The agent activity generates one of five messages, to be delivered to it for processing.
+    Process1Of5(Payload, Payload, Payload, Payload, Payload),
+
+    /// The agent activity generates one of six messages, to be delivered to it for processing.
+    Process1Of6(Payload, Payload, Payload, Payload, Payload, Payload),
 }
 
 /// The reaction of an agent to receiving a message.
@@ -530,6 +576,25 @@ pub enum Reaction<State: KeyLike, Payload: DataLike> {
 
     /// One of four alternative actions (non-deterministic).
     Do1Of4(
+        Action<State, Payload>,
+        Action<State, Payload>,
+        Action<State, Payload>,
+        Action<State, Payload>,
+    ),
+
+    /// One of five alternative actions (non-deterministic).
+    Do1Of5(
+        Action<State, Payload>,
+        Action<State, Payload>,
+        Action<State, Payload>,
+        Action<State, Payload>,
+        Action<State, Payload>,
+    ),
+
+    /// One of four alternative actions (non-deterministic).
+    Do1Of6(
+        Action<State, Payload>,
+        Action<State, Payload>,
         Action<State, Payload>,
         Action<State, Payload>,
         Action<State, Payload>,
@@ -974,7 +1039,23 @@ impl<State: DataLike, StateId: IndexLike, Payload: DataLike>
                 self.translate_action(action3),
                 self.translate_action(action4),
             ),
-            // END NOT TESTED
+            Reaction::Do1Of5(action1, action2, action3, action4, action5) => Reaction::Do1Of5(
+                self.translate_action(action1),
+                self.translate_action(action2),
+                self.translate_action(action3),
+                self.translate_action(action4),
+                self.translate_action(action5),
+            ),
+            Reaction::Do1Of6(action1, action2, action3, action4, action5, action6) => {
+                Reaction::Do1Of6(
+                    self.translate_action(action1),
+                    self.translate_action(action2),
+                    self.translate_action(action3),
+                    self.translate_action(action4),
+                    self.translate_action(action5),
+                    self.translate_action(action6),
+                )
+            } // END NOT TESTED
         }
     }
 
@@ -1004,6 +1085,35 @@ impl<State: DataLike, StateId: IndexLike, Payload: DataLike>
             Action::Send4(emit1, emit2, emit3, emit4) => Action::Send4(emit1, emit2, emit3, emit4),
             Action::ChangeAndSend4(state, emit1, emit2, emit3, emit4) => {
                 Action::ChangeAndSend4(self.translate_state(state), emit1, emit2, emit3, emit4)
+            }
+
+            Action::Send5(emit1, emit2, emit3, emit4, emit5) => {
+                Action::Send5(emit1, emit2, emit3, emit4, emit5)
+            }
+            Action::ChangeAndSend5(state, emit1, emit2, emit3, emit4, emit5) => {
+                Action::ChangeAndSend5(
+                    self.translate_state(state),
+                    emit1,
+                    emit2,
+                    emit3,
+                    emit4,
+                    emit5,
+                )
+            }
+
+            Action::Send6(emit1, emit2, emit3, emit4, emit5, emit6) => {
+                Action::Send6(emit1, emit2, emit3, emit4, emit5, emit6)
+            }
+            Action::ChangeAndSend6(state, emit1, emit2, emit3, emit4, emit5, emit6) => {
+                Action::ChangeAndSend6(
+                    self.translate_state(state),
+                    emit1,
+                    emit2,
+                    emit3,
+                    emit4,
+                    emit5,
+                    emit6,
+                )
             } // END NOT TESTED
         }
     }
@@ -3006,6 +3116,89 @@ impl<
                     agent_index,
                     payload4,
                 );
+            }
+
+            Activity::Process1Of5(payload1, payload2, payload3, payload4, payload5) => {
+                self.activity_message(
+                    parallel_scope,
+                    from_configuration_id,
+                    from_configuration,
+                    agent_index,
+                    payload1,
+                );
+                self.activity_message(
+                    parallel_scope,
+                    from_configuration_id,
+                    from_configuration,
+                    agent_index,
+                    payload2,
+                );
+                self.activity_message(
+                    parallel_scope,
+                    from_configuration_id,
+                    from_configuration,
+                    agent_index,
+                    payload3,
+                );
+                self.activity_message(
+                    parallel_scope,
+                    from_configuration_id,
+                    from_configuration,
+                    agent_index,
+                    payload4,
+                );
+                self.activity_message(
+                    parallel_scope,
+                    from_configuration_id,
+                    from_configuration,
+                    agent_index,
+                    payload5,
+                );
+            }
+
+            Activity::Process1Of6(payload1, payload2, payload3, payload4, payload5, payload6) => {
+                self.activity_message(
+                    parallel_scope,
+                    from_configuration_id,
+                    from_configuration,
+                    agent_index,
+                    payload1,
+                );
+                self.activity_message(
+                    parallel_scope,
+                    from_configuration_id,
+                    from_configuration,
+                    agent_index,
+                    payload2,
+                );
+                self.activity_message(
+                    parallel_scope,
+                    from_configuration_id,
+                    from_configuration,
+                    agent_index,
+                    payload3,
+                );
+                self.activity_message(
+                    parallel_scope,
+                    from_configuration_id,
+                    from_configuration,
+                    agent_index,
+                    payload4,
+                );
+                self.activity_message(
+                    parallel_scope,
+                    from_configuration_id,
+                    from_configuration,
+                    agent_index,
+                    payload5,
+                );
+                self.activity_message(
+                    parallel_scope,
+                    from_configuration_id,
+                    from_configuration,
+                    agent_index,
+                    payload6,
+                );
             } // END NOT TESTED
         }
     }
@@ -3125,6 +3318,23 @@ impl<
                 self.perform_action(parallel_scope, context.clone(), action2);
                 self.perform_action(parallel_scope, context.clone(), action3);
                 self.perform_action(parallel_scope, context, action4);
+            }
+
+            Reaction::Do1Of5(action1, action2, action3, action4, action5) => {
+                self.perform_action(parallel_scope, context.clone(), action1);
+                self.perform_action(parallel_scope, context.clone(), action2);
+                self.perform_action(parallel_scope, context.clone(), action3);
+                self.perform_action(parallel_scope, context.clone(), action4);
+                self.perform_action(parallel_scope, context, action5);
+            }
+
+            Reaction::Do1Of6(action1, action2, action3, action4, action5, action6) => {
+                self.perform_action(parallel_scope, context.clone(), action1);
+                self.perform_action(parallel_scope, context.clone(), action2);
+                self.perform_action(parallel_scope, context.clone(), action3);
+                self.perform_action(parallel_scope, context.clone(), action4);
+                self.perform_action(parallel_scope, context.clone(), action5);
+                self.perform_action(parallel_scope, context, action6);
             } // END NOT TESTED
         }
     }
@@ -3210,6 +3420,58 @@ impl<
                 self.collect_emit(&mut context, emit2);
                 self.collect_emit(&mut context, emit3);
                 self.collect_emit(&mut context, emit4);
+                self.reach_configuration(parallel_scope, context);
+            }
+
+            Action::ChangeAndSend5(target_to_state_id, emit1, emit2, emit3, emit4, emit5) => {
+                context
+                    .to_configuration
+                    .change_state(context.agent_index, target_to_state_id);
+                self.collect_emit(&mut context, emit1);
+                self.collect_emit(&mut context, emit2);
+                self.collect_emit(&mut context, emit3);
+                self.collect_emit(&mut context, emit4);
+                self.collect_emit(&mut context, emit5);
+                self.reach_configuration(parallel_scope, context);
+            }
+
+            Action::Send5(emit1, emit2, emit3, emit4, emit5) => {
+                self.collect_emit(&mut context, emit1);
+                self.collect_emit(&mut context, emit2);
+                self.collect_emit(&mut context, emit3);
+                self.collect_emit(&mut context, emit4);
+                self.collect_emit(&mut context, emit5);
+                self.reach_configuration(parallel_scope, context);
+            }
+
+            Action::ChangeAndSend6(
+                target_to_state_id,
+                emit1,
+                emit2,
+                emit3,
+                emit4,
+                emit5,
+                emit6,
+            ) => {
+                context
+                    .to_configuration
+                    .change_state(context.agent_index, target_to_state_id);
+                self.collect_emit(&mut context, emit1);
+                self.collect_emit(&mut context, emit2);
+                self.collect_emit(&mut context, emit3);
+                self.collect_emit(&mut context, emit4);
+                self.collect_emit(&mut context, emit5);
+                self.collect_emit(&mut context, emit6);
+                self.reach_configuration(parallel_scope, context);
+            }
+
+            Action::Send6(emit1, emit2, emit3, emit4, emit5, emit6) => {
+                self.collect_emit(&mut context, emit1);
+                self.collect_emit(&mut context, emit2);
+                self.collect_emit(&mut context, emit3);
+                self.collect_emit(&mut context, emit4);
+                self.collect_emit(&mut context, emit5);
+                self.collect_emit(&mut context, emit6);
                 self.reach_configuration(parallel_scope, context);
             } // END NOT TESTED
         }
