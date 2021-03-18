@@ -4650,7 +4650,7 @@ impl<
                 stdout,
                 "S_{}_{}_{} -> A_{}_{} [ style=invis ];",
                 state_transition_index,
-                usize::max_value(),
+                alternative_index.unwrap_or(usize::max_value()),
                 sent_message_id.to_usize(),
                 to_state_id.to_usize(),
                 to_is_deferring,
