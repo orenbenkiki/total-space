@@ -44,6 +44,7 @@ use std::hash::Hasher;
 use std::io::stderr;
 use std::io::Write;
 use std::marker::PhantomData;
+use std::mem::swap;
 use std::process::exit;
 use std::str::FromStr;
 use std::sync::atomic::AtomicUsize;
@@ -86,8 +87,8 @@ lazy_static! {
     /// The configuration identifier of an error we have seen.
     static ref ERROR_CONFIGURATION_ID: AtomicUsize = AtomicUsize::new(usize::max_value());
 
-    /// The mast of reachable configurations we have seen.
-    static ref REACHED_CONFIGURATIONS_MASK: Mutex<Vec<bool>> = Mutex::new(vec![]);
+    /// The mast of configurations that can reach back to the initial state.
+    static ref REACHABLE_CONFIGURATIONS_MASK: Mutex<Vec<RwLock<bool>>> = Mutex::new(vec![]);
 }
 // END MAYBE TESTED
 
@@ -2117,6 +2118,9 @@ pub struct Model<
 
     /// Named conditions on a configuration.
     conditions: SccHashMap<String, (<Self as MetaModel>::Condition, &'static str), RandomState>,
+
+    /// Mask of configurations that can reach back to the initial state.
+    reachable_configurations_mask: Vec<RwLock<bool>>,
 }
 
 /// The additional control timelines associated with a specific agent.
@@ -2721,6 +2725,7 @@ impl<
             allow_invalid_configurations: false,
             threads: Threads::Physical,
             conditions: SccHashMap::new(128, RandomState::new()),
+            reachable_configurations_mask: Vec::new(),
         };
 
         model.add_conditions();
@@ -2956,7 +2961,7 @@ impl<
     }
 
     /// Compute all the configurations of the model, if needed.
-    fn compute(&self) {
+    fn compute(&mut self) {
         if self.configurations.len() != 1 {
             return;
         }
@@ -4350,32 +4355,34 @@ impl<
         self.compute();
     }
 
-    fn assert_init_is_reachable(&self) {
-        let mut reached_configurations_mask = vec![false; self.configurations.len()];
-        let mut pending_configuration_ids: VecDeque<usize> = VecDeque::new();
-        pending_configuration_ids.push_back(0);
-
-        let incomings = self.incomings.read();
-
-        while let Some(next_configuration_id) = pending_configuration_ids.pop_front() {
-            if reached_configurations_mask[next_configuration_id] {
-                continue;
-            }
-            reached_configurations_mask[next_configuration_id] = true;
-            incomings[next_configuration_id]
-                .read()
-                .iter()
-                .for_each(|incoming| {
-                    pending_configuration_ids.push_back(incoming.from_configuration_id.to_usize());
-                });
+    fn assert_init_is_reachable(&mut self) {
+        self.reachable_configurations_mask
+            .reserve(self.configurations.len());
+        for _ in 0..self.configurations.len() {
+            self.reachable_configurations_mask.push(RwLock::new(false));
         }
 
-        let unreachable_count = reached_configurations_mask
+        ThreadPoolBuilder::new()
+            .num_threads(self.threads.count())
+            .thread_name(|thread_index| format!("worker-{}", thread_index))
+            .build()
+            .unwrap()
+            .install(|| {
+                scope(|parallel_scope| {
+                    self.reachable_configuration(parallel_scope, 0);
+                });
+            });
+
+        let unreachable_count = self
+            .reachable_configurations_mask
             .iter()
-            .filter(|is_reached| !*is_reached)
+            .filter(|is_reached| !*is_reached.read())
             .count();
 
-        *REACHED_CONFIGURATIONS_MASK.lock().unwrap() = reached_configurations_mask;
+        swap(
+            &mut *REACHABLE_CONFIGURATIONS_MASK.lock().unwrap(),
+            &mut self.reachable_configurations_mask,
+        );
 
         if unreachable_count > 0 {
             // BEGIN NOT TESTED
@@ -4385,7 +4392,7 @@ impl<
             );
 
             let is_reachable = move |_model: &Self, configuration_id: ConfigurationId| {
-                REACHED_CONFIGURATIONS_MASK.lock().unwrap()[configuration_id.to_usize()]
+                *REACHABLE_CONFIGURATIONS_MASK.lock().unwrap()[configuration_id.to_usize()].read()
             };
             let error_path_step = PathStep {
                 condition: is_reachable,
@@ -4395,6 +4402,35 @@ impl<
 
             self.error_path(error_path_step);
             // END NOT TESTED
+        }
+    }
+
+    fn reachable_configuration<'a>(
+        &'a self,
+        parallel_scope: &ParallelScope<'a>,
+        configuration_id: usize,
+    ) {
+        if *self.reachable_configurations_mask[configuration_id].read() {
+            return;
+        }
+
+        let mut reachable_configuration =
+            self.reachable_configurations_mask[configuration_id].write();
+        if *reachable_configuration {
+            return;
+        }
+
+        *reachable_configuration = true;
+
+        let incomings = self.incomings.read();
+        for next_configuration_id in incomings[configuration_id]
+            .read()
+            .iter()
+            .map(|incoming| incoming.from_configuration_id.to_usize())
+        {
+            parallel_scope.spawn(move |same_scope| {
+                self.reachable_configuration(same_scope, next_configuration_id);
+            });
         }
     }
 
