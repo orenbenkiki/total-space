@@ -23,7 +23,7 @@ enum Payload {
     Request { client: usize },
     Response,
 }
-impl_data_like! {
+impl_data_like_enum! {
     Payload = Self::Response,
     "client" => "C",
     "Request" => "REQ",
@@ -31,22 +31,18 @@ impl_data_like! {
 }
 // END MAYBE TESTED
 
-impl Validated for Payload {}
-
 // BEGIN MAYBE TESTED
 #[derive(PartialEq, Eq, Hash, Copy, Clone, Debug, IntoStaticStr)]
 enum ClientState {
     Idle,
     Wait,
 }
-impl_data_like! {
+impl_data_like_enum! {
     ClientState = Self::Idle,
     "Idle" => "IDL",
     "Wait" => "WAT"
 }
 // END MAYBE TESTED
-
-impl Validated for ClientState {}
 
 impl AgentState<ClientState, Payload> for ClientState {
     fn activity(&self, _instance: usize) -> Activity<Payload> {
@@ -78,15 +74,13 @@ enum ServerState {
     Listen,
     Work { client: usize },
 }
-impl_data_like! {
+impl_data_like_enum! {
     ServerState = Self::Listen,
     "client" => "C",
     "Listen" => "LST",
     "Work" => "WRK"
 }
 // END MAYBE TESTED
-
-impl Validated for ServerState {}
 
 impl AgentState<ServerState, Payload> for ServerState {
     fn activity(&self, _instance: usize) -> Activity<Payload> {

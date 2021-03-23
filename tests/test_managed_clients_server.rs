@@ -28,7 +28,7 @@ enum Payload {
     Request { client: usize },
     Response,
 }
-impl_data_like! {
+impl_data_like_enum! {
     Payload = Self::Confirm,
     "Check" => "CHK",
     "Confirm" => "CNF",
@@ -38,20 +38,16 @@ impl_data_like! {
 }
 // END MAYBE TESTED
 
-impl Validated for Payload {}
-
 // BEGIN MAYBE TESTED
 #[derive(PartialEq, Eq, Hash, Copy, Clone, Debug, IntoStaticStr)]
 enum ManagerState {
     Fixed,
 }
-impl_data_like! {
+impl_data_like_enum! {
     ManagerState = Self::Fixed,
     "Fixed" => ""
 }
 // END MAYBE TESTED
-
-impl Validated for ManagerState {}
 
 impl ContainerOf1State<ManagerState, ClientState, Payload> for ManagerState {
     fn receive_message(
@@ -84,15 +80,13 @@ enum ClientState {
     Check,
     Wait,
 }
-impl_data_like! {
+impl_data_like_enum! {
     ClientState = Self::Idle,
     "Idle" => "IDL",
     "Wait" => "WAT",
     "Check" => "CHK"
 }
 // END MAYBE TESTED
-
-impl Validated for ClientState {}
 
 impl AgentState<ClientState, Payload> for ClientState {
     fn activity(&self, _instance: usize) -> Activity<Payload> {
@@ -129,15 +123,13 @@ enum ServerState {
     Listen,
     Work { client: usize },
 }
-impl_data_like! {
+impl_data_like_enum! {
     ServerState = Self::Listen,
     "client" => "C",
     "Listen" => "LST",
     "Work" => "WRK"
 }
 // END MAYBE TESTED
-
-impl Validated for ServerState {}
 
 impl AgentState<ServerState, Payload> for ServerState {
     fn activity(&self, _instance: usize) -> Activity<Payload> {

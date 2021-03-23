@@ -81,8 +81,6 @@ struct Payload(u8);
 impl_default_by_value! { Payload = Payload(255u8) }
 impl_display_by_patched_debug! { Payload }
 
-impl Validated for Payload {}
-
 impl Name for Payload {
     fn name(&self) -> String {
         "payload".to_string()

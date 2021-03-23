@@ -25,7 +25,7 @@ enum Payload {
     Request,
     Response,
 }
-impl_data_like! {
+impl_data_like_enum! {
     Payload = Self::Ping,
     "Ping" => "PNG",
     "Request" => "REQ",
@@ -33,22 +33,18 @@ impl_data_like! {
 }
 // END MAYBE TESTED
 
-impl Validated for Payload {}
-
 // BEGIN MAYBE TESTED
 #[derive(PartialEq, Eq, Hash, Copy, Clone, Debug, IntoStaticStr)]
 enum ClientState {
     Idle,
     Wait,
 }
-impl_data_like! {
+impl_data_like_enum! {
     ClientState = Self::Idle,
     "Idle" => "IDL",
     "Wait" => "WAT"
 }
 // END MAYBE TESTED
-
-impl Validated for ClientState {}
 
 fn is_maybe_ping(payload: Option<Payload>) -> bool {
     matches!(payload, None | Some(Payload::Ping))
@@ -88,10 +84,8 @@ enum ServerState {
     Listen,
     Work,
 }
-impl_data_like! { ServerState = Self::Listen, "Listen" => "LST", "Work" => "WRK" }
+impl_data_like_enum! { ServerState = Self::Listen, "Listen" => "LST", "Work" => "WRK" }
 // END MAYBE TESTED
-
-impl Validated for ServerState {}
 
 impl AgentState<ServerState, Payload> for ServerState {
     fn activity(&self, _instance: usize) -> Activity<Payload> {

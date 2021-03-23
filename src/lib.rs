@@ -95,7 +95,7 @@ lazy_static! {
 pub trait KeyLike = Eq + Hash + Copy + Debug + Sized + Send + Sync;
 
 /// A trait for data we pass around in the model.
-pub trait DataLike = KeyLike + Validated + Named + Default;
+pub trait DataLike = KeyLike + Named + Default;
 
 /// A trait for anything we use as a zero-based index.
 pub trait IndexLike: KeyLike + PartialOrd + Ord {
@@ -136,9 +136,32 @@ pub trait Name {
 
 // BEGIN MAYBE TESTED
 
+/// A macro for implementing data-like (states, payload) for a struct withj a name field.
+#[macro_export]
+macro_rules! impl_data_like_struct {
+    ($name:ident = $value:expr $(, $from:literal => $to:literal)* $(,)?) => {
+        impl_name_by_member! { $name }
+        impl_default_by_value! { $name = $value }
+        impl_display_by_patched_debug! { $name $(, $from => $to)* }
+    };
+}
+
+/// A macro for extracting static string name from a struct.
+#[macro_export]
+macro_rules! impl_name_by_member {
+    ($name:ident) => {
+        impl total_space::Name for $name {
+            fn name(&self) -> String {
+                let name: &'static str = std::convert::From::from(self.name);
+                name.to_string()
+            }
+        }
+    };
+}
+
 /// A macro for implementing data-like (states, payload).
 #[macro_export]
-macro_rules! impl_data_like {
+macro_rules! impl_data_like_enum {
     ($name:ident = $value:expr $(, $from:literal => $to:literal)* $(,)?) => {
         impl_default_by_value! { $name = $value }
         impl_name_for_into_static_str! { $name $(, $from => $to)* }
@@ -196,6 +219,27 @@ macro_rules! impl_display_by_patched_debug {
                 )*
                 write!(formatter, "{}", string)
             }
+        }
+    };
+}
+
+/// A macro for declaring a global variable containing an agent type.
+#[macro_export]
+macro_rules! declare_agent_type_data {
+    ($name:ident, $agent:ident, $model:ident) => {
+        use lazy_static::*;
+        lazy_static! {
+            static ref $name: RwLock<
+                Option<
+                    Arc<
+                        AgentTypeData::<
+                            $agent,
+                            <$model as MetaModel>::StateId,
+                            <$model as MetaModel>::Payload,
+                        >,
+                    >,
+                >,
+            > = RwLock::new(None);
         }
     };
 }
@@ -402,7 +446,7 @@ impl<T: KeyLike + Default, I: IndexLike> Memoize<T, I> {
 // BEGIN MAYBE TESTED
 
 /// A message sent by an agent as part of an alternative action triggered by some event.
-#[derive(PartialEq, Eq, Debug)]
+#[derive(PartialEq, Eq, Copy, Clone, Debug)]
 pub enum Emit<Payload: DataLike> {
     /// Send a message that will be delivered immediately, before any other message is delivered.
     Immediate(Payload, usize),
@@ -429,7 +473,7 @@ pub enum Emit<Payload: DataLike> {
 }
 
 /// Specify an action the agent may take when handling an event.
-#[derive(PartialEq, Eq, Debug)]
+#[derive(PartialEq, Eq, Copy, Clone, Debug)]
 pub enum Action<State: KeyLike, Payload: DataLike> {
     /// Defer the event, keep the state the same, do not send any messages.
     ///
@@ -669,6 +713,10 @@ pub trait AgentType<StateId: IndexLike, Payload: DataLike>:
     /// Whether any agent in the state is deferring messages.
     fn state_is_deferring(&self, instance: usize, state_ids: &[StateId]) -> bool;
 
+    /// Return a reason that a state is invalid (unless it is valid).
+    fn state_invalid_because(&self, instance: usize, state_ids: &[StateId])
+        -> Option<&'static str>;
+
     /// The maximal number of messages sent by an agent which may be in-flight when it is in the
     /// state.
     fn state_max_in_flight_messages(&self, instance: usize, state_ids: &[StateId])
@@ -851,6 +899,11 @@ impl<State: DataLike, StateId: IndexLike, Payload: DataLike>
 
         name_of_terse.shrink_to_fit();
     }
+
+    /// Access the actual state by its identifier.
+    pub fn get_state(&self, state_id: StateId) -> State {
+        self.states.get(state_id)
+    }
 }
 
 impl<
@@ -934,6 +987,11 @@ pub trait AgentState<State: DataLike, Payload: DataLike> {
         false
     }
 
+    /// If this object is invalid, return why.
+    fn invalid_because(&self) -> Option<&'static str> {
+        None
+    }
+
     /// The maximal number of messages sent by this agent which may be in-flight when it is in this
     /// state.
     fn max_in_flight_messages(&self) -> Option<usize> {
@@ -961,6 +1019,15 @@ pub trait ContainerOf1State<State: DataLike, Part: DataLike, Payload: DataLike> 
     fn is_deferring(&self, _parts: &[Part]) -> bool {
         false
     }
+
+    // BEGIN NOT TESTED
+
+    /// If this object is invalid, return why.
+    fn invalid_because(&self, _parts: &[Part]) -> Option<&'static str> {
+        None
+    }
+
+    // END NOT TESTED
 
     /// The maximal number of messages sent by this agent which may be in-flight when it is in this
     /// state.
@@ -998,6 +1065,11 @@ pub trait ContainerOf2State<State: DataLike, Part1: DataLike, Part2: DataLike, P
         false
     }
 
+    /// If this object is invalid, return why.
+    fn invalid_because(&self, _parts1: &[Part1], _parts2: &[Part2]) -> Option<&'static str> {
+        None
+    }
+
     /// The maximal number of messages sent by this agent which may be in-flight when it is in this
     /// state.
     fn max_in_flight_messages(&self, _parts1: &[Part1], _parts2: &[Part2]) -> Option<usize> {
@@ -1006,13 +1078,6 @@ pub trait ContainerOf2State<State: DataLike, Part1: DataLike, Part2: DataLike, P
 }
 
 // END NOT TESTED
-
-pub trait Validated {
-    /// If this object is invalid, return why.
-    fn invalid(&self) -> Option<&'static str> {
-        None
-    }
-}
 
 impl<State: DataLike, StateId: IndexLike, Payload: DataLike>
     AgentTypeData<State, StateId, Payload>
@@ -1343,6 +1408,22 @@ impl<State: DataLike + AgentState<State, Payload>, StateId: IndexLike, Payload: 
             .is_deferring()
     }
 
+    fn state_invalid_because(
+        &self,
+        instance: usize,
+        state_ids: &[StateId],
+    ) -> Option<&'static str> {
+        debug_assert!(
+            instance < self.instances_count(),
+            "instance: {} count: {}",
+            instance,
+            self.instances_count() // NOT TESTED
+        );
+        self.states
+            .get(state_ids[self.first_index + instance])
+            .invalid_because()
+    }
+
     fn state_max_in_flight_messages(
         &self,
         instance: usize,
@@ -1496,6 +1577,28 @@ impl<
             .is_deferring(&parts)
     }
 
+    // BEGIN NOT TESTED
+    fn state_invalid_because(
+        &self,
+        instance: usize,
+        state_ids: &[StateId],
+    ) -> Option<&'static str> {
+        debug_assert!(
+            instance < self.instances_count(),
+            "instance: {} count: {}",
+            instance,
+            self.instances_count()
+        );
+
+        let parts = self.collect_parts(state_ids);
+
+        self.agent_type_data
+            .states
+            .get(state_ids[self.agent_type_data.first_index + instance])
+            .invalid_because(&parts)
+    }
+    // END NOT TESTED
+
     fn state_max_in_flight_messages(
         &self,
         instance: usize,
@@ -1591,6 +1694,26 @@ impl<
             .states
             .get(state_ids[self.agent_type_data.first_index + instance])
             .is_deferring(&parts1, &parts2)
+    }
+
+    fn state_invalid_because(
+        &self,
+        instance: usize,
+        state_ids: &[StateId],
+    ) -> Option<&'static str> {
+        debug_assert!(
+            instance < self.instances_count(),
+            "instance: {} count: {}",
+            instance,
+            self.instances_count()
+        );
+
+        let (parts1, parts2) = self.collect_parts(state_ids);
+
+        self.agent_type_data
+            .states
+            .get(state_ids[self.agent_type_data.first_index + instance])
+            .invalid_because(&parts1, &parts2)
     }
 
     fn state_max_in_flight_messages(
@@ -3349,13 +3472,11 @@ impl<
             Action::Defer => self.defer_message(context),
             Action::Ignore => self.ignore_message(parallel_scope, context), // NOT TESTED
 
-            Action::Change(target_to_state_id) => {
-                if target_to_state_id == context.agent_from_state_id {
+            Action::Change(agent_to_state_id) => {
+                if agent_to_state_id == context.agent_from_state_id {
                     self.ignore_message(parallel_scope, context); // NOT TESTED
                 } else {
-                    context
-                        .to_configuration
-                        .change_state(context.agent_index, target_to_state_id);
+                    self.change_state(&mut context, agent_to_state_id);
                     self.reach_configuration(parallel_scope, context);
                 }
             }
@@ -3363,18 +3484,14 @@ impl<
                 self.collect_emit(&mut context, emit1);
                 self.reach_configuration(parallel_scope, context);
             }
-            Action::ChangeAndSend1(target_to_state_id, emit1) => {
-                context
-                    .to_configuration
-                    .change_state(context.agent_index, target_to_state_id);
+            Action::ChangeAndSend1(agent_to_state_id, emit1) => {
+                self.change_state(&mut context, agent_to_state_id);
                 self.collect_emit(&mut context, emit1);
                 self.reach_configuration(parallel_scope, context);
             }
 
-            Action::ChangeAndSend2(target_to_state_id, emit1, emit2) => {
-                context
-                    .to_configuration
-                    .change_state(context.agent_index, target_to_state_id);
+            Action::ChangeAndSend2(agent_to_state_id, emit1, emit2) => {
+                self.change_state(&mut context, agent_to_state_id);
                 self.collect_emit(&mut context, emit1);
                 self.collect_emit(&mut context, emit2);
                 self.reach_configuration(parallel_scope, context);
@@ -3387,10 +3504,8 @@ impl<
                 self.reach_configuration(parallel_scope, context);
             }
 
-            Action::ChangeAndSend3(target_to_state_id, emit1, emit2, emit3) => {
-                context
-                    .to_configuration
-                    .change_state(context.agent_index, target_to_state_id);
+            Action::ChangeAndSend3(agent_to_state_id, emit1, emit2, emit3) => {
+                self.change_state(&mut context, agent_to_state_id);
                 self.collect_emit(&mut context, emit1);
                 self.collect_emit(&mut context, emit2);
                 self.collect_emit(&mut context, emit3);
@@ -3404,10 +3519,8 @@ impl<
                 self.reach_configuration(parallel_scope, context);
             }
 
-            Action::ChangeAndSend4(target_to_state_id, emit1, emit2, emit3, emit4) => {
-                context
-                    .to_configuration
-                    .change_state(context.agent_index, target_to_state_id);
+            Action::ChangeAndSend4(agent_to_state_id, emit1, emit2, emit3, emit4) => {
+                self.change_state(&mut context, agent_to_state_id);
                 self.collect_emit(&mut context, emit1);
                 self.collect_emit(&mut context, emit2);
                 self.collect_emit(&mut context, emit3);
@@ -3423,10 +3536,8 @@ impl<
                 self.reach_configuration(parallel_scope, context);
             }
 
-            Action::ChangeAndSend5(target_to_state_id, emit1, emit2, emit3, emit4, emit5) => {
-                context
-                    .to_configuration
-                    .change_state(context.agent_index, target_to_state_id);
+            Action::ChangeAndSend5(agent_to_state_id, emit1, emit2, emit3, emit4, emit5) => {
+                self.change_state(&mut context, agent_to_state_id);
                 self.collect_emit(&mut context, emit1);
                 self.collect_emit(&mut context, emit2);
                 self.collect_emit(&mut context, emit3);
@@ -3444,18 +3555,8 @@ impl<
                 self.reach_configuration(parallel_scope, context);
             }
 
-            Action::ChangeAndSend6(
-                target_to_state_id,
-                emit1,
-                emit2,
-                emit3,
-                emit4,
-                emit5,
-                emit6,
-            ) => {
-                context
-                    .to_configuration
-                    .change_state(context.agent_index, target_to_state_id);
+            Action::ChangeAndSend6(agent_to_state_id, emit1, emit2, emit3, emit4, emit5, emit6) => {
+                self.change_state(&mut context, agent_to_state_id);
                 self.collect_emit(&mut context, emit1);
                 self.collect_emit(&mut context, emit2);
                 self.collect_emit(&mut context, emit3);
@@ -3474,6 +3575,29 @@ impl<
                 self.collect_emit(&mut context, emit6);
                 self.reach_configuration(parallel_scope, context);
             } // END NOT TESTED
+        }
+    }
+
+    fn change_state(
+        &self,
+        mut context: &mut <Self as ModelTypes>::Context,
+        agent_to_state_id: StateId,
+    ) {
+        context
+            .to_configuration
+            .change_state(context.agent_index, agent_to_state_id);
+
+        assert!(!context.to_configuration.invalid_id.is_valid());
+
+        if let Some(reason) = context
+            .agent_type
+            .state_invalid_because(context.agent_instance, &context.to_configuration.state_ids)
+        {
+            // BEGIN NOT TESTED
+            let invalid = Invalid::Agent(context.agent_index, reason);
+            let invalid_id = self.invalids.store(invalid).id;
+            context.to_configuration.invalid_id = invalid_id;
+            // END NOT TESTED
         }
     }
 
@@ -4543,6 +4667,19 @@ impl<
                 .unwrap(),
             }
         });
+    }
+
+    /// Access a configuration by its identifier.
+    pub fn get_configuration(
+        &self,
+        configuration_id: ConfigurationId,
+    ) -> <Self as MetaModel>::Configuration {
+        self.configurations.get(configuration_id)
+    }
+
+    /// Access a message by its identifier.
+    pub fn get_message(&self, message_id: MessageId) -> <Self as MetaModel>::Message {
+        self.messages.get(message_id)
     }
 }
 
