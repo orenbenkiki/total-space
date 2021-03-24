@@ -4395,7 +4395,9 @@ impl<
             self.reachable_configurations_mask.push(RwLock::new(false));
         }
 
-        REACHABLE_CONFIGURATIONS_COUNT.store(0, Ordering::Relaxed);
+        if self.print_progress_every > 0 {
+            REACHABLE_CONFIGURATIONS_COUNT.store(0, Ordering::Relaxed);
+        }
 
         ThreadPoolBuilder::new()
             .num_threads(self.threads.count())
@@ -4413,8 +4415,17 @@ impl<
             &mut self.reachable_configurations_mask,
         );
 
-        let unreachable_count =
-            self.configurations.len() - REACHABLE_CONFIGURATIONS_COUNT.load(Ordering::Relaxed);
+        let unreachable_count = if self.print_progress_every > 0 {
+            self.configurations.len() - REACHABLE_CONFIGURATIONS_COUNT.load(Ordering::Relaxed)
+        } else {
+            REACHABLE_CONFIGURATIONS_MASK
+                .lock()
+                .unwrap()
+                .iter()
+                .filter(|rwlock| !*rwlock.read())
+                .count()
+        };
+
         if unreachable_count > 0 {
             // BEGIN NOT TESTED
             eprintln!(
@@ -4445,25 +4456,31 @@ impl<
             return;
         }
 
-        let mut reachable_configuration =
-            self.reachable_configurations_mask[configuration_id].write();
-        if *reachable_configuration {
-            return;
-        }
-
-        *reachable_configuration = true;
-        let reachable_count = 1 + REACHABLE_CONFIGURATIONS_COUNT.fetch_add(1, Ordering::Relaxed);
-
-        if self.print_progress_every == 1
-            // BEGIN NOT TESTED
-            || (self.print_progress_every > 0 && reachable_count % self.print_progress_every == 0)
-        // END NOT TESTED
         {
-            eprintln!(
-                "reached {} out of {} configurations",
-                reachable_count,
-                self.configurations.len()
-            );
+            let mut reachable_configuration =
+                self.reachable_configurations_mask[configuration_id].write();
+            if *reachable_configuration {
+                return;
+            }
+
+            *reachable_configuration = true;
+
+            if self.print_progress_every > 0 {
+                let reachable_count =
+                    1 + REACHABLE_CONFIGURATIONS_COUNT.fetch_add(1, Ordering::Relaxed);
+
+                if self.print_progress_every == 1
+                    // BEGIN NOT TESTED
+                    || reachable_count % self.print_progress_every == 0
+                // END NOT TESTED
+                {
+                    eprintln!(
+                        "reached {} out of {} configurations",
+                        reachable_count,
+                        self.configurations.len()
+                    );
+                }
+            }
         }
 
         let incomings = self.incomings.read();
