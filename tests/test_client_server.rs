@@ -155,6 +155,7 @@ fn test_model(arg_matches: &ArgMatches) -> TestModel {
 
 test_case! { conditions, "txt", vec!["test", "conditions"] }
 test_case! { agents, "txt", vec!["test", "agents"] }
+test_case! { compute, "txt", vec!["test", "-r", "-p", "1", "-t", "1", "compute"] }
 test_case! { configurations, "txt", vec!["test", "-r", "-p", "1", "-t", "1", "configurations"] }
 test_case! { transitions, "txt", vec!["test", "-p", "1", "-t", "1", "transitions"] }
 test_case! { abort, "txt", vec!["test", "-p", "1", "-t", "1", "path", "INIT", "!INIT"] }

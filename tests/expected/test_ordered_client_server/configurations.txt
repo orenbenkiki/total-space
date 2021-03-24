@@ -1,46 +1,58 @@
+#E178EAB018048F0D
 - Client:Idle
 & Server:Listen
 
+#2DB292ADE64CEFDA
 - Client:Wait(1)
 & Server:Listen
 | Client -> @0 Request(1) -> Server
 
+#31A97D18DC420625
 - Client:Wait(3)
 & Server:Listen
 | Client -> @0 Request(1) -> Server
 & Client -> @1 Request(2) -> Server
 
+#B75C596AD82E7C66
 - Client:Wait(1)
 & Server:Work(1)
 
+#BEA9FE94BEA97B67
 - Client:Wait(3)
 & Server:Work(1)
 | Client -> @0 Request(2) -> Server
 
+#C3D2CA7691C23983
 - Client:Wait(1)
 & Server:Listen
 | Server -> @0 Response(1) -> Client
 
+#CA276D88F7453E82
 - Client:Wait(3)
 & Server:Listen
 | Client -> @0 Request(2) -> Server
 & Server -> @0 Response(1) -> Client
 
+#28CA28B2D1CA1493
 - Client:Wait(3)
 & Server:Work(2)
 | Server -> @0 Response(1) -> Client
 
+#839403E396B32190
 - Client:Wait(2)
 & Server:Listen
 | Client -> @0 Request(2) -> Server
 
+#617946D9B03C0B81
 - Client:Wait(2)
 & Server:Work(2)
 
+#F15AA9DDC1F205C7
 - Client:Wait(2)
 & Server:Listen
 | Server -> @0 Response(2) -> Client
 
+#84F08A08477ABE51
 - Client:Wait(3)
 & Server:Listen
 | Server -> @0 Response(1) -> Client

@@ -62,9 +62,16 @@ macro_rules! current_thread_name {
 }
 */
 
-fn calculate_hash<T: Hash>(value: &T) -> u64 {
+fn calculate_string_hash(string: &str) -> u64 {
     let mut hasher = DefaultHasher::new();
-    value.hash(&mut hasher);
+    string.hash(&mut hasher);
+    hasher.finish()
+}
+
+fn calculate_strings_hash(first: &str, second: &str) -> u64 {
+    let mut hasher = DefaultHasher::new();
+    first.hash(&mut hasher);
+    second.hash(&mut hasher);
     hasher.finish()
 }
 
@@ -86,6 +93,9 @@ lazy_static! {
 
     /// The configuration identifier of an error we have seen.
     static ref ERROR_CONFIGURATION_ID: AtomicUsize = AtomicUsize::new(usize::max_value());
+
+    /// How many configurations were marked as reachable.
+    static ref REACHABLE_CONFIGURATIONS_COUNT: AtomicUsize = AtomicUsize::new(0);
 
     /// The mast of configurations that can reach back to the initial state.
     static ref REACHABLE_CONFIGURATIONS_MASK: Mutex<Vec<RwLock<bool>>> = Mutex::new(vec![]);
@@ -2977,6 +2987,10 @@ impl<
                 });
             });
 
+        if self.print_progress_every > 0 {
+            eprintln!("total {} configurations", self.configurations.len());
+        }
+
         if self.ensure_init_is_reachable {
             self.assert_init_is_reachable();
         }
@@ -3003,7 +3017,7 @@ impl<
                     eprintln!(
                         "ERROR: {}\n\
                          when delivering the message: {}\n\
-                         in the configuration:\n{}\n\
+                         in the configuration: {}\n\
                          reached by path:\n",
                         reason,
                         self.display_message_id(context.delivered_message_id),
@@ -3055,7 +3069,7 @@ impl<
             self.error(
                 &context,
                 &format!(
-                    "reached an invalid configuration\n{}",
+                    "reached an invalid configuration: {}",
                     self.display_configuration(&context.to_configuration)
                 ),
             );
@@ -3116,19 +3130,32 @@ impl<
 
         let configuration = self.configurations.get(configuration_id);
 
-        let immediate_message = configuration
+        let mut immediate_message_index = usize::max_value();
+        let mut immediate_message_id = MessageId::invalid();
+        let mut immediate_message_target_index = usize::max_value();
+        configuration
             .message_ids
             .iter()
             .take_while(|message_id| message_id.is_valid())
-            .position(|message_id| self.messages.get(*message_id).order == MessageOrder::Immediate);
+            .enumerate()
+            .for_each(|(message_index, message_id)| {
+                let message = self.messages.get(*message_id);
+                if message.order == MessageOrder::Immediate
+                    && message.target_index < immediate_message_target_index
+                {
+                    immediate_message_index = message_index;
+                    immediate_message_id = *message_id;
+                    immediate_message_target_index = message.target_index;
+                }
+            });
 
-        if let Some(message_index) = immediate_message {
+        if immediate_message_id.is_valid() {
             self.message_event(
                 parallel_scope,
                 configuration_id,
                 configuration,
-                MessageIndex::from_usize(message_index),
-                configuration.message_ids[message_index],
+                MessageIndex::from_usize(immediate_message_index),
+                immediate_message_id,
             );
         } else {
             for agent_index in 0..self.agents_count() {
@@ -4016,7 +4043,7 @@ impl<
                         context,
                         &format!(
                             "the agent {} is sending too more messages {} than allowed {}\n\
-                             in the reached configuration:\n{}",
+                             in the reached configuration: {}",
                             self.agent_labels[context.agent_index],
                             in_flight_messages,
                             max_in_flight_messages,
@@ -4053,11 +4080,7 @@ impl<
                     && stored.id.to_usize() % self.print_progress_every == 0)
             // END NOT TESTED
             {
-                eprintln!(
-                    "#{}\n{}",
-                    stored.id.to_usize(),
-                    self.display_configuration(&configuration)
-                );
+                eprintln!("computed {} configurations", stored.id.to_usize());
             }
 
             let remaining = self.outgoings.read().len() - stored.id.to_usize();
@@ -4274,13 +4297,17 @@ impl<
     fn display_configuration(&self, configuration: &<Self as MetaModel>::Configuration) -> String {
         let max_configuration_string_size = *self.max_configuration_string_size.read();
         let mut string = String::with_capacity(max_configuration_string_size);
+        let mut hash: u64 = 0;
 
-        let mut prefix = "- ";
+        let mut prefix = "\n- ";
         (0..self.agents_count()).for_each(|agent_index| {
             let agent_type = &self.agent_types[agent_index];
             let agent_label = &self.agent_labels[agent_index];
             let agent_state_id = configuration.state_ids[agent_index];
             let agent_state = agent_type.display_state(agent_state_id);
+
+            hash ^= calculate_strings_hash(agent_label, &agent_state);
+
             if !agent_state.is_empty() {
                 string.push_str(prefix);
                 string.push_str(agent_label);
@@ -4297,18 +4324,24 @@ impl<
             .take_while(|message_id| message_id.is_valid())
             .for_each(|message_id| {
                 string.push_str(prefix);
-                string.push_str(&self.display_message_id(*message_id));
+                let message_label = self.display_message_id(*message_id);
+                hash ^= calculate_string_hash(&message_label);
+                string.push_str(&message_label);
                 prefix = "\n& ";
             });
 
         if configuration.invalid_id.is_valid() {
             // BEGIN NOT TESTED
             string.push_str("\n! ");
-            string.push_str(&self.display_invalid_id(configuration.invalid_id));
+            let invalid_label = self.display_invalid_id(configuration.invalid_id);
+            hash ^= calculate_string_hash(&invalid_label);
+            string.push_str(&invalid_label);
             // END NOT TESTED
         }
 
-        string.shrink_to_fit();
+        let hash_label = format!("#{:016X}", hash);
+        string.replace_range(0..0, &hash_label);
+
         if string.len() > max_configuration_string_size {
             let mut max_configuration_string_size = self.max_configuration_string_size.write();
             if string.len() > *max_configuration_string_size {
@@ -4362,6 +4395,8 @@ impl<
             self.reachable_configurations_mask.push(RwLock::new(false));
         }
 
+        REACHABLE_CONFIGURATIONS_COUNT.store(0, Ordering::Relaxed);
+
         ThreadPoolBuilder::new()
             .num_threads(self.threads.count())
             .thread_name(|thread_index| format!("worker-{}", thread_index))
@@ -4373,17 +4408,13 @@ impl<
                 });
             });
 
-        let unreachable_count = self
-            .reachable_configurations_mask
-            .iter()
-            .filter(|is_reached| !*is_reached.read())
-            .count();
-
         swap(
             &mut *REACHABLE_CONFIGURATIONS_MASK.lock().unwrap(),
             &mut self.reachable_configurations_mask,
         );
 
+        let unreachable_count =
+            self.configurations.len() - REACHABLE_CONFIGURATIONS_COUNT.load(Ordering::Relaxed);
         if unreachable_count > 0 {
             // BEGIN NOT TESTED
             eprintln!(
@@ -4421,6 +4452,19 @@ impl<
         }
 
         *reachable_configuration = true;
+        let reachable_count = 1 + REACHABLE_CONFIGURATIONS_COUNT.fetch_add(1, Ordering::Relaxed);
+
+        if self.print_progress_every == 1
+            // BEGIN NOT TESTED
+            || (self.print_progress_every > 0 && reachable_count % self.print_progress_every == 0)
+        // END NOT TESTED
+        {
+            eprintln!(
+                "reached {} out of {} configurations",
+                reachable_count,
+                self.configurations.len()
+            );
+        }
 
         let incomings = self.incomings.read();
         for next_configuration_id in incomings[configuration_id]
@@ -4487,7 +4531,7 @@ impl<
         // BEGIN NOT TESTED
         panic!(
             "could not find a path from the condition {} to the condition {}\n\
-            starting from the configuration:\n{}",
+            starting from the configuration: {}",
             from_name,
             to_step.name,
             self.display_configuration_id(from_configuration_id)
@@ -4679,28 +4723,18 @@ impl<
             }
 
             let prefix = if is_first { "FROM" } else { "TO" };
-
             let to_configuration_label =
                 self.display_configuration_id(transition.to_configuration_id);
 
             match &transition.to_condition_name {
                 Some(condition_name) => writeln!(
                     stdout,
-                    "{} {} #{}:\n{}\n",
-                    prefix,
-                    condition_name,
-                    calculate_hash(&to_configuration_label),
-                    to_configuration_label,
+                    "{} {} {}\n",
+                    prefix, condition_name, to_configuration_label,
                 )
                 .unwrap(),
-                None => writeln!(
-                    stdout,
-                    "{} #{}:\n{}\n",
-                    prefix,
-                    calculate_hash(&to_configuration_label),
-                    to_configuration_label,
-                )
-                .unwrap(),
+
+                None => writeln!(stdout, "{} {}\n", prefix, to_configuration_label,).unwrap(),
             }
         });
     }
@@ -6372,7 +6406,7 @@ pub fn add_clap<'a, 'b>(app: App<'a, 'b>) -> App<'a, 'b> {
             .long("threads")
             .value_name("COUNT")
             .help("set the number of threads to use (may also specify PHYSICAL or LOGICAL)")
-            .default_value("PHYSICAL"),
+            .default_value("LOGICAL"),
     )
     .arg(
         Arg::with_name("size")
@@ -6406,6 +6440,9 @@ pub fn add_clap<'a, 'b>(app: App<'a, 'b>) -> App<'a, 'b> {
         "list the conditions which can be used to identify configurations \
                    (does not compute the model)",
     ))
+    .subcommand(
+        SubCommand::with_name("compute").about("only compute the model (no output)"),
+    )
     .subcommand(
         SubCommand::with_name("configurations").about("list the configurations of the model"),
     )
@@ -6468,6 +6505,7 @@ pub trait ClapModel {
     fn do_clap(&mut self, arg_matches: &ArgMatches, stdout: &mut dyn Write) {
         let did_clap = self.do_clap_agents(arg_matches, stdout)
             || self.do_clap_conditions(arg_matches, stdout)
+            || self.do_clap_compute(arg_matches)
             || self.do_clap_configurations(arg_matches, stdout)
             || self.do_clap_transitions(arg_matches, stdout)
             || self.do_clap_path(arg_matches, stdout)
@@ -6485,6 +6523,9 @@ pub trait ClapModel {
     ///
     /// This doesn't compute the model.
     fn do_clap_conditions(&mut self, arg_matches: &ArgMatches, stdout: &mut dyn Write) -> bool;
+
+    /// Only compute the model (no output).
+    fn do_clap_compute(&mut self, arg_matches: &ArgMatches) -> bool;
 
     /// Execute the `configurations` clap subcommand, if requested to.
     ///
@@ -6547,6 +6588,16 @@ impl<
         }
     }
 
+    fn do_clap_compute(&mut self, arg_matches: &ArgMatches) -> bool {
+        match arg_matches.subcommand_matches("compute") {
+            Some(_) => {
+                self.do_compute(arg_matches);
+                true
+            }
+            None => false,
+        }
+    }
+
     fn do_clap_configurations(&mut self, arg_matches: &ArgMatches, stdout: &mut dyn Write) -> bool {
         match arg_matches.subcommand_matches("configurations") {
             Some(_) => {
@@ -6554,13 +6605,9 @@ impl<
 
                 (0..self.configurations.len())
                     .map(ConfigurationId::from_usize)
-                    .for_each(|configuration_id| {
-                        writeln!(
-                            stdout,
-                            "{}\n",
-                            self.display_configuration_id(configuration_id)
-                        )
-                        .unwrap();
+                    .map(|configuration_id| self.display_configuration_id(configuration_id))
+                    .for_each(|configuration_label| {
+                        writeln!(stdout, "{}\n", configuration_label,).unwrap();
                     });
                 true
             }
@@ -6584,14 +6631,7 @@ impl<
                         let from_configuration_label =
                             self.display_configuration_id(from_configuration_id);
 
-                        writeln!(
-                            stdout,
-                            "FROM {} #{}:\n{}\n",
-                            from_configuration_id.to_usize(),
-                            calculate_hash(&from_configuration_label),
-                            from_configuration_label,
-                        )
-                        .unwrap();
+                        writeln!(stdout, "FROM {}\n", from_configuration_label,).unwrap();
 
                         outgoings.read().iter().for_each(|outgoing| {
                             let delivered_label =
@@ -6600,11 +6640,8 @@ impl<
                                 self.display_configuration_id(outgoing.to_configuration_id);
                             writeln!(
                                 stdout,
-                                "BY: {}\nTO {} #{}:\n{}\n",
-                                delivered_label,
-                                outgoing.to_configuration_id.to_usize(),
-                                calculate_hash(&to_configuration_label),
-                                to_configuration_label,
+                                "BY: {}\nTO {}\n",
+                                delivered_label, to_configuration_label,
                             )
                             .unwrap();
                         });
