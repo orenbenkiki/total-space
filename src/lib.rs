@@ -2025,29 +2025,6 @@ struct Incoming<MessageId: IndexLike, ConfigurationId: IndexLike> {
     delivered_message_id: MessageId,
 }
 
-/// Specify the number of threads to use.
-enum Threads {
-    /// Use all the logical processors.
-    Logical,
-
-    /// Use all the physical processors (ignore hyper-threading).
-    Physical,
-
-    /// Use a specific number of processors.
-    Count(usize),
-}
-
-impl Threads {
-    /// Get the actual number of threads to use.
-    fn count(&self) -> usize {
-        match self {
-            Threads::Logical => num_cpus::get(),
-            Threads::Physical => num_cpus::get_physical(),
-            Threads::Count(count) => *count,
-        }
-    }
-}
-
 /// A complete model.
 pub struct Model<
     StateId: IndexLike,
@@ -2124,7 +2101,7 @@ pub struct Model<
     /// The number of threads to use for computing the model's configurations.
     ///
     /// If zero, uses all the available processors.
-    threads: Threads,
+    threads: usize,
 
     /// Named conditions on a configuration.
     conditions: SccHashMap<String, (<Self as MetaModel>::Condition, &'static str), RandomState>,
@@ -2733,7 +2710,7 @@ impl<
             early_abort_step: None,
             early_abort: RwLock::new(false),
             allow_invalid_configurations: false,
-            threads: Threads::Physical,
+            threads: num_cpus::get(),
             conditions: SccHashMap::new(128, RandomState::new()),
             reachable_configurations_mask: Vec::new(),
         };
@@ -2977,7 +2954,7 @@ impl<
         }
 
         ThreadPoolBuilder::new()
-            .num_threads(self.threads.count())
+            .num_threads(self.threads)
             .thread_name(|thread_index| format!("worker-{}", thread_index))
             .build()
             .unwrap()
@@ -4084,12 +4061,12 @@ impl<
             }
 
             let remaining = self.outgoings.read().len() - stored.id.to_usize();
-            if remaining < self.threads.count() {
+            if remaining < self.threads {
                 let mut outgoings = self.outgoings.write();
 
                 let remaining = outgoings.len() - stored.id.to_usize();
-                if remaining < self.threads.count() {
-                    let additional = max(outgoings.len() / GROWTH_FACTOR, self.threads.count());
+                if remaining < self.threads {
+                    let additional = max(outgoings.len() / GROWTH_FACTOR, self.threads);
 
                     eprintln!(
                         "increasing size from {} to {}",
@@ -4353,16 +4330,13 @@ impl<
     }
 
     fn do_compute(&mut self, arg_matches: &ArgMatches) {
-        let threads = arg_matches.value_of("threads").unwrap();
-        self.threads = if threads == "PHYSICAL" {
-            Threads::Physical // NOT TESTED
-        } else if threads == "LOGICAL" {
-            Threads::Logical // NOT TESTED
-        } else {
-            Threads::Count(usize::from_str(threads).expect("invalid threads count"))
+        self.threads = match arg_matches.value_of("threads").unwrap() {
+            "PHYSICAL" => num_cpus::get_physical(), // NOT TESTED
+            "LOGICAL" => num_cpus::get(),           // NOT TESTED
+            threads => usize::from_str(threads).expect("invalid threads count"),
         };
-        if self.threads.count() == 0 {
-            self.threads = Threads::Count(1); // NOT TESTED
+        if self.threads == 0 {
+            self.threads = 1; // NOT TESTED
         }
 
         let progress_every = arg_matches.value_of("progress").unwrap();
@@ -4400,7 +4374,7 @@ impl<
         }
 
         ThreadPoolBuilder::new()
-            .num_threads(self.threads.count())
+            .num_threads(self.threads)
             .thread_name(|thread_index| format!("worker-{}", thread_index))
             .build()
             .unwrap()
