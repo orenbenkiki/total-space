@@ -1,0 +1,298 @@
+use crate::diagrams::*;
+use crate::models::*;
+use crate::utilities::*;
+
+use clap::App;
+use clap::Arg;
+use clap::ArgMatches;
+use clap::SubCommand;
+use std::io::Write;
+use std::str::FromStr;
+
+/// Add clap commands and flags to a clap application.
+pub fn add_clap<'a, 'b>(app: App<'a, 'b>) -> App<'a, 'b> {
+    app.arg(
+        Arg::with_name("progress")
+            .short("p")
+            .long("progress-every")
+            .default_value("0")
+            .help("print configurations as they are reached"),
+    )
+    .arg(
+        Arg::with_name("size")
+            .short("s")
+            .long("size")
+            .value_name("COUNT")
+            .help(
+                "pre-allocate arrays to cover this number of configurations, for faster operation",
+            )
+            .default_value("AUTO"),
+    )
+    .arg(
+        Arg::with_name("reachable")
+            .short("r")
+            .long("reachable")
+            .help(
+                "ensure that the initial configuration is reachable from all other configurations",
+            ),
+    )
+    .arg(
+        Arg::with_name("invalid")
+            .short("i")
+            .long("invalid")
+            .help("allow for invalid configurations (but do not explore beyond them)"),
+    )
+    .subcommand(
+        SubCommand::with_name("agents")
+            .about("list the agents of the model (does not compute the model)"),
+    )
+    .subcommand(SubCommand::with_name("conditions").about(
+        "list the conditions which can be used to identify configurations \
+                   (does not compute the model)",
+    ))
+    .subcommand(
+        SubCommand::with_name("compute").about("only compute the model (no output)"),
+    )
+    .subcommand(
+        SubCommand::with_name("configurations").about("list the configurations of the model"),
+    )
+    .subcommand(SubCommand::with_name("transitions").about("list the transitions of the model"))
+    .subcommand(
+        SubCommand::with_name("path")
+            .about("list transitions for a path between configurations")
+            .arg(Arg::with_name("CONDITION").multiple(true).help(
+                "the name of at least two conditions identifying configurations along the path, \
+                          which may be prefixed with ! to negate the condition",
+            )),
+    )
+    .subcommand(
+        SubCommand::with_name("sequence")
+            .about("generate a PlantUML sequence diagram for a path between configurations")
+            .arg(Arg::with_name("CONDITION").multiple(true).help(
+                "the name of at least two conditions identifying configurations along the path, \
+                          which may be prefixed with ! to negate the condition",
+            )),
+    )
+    .subcommand(
+        SubCommand::with_name("states")
+            .about("generate a GraphViz dot diagrams for the states of a specific agent")
+            .arg(
+                Arg::with_name("AGENT")
+                    .help("the name of the agent to generate a diagrams for the states of"),
+            )
+            .arg(
+                Arg::with_name("names-only")
+                    .short("n")
+                    .long("names-only")
+                    .help("condense graph nodes considering only the state & payload names"),
+            )
+            .arg(
+                Arg::with_name("merge-instances")
+                    .short("m")
+                    .long("merge-instances")
+                    .help("condense graph nodes considering only the agent type"),
+            )
+            .arg(
+                Arg::with_name("final-replaced")
+                    .short("f")
+                    .long("final-replaced")
+                    .help("condense graph nodes considering only the final (replaced) payload"),
+            )
+            .arg(
+                Arg::with_name("condensed")
+                    .short("c")
+                    .long("condensed")
+                    .help("most condensed graph (implies --names-only, --merge-instances and --final-replaced)"),
+            ),
+    )
+}
+
+/// Execute operations on a model using clap commands.
+pub trait ClapModel {
+    /// Execute the chosen clap subcommand.
+    ///
+    /// Return whether a command was executed.
+    fn do_clap(&mut self, arg_matches: &ArgMatches, stdout: &mut dyn Write) {
+        let did_clap = self.do_clap_agents(arg_matches, stdout)
+            || self.do_clap_conditions(arg_matches, stdout)
+            || self.do_clap_compute(arg_matches)
+            || self.do_clap_configurations(arg_matches, stdout)
+            || self.do_clap_transitions(arg_matches, stdout)
+            || self.do_clap_path(arg_matches, stdout)
+            || self.do_clap_sequence(arg_matches, stdout)
+            || self.do_clap_states(arg_matches, stdout);
+        assert!(did_clap);
+    }
+
+    /// Compute the model.
+    fn do_compute(&mut self, arg_matches: &ArgMatches);
+
+    /// Execute the `agents` clap subcommand, if requested to.
+    ///
+    /// This doesn't compute the model.
+    fn do_clap_agents(&mut self, arg_matches: &ArgMatches, stdout: &mut dyn Write) -> bool;
+
+    /// Execute the `conditions` clap subcommand, if requested to.
+    ///
+    /// This doesn't compute the model.
+    fn do_clap_conditions(&mut self, arg_matches: &ArgMatches, stdout: &mut dyn Write) -> bool;
+
+    /// Only compute the model (no output).
+    fn do_clap_compute(&mut self, arg_matches: &ArgMatches) -> bool;
+
+    /// Execute the `configurations` clap subcommand, if requested to.
+    ///
+    /// This computes the model.
+    fn do_clap_configurations(&mut self, arg_matches: &ArgMatches, stdout: &mut dyn Write) -> bool;
+
+    /// Execute the `transitions` clap subcommand, if requested to.
+    ///
+    /// This computes the model.
+    fn do_clap_transitions(&mut self, arg_matches: &ArgMatches, stdout: &mut dyn Write) -> bool;
+
+    /// Execute the `path` clap subcommand, if requested to.
+    fn do_clap_path(&mut self, arg_matches: &ArgMatches, stdout: &mut dyn Write) -> bool;
+
+    /// Execute the `sequence` clap subcommand, if requested to.
+    fn do_clap_sequence(&mut self, arg_matches: &ArgMatches, stdout: &mut dyn Write) -> bool;
+
+    /// Execute the `states` clap subcommand, if requested to.
+    fn do_clap_states(&mut self, arg_matches: &ArgMatches, stdout: &mut dyn Write) -> bool;
+}
+
+impl<
+        StateId: IndexLike,
+        MessageId: IndexLike,
+        InvalidId: IndexLike,
+        ConfigurationId: IndexLike,
+        Payload: DataLike,
+        const MAX_AGENTS: usize,
+        const MAX_MESSAGES: usize,
+    > ClapModel
+    for Model<StateId, MessageId, InvalidId, ConfigurationId, Payload, MAX_AGENTS, MAX_MESSAGES>
+{
+    fn do_compute(&mut self, arg_matches: &ArgMatches) {
+        let progress_every = arg_matches.value_of("progress").unwrap();
+        self.print_progress_every = usize::from_str(progress_every).expect("invalid progress rate");
+        self.allow_invalid_configurations = arg_matches.is_present("invalid");
+        self.ensure_init_is_reachable = arg_matches.is_present("reachable");
+
+        self.compute();
+
+        if self.ensure_init_is_reachable {
+            self.assert_init_is_reachable();
+        }
+    }
+
+    fn do_clap_agents(&mut self, arg_matches: &ArgMatches, stdout: &mut dyn Write) -> bool {
+        match arg_matches.subcommand_matches("agents") {
+            Some(_) => {
+                self.print_agents(stdout);
+                true
+            }
+            None => false,
+        }
+    }
+
+    fn do_clap_conditions(&mut self, arg_matches: &ArgMatches, stdout: &mut dyn Write) -> bool {
+        match arg_matches.subcommand_matches("conditions") {
+            Some(_) => {
+                self.print_conditions(stdout);
+                true
+            }
+            None => false,
+        }
+    }
+
+    fn do_clap_compute(&mut self, arg_matches: &ArgMatches) -> bool {
+        match arg_matches.subcommand_matches("compute") {
+            Some(_) => {
+                self.do_compute(arg_matches);
+                true
+            }
+            None => false,
+        }
+    }
+
+    fn do_clap_configurations(&mut self, arg_matches: &ArgMatches, stdout: &mut dyn Write) -> bool {
+        match arg_matches.subcommand_matches("configurations") {
+            Some(_) => {
+                self.do_compute(arg_matches);
+                self.print_configurations(stdout);
+                true
+            }
+            None => false,
+        }
+    }
+
+    fn do_clap_transitions(&mut self, arg_matches: &ArgMatches, stdout: &mut dyn Write) -> bool {
+        match arg_matches.subcommand_matches("transitions") {
+            Some(_) => {
+                self.do_compute(arg_matches);
+                self.print_transitions(stdout);
+                true
+            }
+            None => false,
+        }
+    }
+
+    fn do_clap_path(&mut self, arg_matches: &ArgMatches, stdout: &mut dyn Write) -> bool {
+        match arg_matches.subcommand_matches("path") {
+            Some(matches) => {
+                let steps = self.collect_steps("path", matches);
+                self.do_compute(arg_matches);
+                let path = self.collect_path(steps);
+                self.print_path(&path, stdout);
+                true
+            }
+            None => false,
+        }
+    }
+
+    fn do_clap_sequence(&mut self, arg_matches: &ArgMatches, stdout: &mut dyn Write) -> bool {
+        match arg_matches.subcommand_matches("sequence") {
+            Some(matches) => {
+                let steps = self.collect_steps("sequence", matches);
+                self.do_compute(arg_matches);
+                let path = self.collect_path(steps);
+                let mut sequence_steps = self.collect_sequence_steps(&path[1..]);
+                let first_configuration_id = path[1].from_configuration_id;
+                let last_configuration_id = path.last().unwrap().to_configuration_id;
+                self.print_sequence_diagram(
+                    first_configuration_id,
+                    last_configuration_id,
+                    &mut sequence_steps,
+                    stdout,
+                );
+                true
+            }
+            None => false,
+        }
+    }
+
+    fn do_clap_states(&mut self, arg_matches: &ArgMatches, stdout: &mut dyn Write) -> bool {
+        match arg_matches.subcommand_matches("states") {
+            Some(matches) => {
+                let agent_label = matches
+                    .value_of("AGENT")
+                    .expect("the states command requires a single agent name, none were given");
+                let condense = Condense {
+                    names_only: matches.is_present("names-only") || matches.is_present("condensed"),
+                    merge_instances: matches.is_present("merge-instances")
+                        || matches.is_present("condensed"),
+                    final_replaced: matches.is_present("final-replaced")
+                        || matches.is_present("condensed"),
+                };
+                let agent_index = self
+                    .agent_label_index(agent_label)
+                    .unwrap_or_else(|| panic!("unknown agent {}", agent_label));
+
+                self.do_compute(arg_matches);
+                self.print_states_diagram(&condense, agent_index, stdout);
+
+                true
+            }
+            None => false, // NOT TESTED
+        }
+    }
+}

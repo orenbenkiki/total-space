@@ -23,7 +23,7 @@ enum Payload {
     Request(usize),
     Response(usize),
 }
-impl_data_like_enum! { Payload = Self::Request(1) }
+impl_enum_data! { Payload = Self::Request(1) }
 // END MAYBE TESTED
 
 // BEGIN MAYBE TESTED
@@ -32,7 +32,7 @@ enum ClientState {
     Idle,
     Wait(usize),
 }
-impl_data_like_enum! { ClientState = Self::Idle }
+impl_enum_data! { ClientState = Self::Idle }
 // END MAYBE TESTED
 
 impl AgentState<ClientState, Payload> for ClientState {
@@ -75,7 +75,7 @@ enum ServerState {
     Listen,
     Work(usize),
 }
-impl_data_like_enum! { ServerState = Self::Listen }
+impl_enum_data! { ServerState = Self::Listen }
 // END MAYBE TESTED
 
 impl AgentState<ServerState, Payload> for ServerState {

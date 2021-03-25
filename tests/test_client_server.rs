@@ -25,7 +25,7 @@ enum Payload {
     Request,
     Response,
 }
-impl_data_like_enum! {
+impl_enum_data! {
     Payload = Self::Ping,
     "Ping" => "PNG",
     "Request" => "REQ",
@@ -39,7 +39,7 @@ enum ClientState {
     Idle,
     Wait,
 }
-impl_data_like_enum! {
+impl_enum_data! {
     ClientState = Self::Idle,
     "Idle" => "IDL",
     "Wait" => "WAT"
@@ -86,7 +86,7 @@ enum ServerState {
     Listen,
     Work,
 }
-impl_data_like_enum! { ServerState = Self::Listen, "Listen" => "LST", "Work" => "WRK" }
+impl_enum_data! { ServerState = Self::Listen, "Listen" => "LST", "Work" => "WRK" }
 // END MAYBE TESTED
 
 impl AgentState<ServerState, Payload> for ServerState {

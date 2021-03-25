@@ -27,7 +27,7 @@ enum Payload {
     Request { client: usize },
     Response,
 }
-impl_data_like_enum! {
+impl_enum_data! {
     Payload = Self::Confirm,
     "Check" => "CHK",
     "Confirm" => "CNF",
@@ -42,7 +42,7 @@ impl_data_like_enum! {
 enum ManagerState {
     Fixed,
 }
-impl_data_like_enum! {
+impl_enum_data! {
     ManagerState = Self::Fixed,
     "Fixed" => ""
 }
@@ -79,7 +79,7 @@ enum ClientState {
     Check,
     Wait,
 }
-impl_data_like_enum! {
+impl_enum_data! {
     ClientState = Self::Idle,
     "Idle" => "IDL",
     "Wait" => "WAT",
@@ -122,7 +122,7 @@ enum ServerState {
     Listen,
     Work { client: usize },
 }
-impl_data_like_enum! {
+impl_enum_data! {
     ServerState = Self::Listen,
     "client" => "C",
     "Listen" => "LST",

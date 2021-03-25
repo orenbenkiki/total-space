@@ -23,7 +23,7 @@ enum Payload {
     Request { client: usize },
     Response,
 }
-impl_data_like_enum! {
+impl_enum_data! {
     Payload = Self::Response,
     "client" => "C",
     "Request" => "REQ",
@@ -37,7 +37,7 @@ enum ClientState {
     Idle,
     Wait,
 }
-impl_data_like_enum! {
+impl_enum_data! {
     ClientState = Self::Idle,
     "Idle" => "IDL",
     "Wait" => "WAT"
@@ -74,7 +74,7 @@ enum ServerState {
     Listen,
     Work { client: usize },
 }
-impl_data_like_enum! {
+impl_enum_data! {
     ServerState = Self::Listen,
     "client" => "C",
     "Listen" => "LST",
