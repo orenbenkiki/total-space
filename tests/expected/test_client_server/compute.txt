@@ -1,0 +1,3 @@
+agents: 2
+configurations: 8
+transitions: 12

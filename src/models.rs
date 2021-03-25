@@ -187,6 +187,9 @@ pub struct Model<
     /// Memoization of the configurations.
     configurations: Memoize<<Self as MetaModel>::Configuration, ConfigurationId>,
 
+    /// The total number of transitions.
+    transitions_count: usize,
+
     /// Memoization of the in-flight messages.
     messages: Memoize<Message<Payload>, MessageId>,
 
@@ -439,6 +442,7 @@ impl<
             first_indices,
             validators,
             configurations: Memoize::with_capacity(usize::max_value(), size),
+            transitions_count: 0,
             messages: Memoize::new(MessageId::invalid().to_usize()),
             terse_of_message_id: vec![],
             message_of_terse_id: vec![],
@@ -1013,6 +1017,7 @@ impl<
         };
 
         self.outgoings[from_configuration_id.to_usize()].push(outgoing);
+        self.transitions_count += 1;
 
         if stored.is_new {
             if !self.ensure_init_is_reachable {
@@ -1996,6 +2001,12 @@ impl<
             .for_each(|(name, about)| {
                 writeln!(stdout, "{}: {}", name, about).unwrap();
             });
+    }
+
+    pub(crate) fn print_stats(&self, stdout: &mut dyn Write) {
+        writeln!(stdout, "agents: {}", self.agents_count()).unwrap();
+        writeln!(stdout, "configurations: {}", self.configurations.len()).unwrap();
+        writeln!(stdout, "transitions: {}", self.transitions_count).unwrap();
     }
 
     pub(crate) fn print_configurations(&self, stdout: &mut dyn Write) {

@@ -51,7 +51,7 @@ pub fn add_clap<'a, 'b>(app: App<'a, 'b>) -> App<'a, 'b> {
                    (does not compute the model)",
     ))
     .subcommand(
-        SubCommand::with_name("compute").about("only compute the model (no output)"),
+        SubCommand::with_name("compute").about("only compute the model and print basic statistics"),
     )
     .subcommand(
         SubCommand::with_name("configurations").about("list the configurations of the model"),
@@ -115,7 +115,7 @@ pub trait ClapModel {
     fn do_clap(&mut self, arg_matches: &ArgMatches, stdout: &mut dyn Write) {
         let did_clap = self.do_clap_agents(arg_matches, stdout)
             || self.do_clap_conditions(arg_matches, stdout)
-            || self.do_clap_compute(arg_matches)
+            || self.do_clap_compute(arg_matches, stdout)
             || self.do_clap_configurations(arg_matches, stdout)
             || self.do_clap_transitions(arg_matches, stdout)
             || self.do_clap_path(arg_matches, stdout)
@@ -138,7 +138,7 @@ pub trait ClapModel {
     fn do_clap_conditions(&mut self, arg_matches: &ArgMatches, stdout: &mut dyn Write) -> bool;
 
     /// Only compute the model (no output).
-    fn do_clap_compute(&mut self, arg_matches: &ArgMatches) -> bool;
+    fn do_clap_compute(&mut self, arg_matches: &ArgMatches, stdout: &mut dyn Write) -> bool;
 
     /// Execute the `configurations` clap subcommand, if requested to.
     ///
@@ -204,10 +204,11 @@ impl<
         }
     }
 
-    fn do_clap_compute(&mut self, arg_matches: &ArgMatches) -> bool {
+    fn do_clap_compute(&mut self, arg_matches: &ArgMatches, stdout: &mut dyn Write) -> bool {
         match arg_matches.subcommand_matches("compute") {
             Some(_) => {
                 self.do_compute(arg_matches);
+                self.print_stats(stdout);
                 true
             }
             None => false,
