@@ -1,161 +1,190 @@
-FROM #E178EAB018048F0D
+FROM:
 - Client:Idle
 & Server:Listen
+# E178EAB018048F0D
 
 BY: Activity -> Need -> Client
-TO #2DB292ADE64CEFDA
+TO:
 - Client:Wait(1)
 & Server:Listen
 | Client -> @0 Request(1) -> Server
+# 2DB292ADE64CEFDA
 
-FROM #2DB292ADE64CEFDA
+FROM:
 - Client:Wait(1)
 & Server:Listen
 | Client -> @0 Request(1) -> Server
+# 2DB292ADE64CEFDA
 
 BY: Activity -> Need -> Client
-TO #31A97D18DC420625
-- Client:Wait(3)
-& Server:Listen
-| Client -> @0 Request(1) -> Server
-& Client -> @1 Request(2) -> Server
-
-BY: Client -> @0 Request(1) -> Server
-TO #B75C596AD82E7C66
-- Client:Wait(1)
-& Server:Work(1)
-
-FROM #31A97D18DC420625
+TO:
 - Client:Wait(3)
 & Server:Listen
 | Client -> @0 Request(1) -> Server
 & Client -> @1 Request(2) -> Server
+# 31A97D18DC420625
 
 BY: Client -> @0 Request(1) -> Server
-TO #BEA9FE94BEA97B67
-- Client:Wait(3)
-& Server:Work(1)
-| Client -> @0 Request(2) -> Server
-
-FROM #B75C596AD82E7C66
+TO:
 - Client:Wait(1)
 & Server:Work(1)
+# B75C596AD82E7C66
 
-BY: Activity -> Need -> Client
-TO #BEA9FE94BEA97B67
+FROM:
+- Client:Wait(3)
+& Server:Listen
+| Client -> @0 Request(1) -> Server
+& Client -> @1 Request(2) -> Server
+# 31A97D18DC420625
+
+BY: Client -> @0 Request(1) -> Server
+TO:
 - Client:Wait(3)
 & Server:Work(1)
 | Client -> @0 Request(2) -> Server
+# BEA9FE94BEA97B67
+
+FROM:
+- Client:Wait(1)
+& Server:Work(1)
+# B75C596AD82E7C66
+
+BY: Activity -> Need -> Client
+TO:
+- Client:Wait(3)
+& Server:Work(1)
+| Client -> @0 Request(2) -> Server
+# BEA9FE94BEA97B67
 
 BY: Activity -> Completed -> Server
-TO #C3D2CA7691C23983
+TO:
 - Client:Wait(1)
 & Server:Listen
 | Server -> @0 Response(1) -> Client
+# C3D2CA7691C23983
 
-FROM #BEA9FE94BEA97B67
+FROM:
 - Client:Wait(3)
 & Server:Work(1)
 | Client -> @0 Request(2) -> Server
+# BEA9FE94BEA97B67
 
 BY: Activity -> Completed -> Server
-TO #CA276D88F7453E82
+TO:
 - Client:Wait(3)
 & Server:Listen
 | Client -> @0 Request(2) -> Server
 & Server -> @0 Response(1) -> Client
+# CA276D88F7453E82
 
-FROM #C3D2CA7691C23983
+FROM:
 - Client:Wait(1)
 & Server:Listen
 | Server -> @0 Response(1) -> Client
+# C3D2CA7691C23983
 
 BY: Activity -> Need -> Client
-TO #CA276D88F7453E82
+TO:
 - Client:Wait(3)
 & Server:Listen
 | Client -> @0 Request(2) -> Server
 & Server -> @0 Response(1) -> Client
+# CA276D88F7453E82
 
 BY: Server -> @0 Response(1) -> Client
-TO #E178EAB018048F0D
+TO:
 - Client:Idle
 & Server:Listen
+# E178EAB018048F0D
 
-FROM #CA276D88F7453E82
+FROM:
 - Client:Wait(3)
 & Server:Listen
 | Client -> @0 Request(2) -> Server
 & Server -> @0 Response(1) -> Client
+# CA276D88F7453E82
 
 BY: Client -> @0 Request(2) -> Server
-TO #28CA28B2D1CA1493
+TO:
 - Client:Wait(3)
 & Server:Work(2)
 | Server -> @0 Response(1) -> Client
+# 28CA28B2D1CA1493
 
 BY: Server -> @0 Response(1) -> Client
-TO #839403E396B32190
+TO:
 - Client:Wait(2)
 & Server:Listen
 | Client -> @0 Request(2) -> Server
+# 839403E396B32190
 
-FROM #28CA28B2D1CA1493
+FROM:
 - Client:Wait(3)
 & Server:Work(2)
 | Server -> @0 Response(1) -> Client
+# 28CA28B2D1CA1493
 
 BY: Activity -> Completed -> Server
-TO #84F08A08477ABE51
+TO:
 - Client:Wait(3)
 & Server:Listen
 | Server -> @0 Response(1) -> Client
 & Server -> @1 Response(2) -> Client
+# 84F08A08477ABE51
 
 BY: Server -> @0 Response(1) -> Client
-TO #617946D9B03C0B81
+TO:
 - Client:Wait(2)
 & Server:Work(2)
+# 617946D9B03C0B81
 
-FROM #839403E396B32190
+FROM:
 - Client:Wait(2)
 & Server:Listen
 | Client -> @0 Request(2) -> Server
+# 839403E396B32190
 
 BY: Client -> @0 Request(2) -> Server
-TO #617946D9B03C0B81
+TO:
 - Client:Wait(2)
 & Server:Work(2)
+# 617946D9B03C0B81
 
-FROM #617946D9B03C0B81
+FROM:
 - Client:Wait(2)
 & Server:Work(2)
+# 617946D9B03C0B81
 
 BY: Activity -> Completed -> Server
-TO #F15AA9DDC1F205C7
+TO:
 - Client:Wait(2)
 & Server:Listen
 | Server -> @0 Response(2) -> Client
+# F15AA9DDC1F205C7
 
-FROM #F15AA9DDC1F205C7
+FROM:
 - Client:Wait(2)
 & Server:Listen
 | Server -> @0 Response(2) -> Client
+# F15AA9DDC1F205C7
 
 BY: Server -> @0 Response(2) -> Client
-TO #E178EAB018048F0D
+TO:
 - Client:Idle
 & Server:Listen
+# E178EAB018048F0D
 
-FROM #84F08A08477ABE51
+FROM:
 - Client:Wait(3)
 & Server:Listen
 | Server -> @0 Response(1) -> Client
 & Server -> @1 Response(2) -> Client
+# 84F08A08477ABE51
 
 BY: Server -> @0 Response(1) -> Client
-TO #F15AA9DDC1F205C7
+TO:
 - Client:Wait(2)
 & Server:Listen
 | Server -> @0 Response(2) -> Client
+# F15AA9DDC1F205C7
 

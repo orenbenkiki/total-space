@@ -1,52 +1,61 @@
-FROM INIT #E178EAB018048F0D
+FROM INIT:
 - Client:Idle
 & Server:Listen
+# E178EAB018048F0D
 
 BY: Activity -> Need -> Client
-TO #2DB292ADE64CEFDA
+TO:
 - Client:Wait(1)
 & Server:Listen
 | Client -> @0 Request(1) -> Server
+# 2DB292ADE64CEFDA
 
 BY: Activity -> Need -> Client
-TO 2MSG #31A97D18DC420625
+TO 2MSG:
 - Client:Wait(3)
 & Server:Listen
 | Client -> @0 Request(1) -> Server
 & Client -> @1 Request(2) -> Server
+# 31A97D18DC420625
 
 BY: Client -> @0 Request(1) -> Server
-TO #BEA9FE94BEA97B67
+TO:
 - Client:Wait(3)
 & Server:Work(1)
 | Client -> @0 Request(2) -> Server
+# BEA9FE94BEA97B67
 
 BY: Activity -> Completed -> Server
-TO #CA276D88F7453E82
+TO:
 - Client:Wait(3)
 & Server:Listen
 | Client -> @0 Request(2) -> Server
 & Server -> @0 Response(1) -> Client
+# CA276D88F7453E82
 
 BY: Server -> @0 Response(1) -> Client
-TO #839403E396B32190
+TO:
 - Client:Wait(2)
 & Server:Listen
 | Client -> @0 Request(2) -> Server
+# 839403E396B32190
 
 BY: Client -> @0 Request(2) -> Server
-TO #617946D9B03C0B81
+TO:
 - Client:Wait(2)
 & Server:Work(2)
+# 617946D9B03C0B81
 
 BY: Activity -> Completed -> Server
-TO #F15AA9DDC1F205C7
+TO:
 - Client:Wait(2)
 & Server:Listen
 | Server -> @0 Response(2) -> Client
+# F15AA9DDC1F205C7
 
 BY: Server -> @0 Response(2) -> Client
-TO INIT #E178EAB018048F0D
+TO INIT:
 - Client:Idle
 & Server:Listen
+# E178EAB018048F0D
 

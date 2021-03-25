@@ -43,7 +43,7 @@ pub trait AgentInstances<StateId: IndexLike, Payload: DataLike>: Name {
     /// `<state-name>(<state-data>)` if the state contains additional data. The `Debug` of the state
     /// might be acceptable as-is, but typically it is better to get rid or shorten the explicit
     /// field names, and/or format their values in a more compact form.
-    fn display_state(&self, state_id: StateId) -> String;
+    fn display_state(&self, state_id: StateId) -> Rc<String>;
 
     /// Convert the full state identifier to the terse state identifier.
     fn terse_id(&self, state_id: StateId) -> StateId;
@@ -116,6 +116,9 @@ pub struct AgentTypeData<State: DataLike, StateId: IndexLike, Payload: DataLike>
 
     /// Whether this type only has a single instance.
     is_singleton: bool,
+
+    /// The display string of each state.
+    label_of_state: RefCell<Vec<Rc<String>>>,
 
     /// Convert a full state identifier to a terse state identifier.
     terse_of_state: RefCell<Vec<StateId>>,
@@ -197,6 +200,10 @@ impl<State: DataLike, StateId: IndexLike, Payload: DataLike>
         let default_state: State = Default::default();
         let mut states = Memoize::new(StateId::invalid().to_usize());
         states.store(default_state);
+        let label_of_state = RefCell::new(vec![]);
+        label_of_state
+            .borrow_mut()
+            .push(Rc::new(format!("{}", default_state)));
 
         let order_of_instances = vec![0; count];
 
@@ -204,6 +211,7 @@ impl<State: DataLike, StateId: IndexLike, Payload: DataLike>
             name,
             order_of_instances,
             is_singleton,
+            label_of_state,
             terse_of_state: RefCell::new(vec![]),
             name_of_terse: RefCell::new(vec![]),
             states: RefCell::new(states),
@@ -543,7 +551,14 @@ impl<State: DataLike, StateId: IndexLike, Payload: DataLike>
     }
 
     fn translate_state(&self, state: State) -> StateId {
-        self.states.borrow_mut().store(state).id
+        let stored = self.states.borrow_mut().store(state);
+        if stored.is_new {
+            debug_assert!(self.label_of_state.borrow().len() == stored.id.to_usize());
+            self.label_of_state
+                .borrow_mut()
+                .push(Rc::new(format!("{}", state)));
+        }
+        stored.id
     }
 }
 
@@ -611,8 +626,8 @@ impl<State: DataLike, StateId: IndexLike, Payload: DataLike> AgentInstances<Stat
         self.order_of_instances[instance]
     }
 
-    fn display_state(&self, state_id: StateId) -> String {
-        format!("{}", self.states.borrow().get(state_id))
+    fn display_state(&self, state_id: StateId) -> Rc<String> {
+        self.label_of_state.borrow()[state_id.to_usize()].clone()
     }
 
     fn terse_id(&self, state_id: StateId) -> StateId {
@@ -657,7 +672,7 @@ impl<
         self.agent_type_data.instance_order(instance)
     }
 
-    fn display_state(&self, state_id: StateId) -> String {
+    fn display_state(&self, state_id: StateId) -> Rc<String> {
         self.agent_type_data.display_state(state_id)
     }
 
@@ -707,7 +722,7 @@ impl<
         self.agent_type_data.instance_order(instance)
     }
 
-    fn display_state(&self, state_id: StateId) -> String {
+    fn display_state(&self, state_id: StateId) -> Rc<String> {
         self.agent_type_data.display_state(state_id)
     }
 

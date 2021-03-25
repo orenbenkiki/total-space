@@ -193,6 +193,9 @@ pub struct Model<
     /// Memoization of the in-flight messages.
     messages: Memoize<Message<Payload>, MessageId>,
 
+    /// The label (display) of each message (to speed printing).
+    label_of_message: Vec<String>,
+
     /// Map the full message identifier to the terse message identifier.
     terse_of_message_id: Vec<MessageId>,
 
@@ -207,6 +210,9 @@ pub struct Model<
 
     /// Memoization of the invalid conditions.
     invalids: Memoize<<Self as MetaModel>::Invalid, InvalidId>,
+
+    /// The label (display) of each invalid condition (to speed printing).
+    label_of_invalid: Vec<String>,
 
     /// For each configuration, which configuration is reachable from it.
     outgoings: Vec<Vec<<Self as ModelTypes>::Outgoing>>,
@@ -444,11 +450,13 @@ impl<
             configurations: Memoize::with_capacity(usize::max_value(), size),
             transitions_count: 0,
             messages: Memoize::new(MessageId::invalid().to_usize()),
+            label_of_message: vec![],
             terse_of_message_id: vec![],
             message_of_terse_id: vec![],
             decr_order_messages: HashMap::with_capacity(MessageId::invalid().to_usize()),
             incr_order_messages: HashMap::with_capacity(MessageId::invalid().to_usize()),
             invalids: Memoize::new(InvalidId::invalid().to_usize()),
+            label_of_invalid: vec![],
             outgoings: vec![],
             incomings: vec![],
             max_message_string_size: RefCell::new(0),
@@ -994,7 +1002,7 @@ impl<
             let configuration_label = self.display_configuration(&context.to_configuration);
             self.error(
                 &context,
-                &format!("reached an invalid configuration: {}", configuration_label),
+                &format!("reached an invalid configuration:{}", configuration_label),
             );
             // END NOT TESTED
         }
@@ -1261,7 +1269,7 @@ impl<
             replaced: None,
         };
 
-        let delivered_message_id = self.messages.store(delivered_message).id;
+        let delivered_message_id = self.store_message(delivered_message).id;
 
         self.message_event(
             from_configuration_id,
@@ -1514,7 +1522,7 @@ impl<
         {
             // BEGIN NOT TESTED
             let invalid = Invalid::Agent(context.agent_index, reason);
-            let invalid_id = self.invalids.store(invalid).id;
+            let invalid_id = self.store_invalid(invalid).id;
             context.to_configuration.invalid_id = invalid_id;
             // END NOT TESTED
         }
@@ -1647,19 +1655,30 @@ impl<
         };
 
         let mut next_message = message;
-        let mut next_message_id = self.messages.store(next_message).id;
+        let mut next_message_id = self.store_message(next_message).id;
         while order > 0 {
             order -= 1;
-            match self.decr_order_messages.entry(next_message_id) {
+            let entry = self.decr_order_messages.entry(next_message_id);
+            let new_message = match entry {
                 Entry::Occupied(_) => break,
                 Entry::Vacant(entry) => {
                     next_message.order = MessageOrder::Ordered(MessageIndex::from_usize(order));
-                    let decr_message_id = self.messages.store(next_message).id;
+                    let stored = self.messages.store(next_message);
+                    let decr_message_id = stored.id;
                     entry.insert(decr_message_id);
                     self.incr_order_messages
                         .insert(decr_message_id, next_message_id);
                     next_message_id = decr_message_id;
+                    if stored.is_new {
+                        Some(next_message)
+                    } else {
+                        None
+                    }
                 }
+            };
+
+            if let Some(message) = new_message {
+                self.label_of_message.push(self.display_message(&message));
             }
         }
 
@@ -1844,7 +1863,7 @@ impl<
             }
         }
 
-        let message_id = self.messages.store(message).id;
+        let message_id = self.store_message(message).id;
         context
             .to_configuration
             .add_message(context.agent_index, message_id);
@@ -1914,7 +1933,7 @@ impl<
                         context,
                         &format!(
                             "the agent {} is sending too more messages {} than allowed {}\n\
-                             in the reached configuration: {}",
+                             in the reached configuration:{}",
                             self.agent_labels[context.agent_index],
                             in_flight_messages,
                             max_in_flight_messages,
@@ -1930,11 +1949,29 @@ impl<
             // BEGIN NOT TESTED
             if let Some(reason) = validator(&context.to_configuration) {
                 let invalid = <Self as MetaModel>::Invalid::Configuration(reason);
-                context.to_configuration.invalid_id = self.invalids.store(invalid).id;
+                context.to_configuration.invalid_id = self.store_invalid(invalid).id;
                 return;
             }
             // END NOT TESTED
         }
+    }
+
+    fn store_invalid(&mut self, invalid: <Self as MetaModel>::Invalid) -> Stored<InvalidId> {
+        let stored = self.invalids.store(invalid);
+        if stored.is_new {
+            debug_assert!(self.label_of_invalid.len() == stored.id.to_usize());
+            self.label_of_invalid.push(self.display_invalid(&invalid));
+        }
+        stored
+    }
+
+    fn store_message(&mut self, message: <Self as MetaModel>::Message) -> Stored<MessageId> {
+        let stored = self.messages.store(message);
+        if stored.is_new {
+            debug_assert!(self.label_of_message.len() == stored.id.to_usize());
+            self.label_of_message.push(self.display_message(&message));
+        }
+        stored
     }
 
     fn store_configuration(
@@ -2004,12 +2041,21 @@ impl<
     }
 
     pub(crate) fn print_stats(&self, stdout: &mut dyn Write) {
+        let mut states_count = 0;
+        for (agent_index, agent_type) in self.agent_types.iter().enumerate() {
+            if agent_index == agent_type.first_index() {
+                states_count += agent_type.states_count();
+            }
+        }
+
         writeln!(stdout, "agents: {}", self.agents_count()).unwrap();
+        writeln!(stdout, "states: {}", states_count).unwrap();
+        writeln!(stdout, "messages: {}", self.messages.len()).unwrap();
         writeln!(stdout, "configurations: {}", self.configurations.len()).unwrap();
         writeln!(stdout, "transitions: {}", self.transitions_count).unwrap();
     }
 
-    pub(crate) fn print_configurations(&self, stdout: &mut dyn Write) {
+    pub(crate) fn print_configurations(&mut self, stdout: &mut dyn Write) {
         (0..self.configurations.len())
             .map(ConfigurationId::from_usize)
             .for_each(|configuration_id| {
@@ -2022,8 +2068,8 @@ impl<
                     );
                 }
 
-                let configuration_label = self.display_configuration_id(configuration_id);
-                writeln!(stdout, "{}\n", configuration_label).unwrap();
+                self.print_configuration_id(configuration_id, stdout);
+                write!(stdout, "\n").unwrap();
             });
     }
 
@@ -2042,21 +2088,18 @@ impl<
                     );
                 }
 
-                let from_configuration_id = ConfigurationId::from_usize(from_configuration_id);
-                let from_configuration_label = self.display_configuration_id(from_configuration_id);
-
-                writeln!(stdout, "FROM {}\n", from_configuration_label,).unwrap();
+                write!(stdout, "FROM:").unwrap();
+                self.print_configuration_id(
+                    ConfigurationId::from_usize(from_configuration_id),
+                    stdout,
+                );
+                write!(stdout, "\n\n").unwrap();
 
                 outgoings.iter().for_each(|outgoing| {
                     let delivered_label = self.display_message_id(outgoing.delivered_message_id);
-                    let to_configuration_label =
-                        self.display_configuration_id(outgoing.to_configuration_id);
-                    writeln!(
-                        stdout,
-                        "BY: {}\nTO {}\n",
-                        delivered_label, to_configuration_label,
-                    )
-                    .unwrap();
+                    write!(stdout, "BY: {}\nTO:", delivered_label).unwrap();
+                    self.print_configuration_id(outgoing.to_configuration_id, stdout);
+                    write!(stdout, "\n\n").unwrap();
                 });
             });
     }
@@ -2073,20 +2116,19 @@ impl<
                 writeln!(stdout, "BY: {}", delivered_label).unwrap();
             }
 
-            let prefix = if is_first { "FROM" } else { "TO" };
-            let to_configuration_label =
-                self.display_configuration_id(transition.to_configuration_id);
-
-            match &transition.to_condition_name {
-                Some(condition_name) => writeln!(
-                    stdout,
-                    "{} {} {}\n",
-                    prefix, condition_name, to_configuration_label,
-                )
-                .unwrap(),
-
-                None => writeln!(stdout, "{} {}\n", prefix, to_configuration_label,).unwrap(),
+            if is_first {
+                write!(stdout, "FROM").unwrap();
+            } else {
+                write!(stdout, "TO").unwrap();
             }
+
+            if let Some(condition_name) = &transition.to_condition_name {
+                write!(stdout, " {}", condition_name).unwrap();
+            }
+
+            write!(stdout, ":").unwrap();
+            self.print_configuration_id(transition.to_configuration_id, stdout);
+            write!(stdout, "\n\n").unwrap();
         });
     }
 }
@@ -2109,7 +2151,7 @@ impl<
         eprintln!(
             "ERROR: {}\n\
              when delivering the message: {}\n\
-             in the configuration: {}\n\
+             in the configuration:{}\n\
              reached by path:\n",
             reason,
             self.display_message_id(context.delivered_message_id),
@@ -2165,8 +2207,8 @@ impl<
     > Model<StateId, MessageId, InvalidId, ConfigurationId, Payload, MAX_AGENTS, MAX_MESSAGES>
 {
     /// Display a message by its identifier.
-    pub fn display_message_id(&self, message_id: MessageId) -> String {
-        self.display_message(&self.messages.get(message_id))
+    pub fn display_message_id(&self, message_id: MessageId) -> &str {
+        &self.label_of_message[message_id.to_usize()]
     }
 
     /// Display a message.
@@ -2241,9 +2283,8 @@ impl<
 
     // BEGIN NOT TESTED
     /// Display an invalid condition by its identifier.
-    fn display_invalid_id(&self, invalid_id: InvalidId) -> String {
-        let invalid = self.invalids.get(invalid_id);
-        self.display_invalid(&invalid)
+    fn display_invalid_id(&self, invalid_id: InvalidId) -> &str {
+        &self.label_of_invalid[invalid_id.to_usize()]
     }
 
     /// Display an invalid condition.
@@ -2289,7 +2330,26 @@ impl<
     /// Display a configuration.
     fn display_configuration(&self, configuration: &<Self as MetaModel>::Configuration) -> String {
         let mut max_configuration_string_size = self.max_configuration_string_size.borrow_mut();
-        let mut string = String::with_capacity(*max_configuration_string_size);
+        let mut buffer = Vec::<u8>::with_capacity(*max_configuration_string_size);
+        self.print_configuration(configuration, &mut buffer);
+        let mut string = String::from_utf8(buffer).unwrap();
+        string.shrink_to_fit();
+        *max_configuration_string_size = max(string.len(), *max_configuration_string_size);
+        string
+    }
+
+    /// Display a configuration.
+    fn print_configuration_id(&self, configuration_id: ConfigurationId, stdout: &mut dyn Write) {
+        let configuration = self.configurations.get(configuration_id);
+        self.print_configuration(&configuration, stdout)
+    }
+
+    /// Display a configuration.
+    fn print_configuration(
+        &self,
+        configuration: &<Self as MetaModel>::Configuration,
+        stdout: &mut dyn Write,
+    ) {
         let mut hash: u64 = 0;
 
         let mut prefix = "\n- ";
@@ -2299,13 +2359,10 @@ impl<
             let agent_state_id = configuration.state_ids[agent_index];
             let agent_state = agent_type.display_state(agent_state_id);
 
-            hash ^= calculate_strings_hash(agent_label, &agent_state);
+            hash ^= calculate_strings_hash(agent_label, &*agent_state);
 
             if !agent_state.is_empty() {
-                string.push_str(prefix);
-                string.push_str(agent_label);
-                string.push(':');
-                string.push_str(&agent_state);
+                write!(stdout, "{}{}:{}", prefix, agent_label, agent_state).unwrap();
                 prefix = "\n& ";
             }
         });
@@ -2316,29 +2373,21 @@ impl<
             .iter()
             .take_while(|message_id| message_id.is_valid())
             .for_each(|message_id| {
-                string.push_str(prefix);
                 let message_label = self.display_message_id(*message_id);
                 hash ^= calculate_string_hash(&message_label);
-                string.push_str(&message_label);
+                write!(stdout, "{}{}", prefix, message_label).unwrap();
                 prefix = "\n& ";
             });
 
         if configuration.invalid_id.is_valid() {
             // BEGIN NOT TESTED
-            string.push_str("\n! ");
             let invalid_label = self.display_invalid_id(configuration.invalid_id);
             hash ^= calculate_string_hash(&invalid_label);
-            string.push_str(&invalid_label);
+            write!(stdout, "\n! {}", invalid_label).unwrap();
             // END NOT TESTED
         }
 
-        let hash_label = format!("#{:016X}", hash);
-        string.replace_range(0..0, &hash_label);
-
-        string.shrink_to_fit();
-        *max_configuration_string_size = max(string.len(), *max_configuration_string_size);
-
-        string
+        write!(stdout, "\n# {:016X}", hash).unwrap();
     }
 }
 
@@ -2497,7 +2546,7 @@ impl<
         // BEGIN NOT TESTED
         panic!(
             "could not find a path from the condition {} to the condition {}\n\
-            starting from the configuration: {}",
+            starting from the configuration:{}",
             from_name,
             to_step.name,
             self.display_configuration_id(from_configuration_id)
@@ -3110,7 +3159,9 @@ impl<
         let state = if condense.names_only {
             self.agent_types[agent_index].display_terse(state_id)
         } else {
-            self.agent_types[agent_index].display_state(state_id)
+            self.agent_types[agent_index]
+                .display_state(state_id)
+                .to_string()
         };
 
         writeln!(

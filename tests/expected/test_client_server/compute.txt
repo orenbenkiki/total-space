@@ -1,3 +1,5 @@
 agents: 2
+states: 4
+messages: 9
 configurations: 8
 transitions: 12
