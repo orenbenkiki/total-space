@@ -1,3 +1,5 @@
+// FILE MAYBE TESTED
+
 /// A macro for implementing data-like (states, payload) for a struct withj a name field.
 #[macro_export]
 macro_rules! impl_struct_data {

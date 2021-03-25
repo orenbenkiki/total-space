@@ -37,8 +37,6 @@ pub struct Memoize<T: KeyLike, I: IndexLike> {
     value_by_id: Vec<T>,
 }
 
-// END MAYBE TESTED
-
 impl<T: KeyLike + Default, I: IndexLike> Memoize<T, I> {
     /// Create a new memoization store.
     pub fn new(max_count: usize) -> Self {
@@ -77,7 +75,7 @@ impl<T: KeyLike + Default, I: IndexLike> Memoize<T, I> {
             assert!(
                 next_id < max_count,
                 "too many ({}) memoized objects",
-                next_id + 1
+                next_id + 1 // NOT TESTED
             );
             I::from_usize(next_id)
         });

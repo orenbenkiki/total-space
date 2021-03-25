@@ -12,8 +12,6 @@ use std::fmt::Result as FormatterResult;
 #[derive(PartialEq, Eq, PartialOrd, Ord, Hash, Copy, Clone, Debug)]
 pub struct MessageIndex(u8);
 
-// END MAYBE TESTED
-
 impl IndexLike for MessageIndex {
     fn from_usize(value: usize) -> MessageIndex {
         MessageIndex(u8::from_usize(value).unwrap())

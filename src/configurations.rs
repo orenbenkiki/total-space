@@ -1,6 +1,8 @@
 use crate::messages::*;
 use crate::utilities::*;
 
+// BEGIN MAYBE TESTED
+
 /// An indicator that something is invalid.
 #[derive(PartialEq, Eq, Hash, Copy, Clone, Debug)]
 pub enum Invalid<MessageId: IndexLike> {
@@ -9,11 +11,15 @@ pub enum Invalid<MessageId: IndexLike> {
     Message(MessageId, &'static str),
 }
 
+// END MAYBE TESTED
+
 impl<MessageId: IndexLike> Default for Invalid<MessageId> {
     fn default() -> Self {
         Invalid::Configuration("you should not be seeing this")
     }
 }
+
+// BEGIN MAYBE TESTED
 
 /// A complete system configuration.
 ///

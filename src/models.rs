@@ -19,6 +19,7 @@ use std::rc::Rc;
 use std::str::FromStr;
 
 // BEGIN MAYBE TESTED
+
 thread_local! {
     /// The mast of configurations that can reach back to the initial state.
     static REACHABLE_CONFIGURATIONS_MASK: RefCell<Vec<bool>> = RefCell::new(vec![]);
@@ -26,7 +27,6 @@ thread_local! {
     /// The error configuration.
     static ERROR_CONFIGURATION_ID: RefCell<usize> = RefCell::new(usize::max_value());
 }
-// END MAYBE TESTED
 
 /// A transition from a given configuration.
 #[derive(Copy, Clone, Debug)]
@@ -49,6 +49,8 @@ pub struct Incoming<MessageId: IndexLike, ConfigurationId: IndexLike> {
     /// configuration.
     delivered_message_id: MessageId,
 }
+
+// END MAYBE TESTED
 
 /// A path step (possibly negated named condition).
 pub(crate) struct PathStep<Model: MetaModel> {
@@ -957,10 +959,7 @@ impl<
 {
     /// Compute all the configurations of the model.
     pub fn compute(&mut self) {
-        // TODOX
-        if self.configurations.len() != 1 {
-            return;
-        }
+        assert!(self.configurations.len() == 1);
 
         if self.ensure_init_is_reachable {
             assert!(self.incomings.is_empty());
