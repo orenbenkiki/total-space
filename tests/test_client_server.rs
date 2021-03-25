@@ -7,13 +7,13 @@ use num_traits::cast::ToPrimitive;
 use std::fmt::Display;
 use std::fmt::Formatter;
 use std::fmt::Result as FormatterResult;
+use std::rc::Rc;
 use std::str;
-use std::sync::Arc;
 use strum::IntoStaticStr;
 use total_space::*;
 
-declare_global_agent_index! {CLIENT}
-declare_global_agent_index! {SERVER}
+declare_agent_index! {CLIENT}
+declare_agent_index! {SERVER}
 
 // BEGIN MAYBE TESTED
 #[derive(PartialEq, Eq, Hash, Copy, Clone, Debug, IntoStaticStr)]
@@ -69,7 +69,9 @@ impl AgentState<ClientState, Payload> for ClientState {
                 Emit::UnorderedReplacement(is_maybe_ping, Payload::Ping, agent_index!(SERVER)),
             )),
             (Self::Wait, Payload::Response) => Reaction::Do1(Action::Change(Self::Idle)),
-            _ => Reaction::Unexpected, // NOT TESTED
+            _ => {
+                Reaction::Unexpected // NOT TESTED
+            }
         }
     }
 
@@ -133,13 +135,13 @@ type TestModel = Model<
 >;
 
 fn test_model(arg_matches: &ArgMatches) -> TestModel {
-    let client_type = Arc::new(AgentTypeData::<
+    let client_type = Rc::new(AgentTypeData::<
         ClientState,
         <TestModel as MetaModel>::StateId,
         Payload,
     >::new("C", Instances::Singleton, None));
 
-    let server_type = Arc::new(AgentTypeData::<
+    let server_type = Rc::new(AgentTypeData::<
         ServerState,
         <TestModel as MetaModel>::StateId,
         Payload,
@@ -148,24 +150,24 @@ fn test_model(arg_matches: &ArgMatches) -> TestModel {
     ));
 
     let model = TestModel::new(model_size(arg_matches, 1), server_type, vec![]);
-    init_global_agent_index!(CLIENT, "C", model);
-    init_global_agent_index!(SERVER, "S", model);
+    init_agent_index!(CLIENT, "C", model);
+    init_agent_index!(SERVER, "S", model);
     model
 }
 
 test_case! { conditions, "txt", vec!["test", "conditions"] }
 test_case! { agents, "txt", vec!["test", "agents"] }
-test_case! { compute, "txt", vec!["test", "-r", "-t", "1", "compute"] }
-test_case! { configurations, "txt", vec!["test", "-r", "-p", "1", "-t", "1", "configurations"] }
-test_case! { transitions, "txt", vec!["test", "-t", "1", "transitions"] }
-test_case! { abort, "txt", vec!["test", "-p", "1", "-t", "1", "path", "INIT", "!INIT"] }
-test_case! { path, "txt", vec!["test", "-p", "1", "-t", "1", "path", "INIT", "2MSG", "INIT", "UNORDERED_REPLACEMENT", "IMMEDIATE_REPLACEMENT", "INIT"] }
-test_case! { sequence, "uml", vec!["test", "-p", "1", "-t", "1", "sequence", "INIT", "2MSG", "INIT", "UNORDERED_REPLACEMENT", "IMMEDIATE_REPLACEMENT", "INIT"] }
-test_case! { client_states, "dot", vec!["test", "-p", "1", "-t", "1", "states", "C"] }
-test_case! { client_states_names, "dot", vec!["test", "-p", "1", "-t", "1", "states", "C", "-n"] }
-test_case! { client_states_final, "dot", vec!["test", "-p", "1", "-t", "1", "states", "C", "-f"] }
-test_case! { client_states_condensed, "dot", vec!["test", "-p", "1", "-t", "1", "states", "C", "-c"] }
-test_case! { server_states, "dot", vec!["test", "-p", "1", "-t", "1", "states", "S"] }
-test_case! { server_states_names, "dot", vec!["test", "-p", "1", "-t", "1", "states", "S", "-n"] }
-test_case! { server_states_final, "dot", vec!["test", "-p", "1", "-t", "1", "states", "S", "-f"] }
-test_case! { server_states_condensed, "dot", vec!["test", "-p", "1", "-t", "1", "states", "S", "-c"] }
+test_case! { compute, "txt", vec!["test", "-r", "compute"] }
+test_case! { configurations, "txt", vec!["test", "-r", "-p", "1", "configurations"] }
+test_case! { transitions, "txt", vec!["test", "transitions"] }
+test_case! { abort, "txt", vec!["test", "-p", "1", "path", "INIT", "!INIT"] }
+test_case! { path, "txt", vec!["test", "-p", "1", "path", "INIT", "2MSG", "INIT", "UNORDERED_REPLACEMENT", "IMMEDIATE_REPLACEMENT", "INIT"] }
+test_case! { sequence, "uml", vec!["test", "-p", "1", "sequence", "INIT", "2MSG", "INIT", "UNORDERED_REPLACEMENT", "IMMEDIATE_REPLACEMENT", "INIT"] }
+test_case! { client_states, "dot", vec!["test", "-p", "1", "states", "C"] }
+test_case! { client_states_names, "dot", vec!["test", "-p", "1", "states", "C", "-n"] }
+test_case! { client_states_final, "dot", vec!["test", "-p", "1", "states", "C", "-f"] }
+test_case! { client_states_condensed, "dot", vec!["test", "-p", "1", "states", "C", "-c"] }
+test_case! { server_states, "dot", vec!["test", "-p", "1", "states", "S"] }
+test_case! { server_states_names, "dot", vec!["test", "-p", "1", "states", "S", "-n"] }
+test_case! { server_states_final, "dot", vec!["test", "-p", "1", "states", "S", "-f"] }
+test_case! { server_states_condensed, "dot", vec!["test", "-p", "1", "states", "S", "-c"] }

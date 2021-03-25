@@ -19,7 +19,7 @@ index_type! { DataId, u8 }
 
 #[test]
 fn memoize_value() {
-    let memoize = Memoize::<Data, DataId>::new(2, 2);
+    let mut memoize = Memoize::<Data, DataId>::new(2);
 
     let first = Data { value: 17 };
     assert_eq!(first.value, 17);
@@ -65,7 +65,7 @@ fn memoize_value() {
 #[test]
 #[should_panic(expected = "too many (5) memoized objects")]
 fn memoize_limit() {
-    let memoize = Memoize::<Data, DataId>::new(2, 4);
+    let mut memoize = Memoize::<Data, DataId>::with_capacity(4, 2);
 
     for value in 0..5 {
         let data = Data { value: value };

@@ -3,59 +3,50 @@ FROM INIT #1287BA01AD68118D
 & C(1):IDL
 & SRV:LST
 
+BY: Activity -> Worry -> C(1)
+TO #2B953D5D90D28CE0
+- C(0):IDL
+& C(1):CHK
+& SRV:LST
+| C(1) -> CHK(C=1) -> MGR
+
 BY: Activity -> Need -> C(0)
+TO 2MSG #F4406AA7B02ABBF6
+- C(0):WAT
+& C(1):CHK
+& SRV:LST
+| C(0) -> REQ(C=0) -> SRV
+& C(1) -> CHK(C=1) -> MGR
+
+BY: C(1) -> CHK(C=1) -> MGR
+TO #1E76713CA9C17488
+- C(0):WAT
+& C(1):CHK
+& SRV:LST
+| C(0) -> REQ(C=0) -> SRV
+& MGR -> * CNF -> C(1)
+
+BY: MGR -> * CNF -> C(1)
 TO #CD52EDFB8D90269B
 - C(0):WAT
 & C(1):IDL
 & SRV:LST
 | C(0) -> REQ(C=0) -> SRV
 
-BY: Activity -> Need -> C(1)
-TO 2MSG #3C7C7BC4CF5C445D
-- C(0):WAT
-& C(1):WAT
-& SRV:LST
-| C(0) -> REQ(C=0) -> SRV
-& C(1) -> REQ(C=1) -> SRV
-
 BY: C(0) -> REQ(C=0) -> SRV
-TO #5A44D39DCACB0380
+TO #AB6A45A288076146
 - C(0):WAT
-& C(1):WAT
+& C(1):IDL
 & SRV:WRK(C=0)
-| C(1) -> REQ(C=1) -> SRV
 
 BY: Activity -> Completed -> SRV
-TO #FBB002BF3B235B32
+TO #0A9E948079EF39F4
 - C(0):WAT
-& C(1):WAT
-& SRV:LST
-| C(1) -> REQ(C=1) -> SRV
-& SRV -> RSP -> C(0)
-
-BY: C(1) -> REQ(C=1) -> SRV
-TO #B638FAA2F3BD2BCC
-- C(0):WAT
-& C(1):WAT
-& SRV:WRK(C=1)
-| SRV -> RSP -> C(0)
-
-BY: Activity -> Completed -> SRV
-TO #1FD4497F3D82EB07
-- C(0):WAT
-& C(1):WAT
+& C(1):IDL
 & SRV:LST
 | SRV -> RSP -> C(0)
-& SRV -> RSP -> C(1)
 
 BY: SRV -> RSP -> C(0)
-TO #07CD67FEE905C37E
-- C(0):IDL
-& C(1):WAT
-& SRV:LST
-| SRV -> RSP -> C(1)
-
-BY: SRV -> RSP -> C(1)
 TO INIT #1287BA01AD68118D
 - C(0):IDL
 & C(1):IDL

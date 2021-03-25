@@ -28,20 +28,18 @@ TO #CA276D88F7453E82
 | Client -> @0 Request(2) -> Server
 & Server -> @0 Response(1) -> Client
 
+BY: Server -> @0 Response(1) -> Client
+TO #839403E396B32190
+- Client:Wait(2)
+& Server:Listen
+| Client -> @0 Request(2) -> Server
+
 BY: Client -> @0 Request(2) -> Server
-TO #28CA28B2D1CA1493
-- Client:Wait(3)
+TO #617946D9B03C0B81
+- Client:Wait(2)
 & Server:Work(2)
-| Server -> @0 Response(1) -> Client
 
 BY: Activity -> Completed -> Server
-TO #84F08A08477ABE51
-- Client:Wait(3)
-& Server:Listen
-| Server -> @0 Response(1) -> Client
-& Server -> @1 Response(2) -> Client
-
-BY: Server -> @0 Response(1) -> Client
 TO #F15AA9DDC1F205C7
 - Client:Wait(2)
 & Server:Listen

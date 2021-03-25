@@ -14,12 +14,10 @@ categories =[ "Algorithms", "Visualization" ]
 
 [dependencies]
 clap = "^2.33.0"
-scc = "^0.4.10"
+hashbrown = "^0.11.1"
 lazy_static = "^1.4.0"
 num_cpus = "^1.0.0"
 num-traits = "^0.2.8"
-parking_lot = "^0.11.1"
-rayon = "^1.5.0"
 string_cache = "^0.8.1"
 strum_macros = "^0.20.0"
 strum = { version = "^0.20.0", features = [ "derive" ] }

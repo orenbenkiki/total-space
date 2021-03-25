@@ -1,18 +1,12 @@
-// Copyright (C) 2021 Oren Ben-Kiki <oren@ben-kiki.org>
+// total-space is free software: you can redistribute it and/or modify it under the terms of the
+// GNU General Public License, version 3, as published by the Free Software Foundation.
 //
-// This file is part of cargo-coverage-annotations.
+// total-space is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without
+// even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
+// General Public License for more details.
 //
-// cargo-coverage-annotations is free software: you can redistribute it and/or
-// modify it under the terms of the GNU General Public License, version 3, as
-// published by the Free Software Foundation.
-//
-// cargo-coverage-annotations is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General
-// Public License for more details.
-//
-// You should have received a copy of the GNU General Public License along with
-// cargo-coverage-annotations. If not, see <http://www.gnu.org/licenses/>.
+// You should have received a copy of the GNU General Public License along with total-space If not,
+// see <http://www.gnu.org/licenses/>.
 
 //! Explore the total space of states of communicating finite state machines.
 
@@ -22,19 +16,14 @@ use clap::App;
 use clap::Arg;
 use clap::ArgMatches;
 use clap::SubCommand;
-use lazy_static::*;
+use hashbrown::hash_map::Entry;
+use hashbrown::HashMap;
 use num_traits::FromPrimitive;
 use num_traits::ToPrimitive;
-use rayon::scope;
-use rayon::Scope as ParallelScope;
-use rayon::ThreadPoolBuilder;
-use scc::HashMap as SccHashMap;
+use std::cell::RefCell;
 use std::cmp::max;
 use std::cmp::min;
 use std::collections::hash_map::DefaultHasher;
-use std::collections::hash_map::RandomState;
-use std::collections::HashMap as StdHashMap;
-use std::collections::VecDeque;
 use std::fmt::Debug;
 use std::fmt::Display;
 use std::fmt::Formatter;
@@ -45,22 +34,8 @@ use std::io::stderr;
 use std::io::Write;
 use std::marker::PhantomData;
 use std::mem::swap;
-use std::process::exit;
+use std::rc::Rc;
 use std::str::FromStr;
-use std::sync::atomic::AtomicUsize;
-use std::sync::atomic::Ordering;
-use std::sync::Arc;
-use std::sync::Mutex;
-use std::thread::sleep;
-use std::time::Duration;
-
-/*
-use std::thread::current as current_thread;
-
-macro_rules! current_thread_name {
-    () => { current_thread().name().unwrap_or("main") }
-}
-*/
 
 fn calculate_string_hash(string: &str) -> u64 {
     let mut hasher = DefaultHasher::new();
@@ -75,35 +50,22 @@ fn calculate_strings_hash(first: &str, second: &str) -> u64 {
     hasher.finish()
 }
 
-/// The RwLock type to use.
-///
-/// Exporting this makes the `agent_index!` macro robust if we change implementations.
-pub type RwLock<T> = parking_lot::RwLock<T>;
-
-const GROWTH_FACTOR: usize = 4;
-
 const RIGHT_ARROW: &str = "&#8594;";
 
 const RIGHT_DOUBLE_ARROW: &str = "&#8658;";
 
 // BEGIN MAYBE TESTED
-lazy_static! {
-    /// A mutex for reporting errors.
-    static ref ERROR_MUTEX: Mutex<()> = Mutex::new(());
-
-    /// The configuration identifier of an error we have seen.
-    static ref ERROR_CONFIGURATION_ID: AtomicUsize = AtomicUsize::new(usize::max_value());
-
-    /// How many configurations were marked as reachable.
-    static ref REACHABLE_CONFIGURATIONS_COUNT: AtomicUsize = AtomicUsize::new(0);
-
+thread_local! {
     /// The mast of configurations that can reach back to the initial state.
-    static ref REACHABLE_CONFIGURATIONS_MASK: Mutex<Vec<RwLock<bool>>> = Mutex::new(vec![]);
+    static REACHABLE_CONFIGURATIONS_MASK: RefCell<Vec<bool>> = RefCell::new(vec![]);
+
+    /// The error configuration.
+    static ERROR_CONFIGURATION_ID: RefCell<usize> = RefCell::new(usize::max_value());
 }
 // END MAYBE TESTED
 
 /// A trait for anything we use as a key in a HashMap.
-pub trait KeyLike = Eq + Hash + Copy + Debug + Sized + Send + Sync;
+pub trait KeyLike = Eq + Hash + Copy + Debug + Sized;
 
 /// A trait for data we pass around in the model.
 pub trait DataLike = KeyLike + Named + Default;
@@ -238,76 +200,81 @@ macro_rules! impl_display_by_patched_debug {
 #[macro_export]
 macro_rules! declare_agent_type_data {
     ($name:ident, $agent:ident, $model:ident) => {
-        use lazy_static::*;
-        lazy_static! {
-            static ref $name: RwLock<
+        std::thread_local! {
+            static $name: std::cell::RefCell<
                 Option<
-                    Arc<
+                   std::rc::Rc<
                         AgentTypeData::<
                             $agent,
                             <$model as MetaModel>::StateId,
                             <$model as MetaModel>::Payload,
-                        >,
-                    >,
-                >,
-            > = RwLock::new(None);
+                        >
+                    >
+                >
+            > = std::cell::RefCell::new(None);
         }
+    };
+}
+
+/// A macro for initializing a global variable containing an agent type.
+#[macro_export]
+macro_rules! init_agent_type_data {
+    ($name:ident, $data:expr) => {
+        $name.with(|data| *data.borrow_mut() = Some($data))
     };
 }
 
 /// A macro for declaring a global variable containing agent indices.
 #[macro_export]
-macro_rules! declare_global_agent_indices {
+macro_rules! declare_agent_indices {
     ($name:ident) => {
-        use lazy_static::*;
-        lazy_static! {
-            static ref $name: total_space::RwLock<Vec<usize>> =
-                total_space::RwLock::new(Vec::new());
+        thread_local! {
+            static $name: std::cell::RefCell<Vec<usize>> = std::cell::RefCell::new(Vec::new());
         }
     };
 }
 
 /// A macro for declaring a global variable containing singleton agent index.
 #[macro_export]
-macro_rules! declare_global_agent_index {
+macro_rules! declare_agent_index {
     ($name:ident) => {
-        use lazy_static::*;
-        lazy_static! {
-            static ref $name: total_space::RwLock<usize> =
-                total_space::RwLock::new(usize::max_value());
+        thread_local! {
+            static $name: std::cell::RefCell<usize> = std::cell::RefCell::new(usize::max_value());
         }
     };
 }
 
 /// A macro for initializing a global variable containing singleton agent index.
 #[macro_export]
-macro_rules! init_global_agent_indices {
+macro_rules! init_agent_indices {
     ($name:ident, $label:expr, $model:expr) => {{
-        let mut indices = $name.write();
-        indices.clear();
-        let agent_type = $model.agent_type($label);
-        for instance in 0..agent_type.instances_count() {
-            indices.push($model.agent_index($label, Some(instance)));
-        }
+        $name.with(|refcell| {
+            let mut indices = refcell.borrow_mut();
+            indices.clear();
+            let agent_type = $model.agent_type($label);
+            for instance in 0..agent_type.instances_count() {
+                indices.push($model.agent_index($label, Some(instance)));
+            }
+        });
     }};
 }
 
 /// A macro for initializing a global variable containing singleton agent index.
 #[macro_export]
-macro_rules! init_global_agent_index {
+macro_rules! init_agent_index {
     ($name:ident, $label:expr, $model:expr) => {
-        *$name.write() = $model.agent_index($label, None)
+        $name.with(|refcell| *refcell.borrow_mut() = $model.agent_index($label, None));
     };
 }
 
 /// A macro for accessing a global variable containing agent index.
 #[macro_export]
 macro_rules! agent_index {
-    ($name:ident) => {
-        *$name.read()
-    };
+    ($name:ident) => {{
+        $name.with(|refcell| *refcell.borrow())
+    }};
     ($name:ident[$index:expr]) => {
-        $name.read()[$index]
+        $name.with(|refcell| refcell.borrow()[$index])
     };
 }
 
@@ -315,7 +282,7 @@ macro_rules! agent_index {
 #[macro_export]
 macro_rules! agents_count {
     ($name:ident) => {
-        $name.read().len()
+        $name.with(|refcell| refcell.borrow().len())
     };
 }
 
@@ -346,57 +313,47 @@ pub struct Stored<I: IndexLike> {
 /// the vector.
 pub struct Memoize<T: KeyLike, I: IndexLike> {
     /// Lookup the memoized identifier for a value.
-    id_by_value: SccHashMap<T, I, RandomState>,
+    id_by_value: HashMap<T, I>,
 
     /// The maximal number of identifiers to generate.
     max_count: usize,
 
-    /// The next unused identifier.
-    next_id: AtomicUsize,
-
     /// Convert a memoized identifier to the value.
-    value_by_id: RwLock<Vec<RwLock<T>>>,
+    value_by_id: Vec<T>,
 }
 
 // END MAYBE TESTED
 
 impl<T: KeyLike + Default, I: IndexLike> Memoize<T, I> {
     /// Create a new memoization store.
-    pub fn new(capacity: usize, max_count: usize) -> Self {
+    pub fn new(max_count: usize) -> Self {
+        Self::with_capacity(max_count, max_count)
+    }
+
+    /// Create a new memoization store with some capacity.
+    pub fn with_capacity(max_count: usize, capacity: usize) -> Self {
         let capacity = min(capacity, max_count);
-
-        let mut value_by_id = Vec::with_capacity(capacity);
-        for _ in 0..capacity {
-            value_by_id.push(RwLock::new(Default::default()));
-        }
-
         Self {
             max_count,
-            next_id: AtomicUsize::new(0),
-            id_by_value: SccHashMap::new(capacity, RandomState::new()),
-            value_by_id: RwLock::new(value_by_id),
+            id_by_value: HashMap::with_capacity(capacity),
+            value_by_id: Vec::with_capacity(capacity),
         }
     }
 
     /// Reserve space for some amount of additional values.
-    pub fn reserve(&self, additional: usize) {
-        let mut value_by_id = self.value_by_id.write();
-        for _ in 0..additional {
-            value_by_id.push(RwLock::new(Default::default()));
-        }
-
-        // Not supported by scc::SccHashMap:
-        // self.id_by_value.reserve(additional);
+    pub fn reserve(&mut self, additional: usize) {
+        self.value_by_id.reserve(additional);
+        self.id_by_value.reserve(additional);
     }
 
     /// The number of allocated identifiers.
     pub fn len(&self) -> usize {
-        self.next_id.load(Ordering::Relaxed)
+        self.value_by_id.len()
     }
 
     /// The allowed number of allocated identifiers.
     pub fn capacity(&self) -> usize {
-        self.value_by_id.read().len()
+        self.value_by_id.capacity()
     }
 
     /// Whether we have no identifiers stored at all.
@@ -406,51 +363,32 @@ impl<T: KeyLike + Default, I: IndexLike> Memoize<T, I> {
 
     /// Given a value that may or may not exist in the memory, ensure it exists it and return its
     /// short identifier.
-    pub fn store(&self, value: T) -> Stored<I> {
-        match self.id_by_value.insert(value, I::from_usize(0)) {
-            Err(result) => Stored {
-                id: *result.0.get().1,
-                is_new: false,
-            },
-            Ok(result) => {
-                let id = self.next_id.fetch_add(1, Ordering::Relaxed);
-                assert!(
-                    id < self.max_count,
-                    "too many ({}) memoized objects",
-                    id + 1
-                );
+    pub fn store(&mut self, value: T) -> Stored<I> {
+        let mut is_new = false;
+        let next_id = self.value_by_id.len();
+        let max_count = self.max_count;
 
-                debug_assert!(*result.get().1 == I::from_usize(0));
-                *result.get().1 = I::from_usize(id);
+        let id = *self.id_by_value.entry(value).or_insert_with(|| {
+            is_new = true;
+            assert!(
+                next_id < max_count,
+                "too many ({}) memoized objects",
+                next_id + 1
+            );
+            I::from_usize(next_id)
+        });
 
-                if id >= self.value_by_id.read().len() {
-                    let mut value_by_id = self.value_by_id.write();
-                    if id >= value_by_id.len() {
-                        let additional = max(
-                            value_by_id.len() / GROWTH_FACTOR,
-                            1 + id - value_by_id.len(),
-                        );
-                        for _ in 0..additional {
-                            value_by_id.push(RwLock::new(Default::default()));
-                        }
-                    }
-                }
-
-                let value_by_id = self.value_by_id.read();
-                *value_by_id[id].write() = value;
-
-                Stored {
-                    id: I::from_usize(id),
-                    is_new: true,
-                }
-            }
+        if is_new {
+            self.value_by_id.push(value);
         }
+
+        Stored { id, is_new }
     }
 
     /// Given a short identifier previously returned by `store`, return the full value.
     pub fn get(&self, id: I) -> T {
         debug_assert!(id.to_usize() < self.len());
-        *self.value_by_id.read()[id.to_usize()].read()
+        self.value_by_id[id.to_usize()]
     }
 }
 
@@ -671,7 +609,7 @@ pub enum Instances {
 /// A trait partially describing some agent instances of the same type.
 pub trait AgentInstances<StateId: IndexLike, Payload: DataLike>: Name {
     /// Return the previous agent type in the chain, if any.
-    fn prev_agent_type(&self) -> Option<Arc<dyn AgentType<StateId, Payload> + Send + Sync>>;
+    fn prev_agent_type(&self) -> Option<Rc<dyn AgentType<StateId, Payload>>>;
 
     /// The index of the first agent of this type.
     fn first_index(&self) -> usize;
@@ -759,7 +697,7 @@ pub trait PartType<State: DataLike, StateId: IndexLike> {
 /// This should be placed in a `Singleton` to allow the agent states to get services from it.
 pub struct AgentTypeData<State: DataLike, StateId: IndexLike, Payload: DataLike> {
     /// Memoization of the agent states.
-    states: Memoize<State, StateId>,
+    states: RefCell<Memoize<State, StateId>>,
 
     /// The index of the first agent of this type.
     first_index: usize,
@@ -771,16 +709,16 @@ pub struct AgentTypeData<State: DataLike, StateId: IndexLike, Payload: DataLike>
     is_singleton: bool,
 
     /// Convert a full state identifier to a terse state identifier.
-    terse_of_state: RwLock<Vec<StateId>>,
+    terse_of_state: RefCell<Vec<StateId>>,
 
     /// The names of the terse states (state names only).
-    name_of_terse: RwLock<Vec<String>>,
+    name_of_terse: RefCell<Vec<String>>,
 
     /// The order of each instance (for sequence diagrams).
     order_of_instances: Vec<usize>,
 
     /// The previous agent type in the chain.
-    prev_agent_type: Option<Arc<dyn AgentType<StateId, Payload> + Send + Sync>>,
+    prev_agent_type: Option<Rc<dyn AgentType<StateId, Payload>>>,
 
     /// Trick the compiler into thinking we have a field of type Payload.
     _payload: PhantomData<Payload>,
@@ -800,7 +738,7 @@ pub struct ContainerOf1TypeData<
     agent_type_data: AgentTypeData<State, StateId, Payload>,
 
     /// Access part states (for a container).
-    part_type: Arc<dyn PartType<Part, StateId> + Send + Sync>,
+    part_type: Rc<dyn PartType<Part, StateId>>,
 }
 
 /// The data we need to implement an container agent type.
@@ -818,10 +756,10 @@ pub struct ContainerOf2TypeData<
     agent_type_data: AgentTypeData<State, StateId, Payload>,
 
     /// Access first parts states (for a container).
-    part1_type: Arc<dyn PartType<Part1, StateId> + Send + Sync>,
+    part1_type: Rc<dyn PartType<Part1, StateId>>,
 
     /// Access second parts states (for a container).
-    part2_type: Arc<dyn PartType<Part2, StateId> + Send + Sync>,
+    part2_type: Rc<dyn PartType<Part2, StateId>>,
 }
 
 // END MAYBE TESTED
@@ -833,7 +771,7 @@ impl<State: DataLike, StateId: IndexLike, Payload: DataLike>
     pub fn new(
         name: &'static str,
         instances: Instances,
-        prev_agent_type: Option<Arc<dyn AgentType<StateId, Payload> + Send + Sync>>,
+        prev_agent_type: Option<Rc<dyn AgentType<StateId, Payload>>>,
     ) -> Self {
         let (is_singleton, count) = match instances {
             Instances::Singleton => (true, 1),
@@ -848,7 +786,7 @@ impl<State: DataLike, StateId: IndexLike, Payload: DataLike>
         };
 
         let default_state: State = Default::default();
-        let states = Memoize::new(StateId::invalid().to_usize(), StateId::invalid().to_usize());
+        let mut states = Memoize::new(StateId::invalid().to_usize());
         states.store(default_state);
 
         let order_of_instances = vec![0; count];
@@ -857,9 +795,9 @@ impl<State: DataLike, StateId: IndexLike, Payload: DataLike>
             name,
             order_of_instances,
             is_singleton,
-            terse_of_state: RwLock::new(vec![]),
-            name_of_terse: RwLock::new(vec![]),
-            states,
+            terse_of_state: RefCell::new(vec![]),
+            name_of_terse: RefCell::new(vec![]),
+            states: RefCell::new(states),
             first_index: prev_agent_type
                 .clone()
                 .map_or(0, |agent_type| agent_type.next_index()),
@@ -885,17 +823,18 @@ impl<State: DataLike, StateId: IndexLike, Payload: DataLike>
 
     /// Compute mapping between full and terse state identifiers.
     fn impl_compute_terse(&self) {
-        let mut terse_of_state = self.terse_of_state.write();
-        let mut name_of_terse = self.name_of_terse.write();
+        let mut terse_of_state = self.terse_of_state.borrow_mut();
+        let mut name_of_terse = self.name_of_terse.borrow_mut();
 
         assert!(terse_of_state.is_empty());
         assert!(name_of_terse.is_empty());
 
-        terse_of_state.reserve(self.states.len());
-        name_of_terse.reserve(self.states.len());
+        let states = self.states.borrow();
+        terse_of_state.reserve(states.len());
+        name_of_terse.reserve(states.len());
 
-        for state_id in 0..self.states.len() {
-            let state = self.states.get(StateId::from_usize(state_id));
+        for state_id in 0..states.len() {
+            let state = states.get(StateId::from_usize(state_id));
             let state_name = state.name();
             if let Some(terse_id) = name_of_terse
                 .iter()
@@ -913,7 +852,7 @@ impl<State: DataLike, StateId: IndexLike, Payload: DataLike>
 
     /// Access the actual state by its identifier.
     pub fn get_state(&self, state_id: StateId) -> State {
-        self.states.get(state_id)
+        self.states.borrow().get(state_id)
     }
 }
 
@@ -929,8 +868,8 @@ impl<
     pub fn new(
         name: &'static str,
         instances: Instances,
-        part_type: Arc<dyn PartType<Part, StateId> + Send + Sync>,
-        prev_type: Arc<dyn AgentType<StateId, Payload> + Send + Sync>,
+        part_type: Rc<dyn PartType<Part, StateId>>,
+        prev_type: Rc<dyn AgentType<StateId, Payload>>,
     ) -> Self {
         Self {
             agent_type_data: AgentTypeData::new(name, instances, Some(prev_type)),
@@ -953,9 +892,9 @@ impl<
     pub fn new(
         name: &'static str,
         instances: Instances,
-        part1_type: Arc<dyn PartType<Part1, StateId> + Send + Sync>,
-        part2_type: Arc<dyn PartType<Part2, StateId> + Send + Sync>,
-        prev_type: Arc<dyn AgentType<StateId, Payload> + Send + Sync>,
+        part1_type: Rc<dyn PartType<Part1, StateId>>,
+        part2_type: Rc<dyn PartType<Part2, StateId>>,
+        prev_type: Rc<dyn AgentType<StateId, Payload>>,
     ) -> Self {
         Self {
             agent_type_data: AgentTypeData::new(name, instances, Some(prev_type)),
@@ -970,7 +909,7 @@ impl<State: DataLike, StateId: IndexLike, Payload: DataLike> PartType<State, Sta
     for AgentTypeData<State, StateId, Payload>
 {
     fn part_state_by_id(&self, state_id: StateId) -> State {
-        self.states.get(state_id)
+        self.states.borrow().get(state_id)
     }
 
     fn part_first_index(&self) -> usize {
@@ -1195,7 +1134,7 @@ impl<State: DataLike, StateId: IndexLike, Payload: DataLike>
     }
 
     fn translate_state(&self, state: State) -> StateId {
-        self.states.store(state).id
+        self.states.borrow_mut().store(state).id
     }
 }
 
@@ -1239,7 +1178,7 @@ impl<
 impl<State: DataLike, StateId: IndexLike, Payload: DataLike> AgentInstances<StateId, Payload>
     for AgentTypeData<State, StateId, Payload>
 {
-    fn prev_agent_type(&self) -> Option<Arc<dyn AgentType<StateId, Payload> + Send + Sync>> {
+    fn prev_agent_type(&self) -> Option<Rc<dyn AgentType<StateId, Payload>>> {
         self.prev_agent_type.clone()
     }
 
@@ -1264,15 +1203,15 @@ impl<State: DataLike, StateId: IndexLike, Payload: DataLike> AgentInstances<Stat
     }
 
     fn display_state(&self, state_id: StateId) -> String {
-        format!("{}", self.states.get(state_id))
+        format!("{}", self.states.borrow().get(state_id))
     }
 
     fn terse_id(&self, state_id: StateId) -> StateId {
-        self.terse_of_state.read()[state_id.to_usize()]
+        self.terse_of_state.borrow()[state_id.to_usize()]
     }
 
     fn display_terse(&self, terse_id: StateId) -> String {
-        self.name_of_terse.read()[terse_id.to_usize()].clone()
+        self.name_of_terse.borrow()[terse_id.to_usize()].clone()
     }
 }
 
@@ -1285,7 +1224,7 @@ impl<
     > AgentInstances<StateId, Payload>
     for ContainerOf1TypeData<State, Part, StateId, Payload, MAX_PARTS>
 {
-    fn prev_agent_type(&self) -> Option<Arc<dyn AgentType<StateId, Payload> + Send + Sync>> {
+    fn prev_agent_type(&self) -> Option<Rc<dyn AgentType<StateId, Payload>>> {
         self.agent_type_data.prev_agent_type.clone()
     }
 
@@ -1335,7 +1274,7 @@ impl<
     > AgentInstances<StateId, Payload>
     for ContainerOf2TypeData<State, Part1, Part2, StateId, Payload, MAX_PARTS>
 {
-    fn prev_agent_type(&self) -> Option<Arc<dyn AgentType<StateId, Payload> + Send + Sync>> {
+    fn prev_agent_type(&self) -> Option<Rc<dyn AgentType<StateId, Payload>>> {
         self.agent_type_data.prev_agent_type.clone()
     }
 
@@ -1388,10 +1327,11 @@ impl<State: DataLike + AgentState<State, Payload>, StateId: IndexLike, Payload: 
             instance,
             self.instances_count() // NOT TESTED
         );
-        let reaction = self
+        let state = self
             .states
-            .get(state_ids[self.first_index + instance])
-            .receive_message(instance, payload);
+            .borrow()
+            .get(state_ids[self.first_index + instance]);
+        let reaction = state.receive_message(instance, payload);
         self.translate_reaction(reaction)
     }
 
@@ -1403,6 +1343,7 @@ impl<State: DataLike + AgentState<State, Payload>, StateId: IndexLike, Payload: 
             self.instances_count() // NOT TESTED
         );
         self.states
+            .borrow()
             .get(state_ids[self.first_index + instance])
             .activity(instance)
     }
@@ -1415,6 +1356,7 @@ impl<State: DataLike + AgentState<State, Payload>, StateId: IndexLike, Payload: 
             self.instances_count() // NOT TESTED
         );
         self.states
+            .borrow()
             .get(state_ids[self.first_index + instance])
             .is_deferring()
     }
@@ -1431,6 +1373,7 @@ impl<State: DataLike + AgentState<State, Payload>, StateId: IndexLike, Payload: 
             self.instances_count() // NOT TESTED
         );
         self.states
+            .borrow()
             .get(state_ids[self.first_index + instance])
             .invalid_because()
     }
@@ -1447,12 +1390,13 @@ impl<State: DataLike + AgentState<State, Payload>, StateId: IndexLike, Payload: 
             self.instances_count() // NOT TESTED
         );
         self.states
+            .borrow()
             .get(state_ids[self.first_index + instance])
             .max_in_flight_messages()
     }
 
     fn states_count(&self) -> usize {
-        self.states.len()
+        self.states.borrow().len()
     }
 
     fn compute_terse(&self) {
@@ -1551,6 +1495,7 @@ impl<
         let reaction = self
             .agent_type_data
             .states
+            .borrow()
             .get(state_ids[self.agent_type_data.first_index + instance])
             .receive_message(instance, payload, &parts);
         self.agent_type_data.translate_reaction(reaction)
@@ -1568,6 +1513,7 @@ impl<
 
         self.agent_type_data
             .states
+            .borrow()
             .get(state_ids[self.agent_type_data.first_index + instance])
             .activity(instance, &parts)
     }
@@ -1584,6 +1530,7 @@ impl<
 
         self.agent_type_data
             .states
+            .borrow()
             .get(state_ids[self.agent_type_data.first_index + instance])
             .is_deferring(&parts)
     }
@@ -1605,6 +1552,7 @@ impl<
 
         self.agent_type_data
             .states
+            .borrow()
             .get(state_ids[self.agent_type_data.first_index + instance])
             .invalid_because(&parts)
     }
@@ -1626,13 +1574,14 @@ impl<
 
         self.agent_type_data
             .states
+            .borrow()
             .get(state_ids[self.agent_type_data.first_index + instance])
             .max_in_flight_messages(&parts)
     }
 
     // BEGIN NOT TESTED
     fn states_count(&self) -> usize {
-        self.agent_type_data.states.len()
+        self.agent_type_data.states.borrow().len()
     }
     // END NOT TESTED
 
@@ -1670,6 +1619,7 @@ impl<
         let reaction = self
             .agent_type_data
             .states
+            .borrow()
             .get(state_ids[self.agent_type_data.first_index + instance])
             .receive_message(instance, payload, &parts1, &parts2);
         self.agent_type_data.translate_reaction(reaction)
@@ -1687,6 +1637,7 @@ impl<
 
         self.agent_type_data
             .states
+            .borrow()
             .get(state_ids[self.agent_type_data.first_index + instance])
             .activity(instance, &parts1, &parts2)
     }
@@ -1703,6 +1654,7 @@ impl<
 
         self.agent_type_data
             .states
+            .borrow()
             .get(state_ids[self.agent_type_data.first_index + instance])
             .is_deferring(&parts1, &parts2)
     }
@@ -1723,6 +1675,7 @@ impl<
 
         self.agent_type_data
             .states
+            .borrow()
             .get(state_ids[self.agent_type_data.first_index + instance])
             .invalid_because(&parts1, &parts2)
     }
@@ -1743,12 +1696,13 @@ impl<
 
         self.agent_type_data
             .states
+            .borrow()
             .get(state_ids[self.agent_type_data.first_index + instance])
             .max_in_flight_messages(&parts1, &parts2)
     }
 
     fn states_count(&self) -> usize {
-        self.agent_type_data.states.len()
+        self.agent_type_data.states.borrow().len()
     }
 
     fn compute_terse(&self) {
@@ -2036,10 +1990,10 @@ pub struct Model<
     const MAX_MESSAGES: usize,
 > {
     /// The type of each agent.
-    agent_types: Vec<<Self as MetaModel>::AgentTypeArc>,
+    agent_types: Vec<<Self as MetaModel>::AgentTypeRc>,
 
     /// The label of each agent.
-    agent_labels: Vec<Arc<String>>,
+    agent_labels: Vec<Rc<String>>,
 
     /// The first index of the same type of each agent.
     first_indices: Vec<usize>,
@@ -2054,34 +2008,34 @@ pub struct Model<
     messages: Memoize<Message<Payload>, MessageId>,
 
     /// Map the full message identifier to the terse message identifier.
-    terse_of_message_id: RwLock<Vec<MessageId>>,
+    terse_of_message_id: Vec<MessageId>,
 
     /// Map the terse message identifier to the full message identifier.
-    message_of_terse_id: RwLock<Vec<MessageId>>,
+    message_of_terse_id: Vec<MessageId>,
 
     /// Map ordered message identifiers to their smaller order.
-    decr_order_messages: SccHashMap<MessageId, MessageId, RandomState>,
+    decr_order_messages: HashMap<MessageId, MessageId>,
 
     /// Map ordered message identifiers to their larger order.
-    incr_order_messages: SccHashMap<MessageId, MessageId, RandomState>,
+    incr_order_messages: HashMap<MessageId, MessageId>,
 
     /// Memoization of the invalid conditions.
     invalids: Memoize<<Self as MetaModel>::Invalid, InvalidId>,
 
     /// For each configuration, which configuration is reachable from it.
-    outgoings: RwLock<Vec<RwLock<Vec<<Self as ModelTypes>::Outgoing>>>>,
+    outgoings: Vec<Vec<<Self as ModelTypes>::Outgoing>>,
 
     /// For each configuration, which configuration can reach it.
-    incomings: RwLock<Vec<RwLock<Vec<<Self as ModelTypes>::Incoming>>>>,
+    incomings: Vec<Vec<<Self as ModelTypes>::Incoming>>,
 
     /// The maximal message string size we have seen so far.
-    max_message_string_size: RwLock<usize>,
+    max_message_string_size: RefCell<usize>,
 
     /// The maximal invalid condition string size we have seen so far.
-    max_invalid_string_size: RwLock<usize>,
+    max_invalid_string_size: RefCell<usize>,
 
     /// The maximal configuration string size we have seen so far.
-    max_configuration_string_size: RwLock<usize>,
+    max_configuration_string_size: RefCell<usize>,
 
     /// Whether to print each new configuration as we reach it.
     print_progress_every: usize,
@@ -2092,22 +2046,23 @@ pub struct Model<
     /// A step that, if reached, we can abort the computation.
     early_abort_step: Option<PathStep<Self>>,
 
-    /// Whether we have actually reached the early abort step so can stop computing.
-    early_abort: RwLock<bool>,
+    /// Whether we have reached the goal step and need to abort the computation.
+    early_abort: bool,
 
     /// Whether to allow for invalid configurations.
     allow_invalid_configurations: bool,
 
-    /// The number of threads to use for computing the model's configurations.
-    ///
-    /// If zero, uses all the available processors.
-    threads: usize,
-
     /// Named conditions on a configuration.
-    conditions: SccHashMap<String, (<Self as MetaModel>::Condition, &'static str), RandomState>,
+    conditions: HashMap<String, (<Self as MetaModel>::Condition, &'static str)>,
 
     /// Mask of configurations that can reach back to the initial state.
-    reachable_configurations_mask: Vec<RwLock<bool>>,
+    reachable_configurations_mask: Vec<bool>,
+
+    /// Count of configurations that can reach back to the initial state.
+    reachable_configurations_count: usize,
+
+    /// The configurations we need to process.
+    pending_configuration_ids: Vec<ConfigurationId>,
 }
 
 /// The additional control timelines associated with a specific agent.
@@ -2129,7 +2084,7 @@ struct SequenceState<MessageId: IndexLike, const MAX_AGENTS: usize, const MAX_ME
     timelines: Vec<Option<MessageId>>,
 
     /// For each message in the current configuration, the timeline it is on, if any.
-    message_timelines: StdHashMap<MessageId, usize>,
+    message_timelines: HashMap<MessageId, usize>,
 
     /// The additional control timelines of each agent.
     agents_timelines: Vec<AgentTimelines>,
@@ -2298,7 +2253,7 @@ pub trait MetaModel {
     const MAX_MESSAGES: usize;
 
     /// The type of  boxed agent type.
-    type AgentTypeArc;
+    type AgentTypeRc;
 
     /// The type of in-flight messages.
     type Message;
@@ -2390,7 +2345,7 @@ struct Context<
     agent_index: usize,
 
     /// The type of the agent that reacted to the event.
-    agent_type: Arc<dyn AgentType<StateId, Payload> + Send + Sync>,
+    agent_type: Rc<dyn AgentType<StateId, Payload>>,
 
     /// The index of the source agent in its type.
     agent_instance: usize,
@@ -2429,7 +2384,7 @@ impl<
     const MAX_AGENTS: usize = MAX_AGENTS;
     const MAX_MESSAGES: usize = MAX_MESSAGES;
 
-    type AgentTypeArc = Arc<dyn AgentType<StateId, Payload> + Send + Sync>;
+    type AgentTypeRc = Rc<dyn AgentType<StateId, Payload>>;
     type Message = Message<Payload>;
     type Reaction = Reaction<StateId, Payload>;
     type Action = Action<StateId, Payload>;
@@ -2462,11 +2417,9 @@ impl<
     type SequencePatch = SequencePatch<StateId, MessageId>;
     type PathTransition = PathTransition<MessageId, ConfigurationId, MAX_MESSAGES>;
     type AgentStateTransitionContext = AgentStateTransitionContext<StateId>;
-    type AgentStateTransitions = StdHashMap<
-        AgentStateTransitionContext<StateId>,
-        StdHashMap<Vec<MessageId>, Vec<MessageId>>,
-    >;
-    type AgentStateSentByDelivered = StdHashMap<Vec<MessageId>, Vec<Vec<MessageId>>>;
+    type AgentStateTransitions =
+        HashMap<AgentStateTransitionContext<StateId>, HashMap<Vec<MessageId>, Vec<MessageId>>>;
+    type AgentStateSentByDelivered = HashMap<Vec<MessageId>, Vec<Vec<MessageId>>>;
     type SequenceState = SequenceState<MessageId, MAX_AGENTS, MAX_MESSAGES>;
 }
 
@@ -2648,7 +2601,7 @@ impl<
     /// a target for messages.
     pub fn new(
         size: usize,
-        last_agent_type: Arc<dyn AgentType<StateId, Payload> + Send + Sync>,
+        last_agent_type: Rc<dyn AgentType<StateId, Payload>>,
         validators: Vec<<Self as MetaModel>::Validator>,
     ) -> Self {
         assert!(
@@ -2658,9 +2611,9 @@ impl<
             MessageIndex::invalid() // NOT TESTED
         );
 
-        let mut agent_types: Vec<<Self as MetaModel>::AgentTypeArc> = vec![];
+        let mut agent_types: Vec<<Self as MetaModel>::AgentTypeRc> = vec![];
         let mut first_indices: Vec<usize> = vec![];
-        let mut agent_labels: Vec<Arc<String>> = vec![];
+        let mut agent_labels: Vec<Rc<String>> = vec![];
 
         Self::collect_agent_types(
             last_agent_type,
@@ -2669,50 +2622,32 @@ impl<
             &mut agent_labels,
         );
 
-        let outgoings = RwLock::new(Vec::new());
-        let incomings = RwLock::new(Vec::new());
-
-        outgoings
-            .write()
-            .resize_with(size, || RwLock::new(Vec::new()));
-
-        let model = Self {
+        let mut model = Self {
             agent_types,
             agent_labels,
             first_indices,
             validators,
-            configurations: Memoize::new(size, usize::max_value()),
-            messages: Memoize::new(
-                MessageId::invalid().to_usize(),
-                MessageId::invalid().to_usize(),
-            ),
-            terse_of_message_id: RwLock::new(vec![]),
-            message_of_terse_id: RwLock::new(vec![]),
-            decr_order_messages: SccHashMap::new(
-                MessageId::invalid().to_usize(),
-                RandomState::new(),
-            ),
-            incr_order_messages: SccHashMap::new(
-                MessageId::invalid().to_usize(),
-                RandomState::new(),
-            ),
-            invalids: Memoize::new(
-                InvalidId::invalid().to_usize(),
-                InvalidId::invalid().to_usize(),
-            ),
-            outgoings,
-            incomings,
-            max_message_string_size: RwLock::new(0),
-            max_invalid_string_size: RwLock::new(0),
-            max_configuration_string_size: RwLock::new(0),
+            configurations: Memoize::with_capacity(usize::max_value(), size),
+            messages: Memoize::new(MessageId::invalid().to_usize()),
+            terse_of_message_id: vec![],
+            message_of_terse_id: vec![],
+            decr_order_messages: HashMap::with_capacity(MessageId::invalid().to_usize()),
+            incr_order_messages: HashMap::with_capacity(MessageId::invalid().to_usize()),
+            invalids: Memoize::new(InvalidId::invalid().to_usize()),
+            outgoings: vec![],
+            incomings: vec![],
+            max_message_string_size: RefCell::new(0),
+            max_invalid_string_size: RefCell::new(0),
+            max_configuration_string_size: RefCell::new(0),
             print_progress_every: 0,
             ensure_init_is_reachable: false,
             early_abort_step: None,
-            early_abort: RwLock::new(false),
+            early_abort: false,
             allow_invalid_configurations: false,
-            threads: num_cpus::get(),
-            conditions: SccHashMap::new(128, RandomState::new()),
+            conditions: HashMap::with_capacity(128),
             reachable_configurations_mask: Vec::new(),
+            reachable_configurations_count: 0,
+            pending_configuration_ids: Vec::new(),
         };
 
         model.add_conditions();
@@ -2736,7 +2671,7 @@ impl<
         model
     }
 
-    fn add_conditions(&self) {
+    fn add_conditions(&mut self) {
         self.add_condition("INIT", is_init, "matches the initial configuration");
         self.add_condition(
             "VALID",
@@ -2901,19 +2836,19 @@ impl<
     }
 
     pub fn add_condition(
-        &self,
+        &mut self,
         name: &'static str,
         condition: <Self as MetaModel>::Condition,
         help: &'static str,
     ) {
-        self.conditions.upsert(name.to_string(), (condition, help));
+        self.conditions.insert(name.to_string(), (condition, help));
     }
 
     fn collect_agent_types(
-        last_agent_type: Arc<dyn AgentType<StateId, Payload> + Send + Sync>,
-        mut agent_types: &mut Vec<<Self as MetaModel>::AgentTypeArc>,
+        last_agent_type: Rc<dyn AgentType<StateId, Payload>>,
+        mut agent_types: &mut Vec<<Self as MetaModel>::AgentTypeRc>,
         mut first_indices: &mut Vec<usize>,
-        mut agent_labels: &mut Vec<Arc<String>>,
+        mut agent_labels: &mut Vec<Rc<String>>,
     ) {
         if let Some(prev_agent_type) = last_agent_type.prev_agent_type() {
             Self::collect_agent_types(
@@ -2943,7 +2878,7 @@ impl<
             } else {
                 format!("{}({})", last_agent_type.name(), instance)
             };
-            agent_labels.push(Arc::new(agent_label));
+            agent_labels.push(Rc::new(agent_label));
         }
     }
 
@@ -2953,102 +2888,76 @@ impl<
             return;
         }
 
-        ThreadPoolBuilder::new()
-            .num_threads(self.threads)
-            .thread_name(|thread_index| format!("worker-{}", thread_index))
-            .build()
-            .unwrap()
-            .install(|| {
-                scope(|parallel_scope| {
-                    self.explore_configuration(parallel_scope, ConfigurationId::from_usize(0))
-                });
-            });
+        assert!(self.pending_configuration_ids.is_empty());
+        self.pending_configuration_ids
+            .push(ConfigurationId::from_usize(0));
+
+        while let Some(configuration_id) = self.pending_configuration_ids.pop() {
+            self.explore_configuration(configuration_id);
+        }
 
         if self.print_progress_every > 0 {
             eprintln!("total {} configurations", self.configurations.len());
         }
-
-        if self.ensure_init_is_reachable {
-            self.assert_init_is_reachable();
-        }
-    }
-
-    fn is_aborting() -> bool {
-        ERROR_CONFIGURATION_ID.load(Ordering::Relaxed) != usize::max_value()
     }
 
     // BEGIN NOT TESTED
-    fn error(&self, context: &<Self as ModelTypes>::Context, reason: &str) -> ! {
+    fn error(&mut self, context: &<Self as ModelTypes>::Context, reason: &str) -> ! {
         let error_configuration_id = context.incoming.from_configuration_id;
-        loop {
-            if Self::is_aborting() {
-                sleep(Duration::from_secs(1));
-            } else {
-                let _lock = ERROR_MUTEX.lock().unwrap();
-                if ERROR_CONFIGURATION_ID.load(Ordering::Relaxed) != usize::max_value() {
-                    sleep(Duration::from_secs(1));
-                } else {
-                    ERROR_CONFIGURATION_ID
-                        .store(error_configuration_id.to_usize(), Ordering::Relaxed);
+        eprintln!(
+            "ERROR: {}\n\
+             when delivering the message: {}\n\
+             in the configuration: {}\n\
+             reached by path:\n",
+            reason,
+            self.display_message_id(context.delivered_message_id),
+            self.display_configuration_id(error_configuration_id),
+        );
 
-                    eprintln!(
-                        "ERROR: {}\n\
-                         when delivering the message: {}\n\
-                         in the configuration: {}\n\
-                         reached by path:\n",
-                        reason,
-                        self.display_message_id(context.delivered_message_id),
-                        self.display_configuration_id(error_configuration_id),
-                    );
+        ERROR_CONFIGURATION_ID.with(|global_error_configuration_id| {
+            *global_error_configuration_id.borrow_mut() = error_configuration_id.to_usize()
+        });
 
-                    let is_error = move |_model: &Self, configuration_id: ConfigurationId| {
-                        configuration_id
-                            == ConfigurationId::from_usize(
-                                ERROR_CONFIGURATION_ID.load(Ordering::Relaxed),
-                            )
-                    };
-                    let error_path_step = PathStep {
-                        condition: is_error,
-                        is_negated: false,
-                        name: "ERROR".to_string(),
-                    };
+        let is_error = move |_model: &Self, configuration_id: ConfigurationId| {
+            ERROR_CONFIGURATION_ID.with(|global_error_configuration_id| {
+                configuration_id
+                    == ConfigurationId::from_usize(*global_error_configuration_id.borrow())
+            })
+        };
 
-                    self.error_path(error_path_step);
-                }
-            }
-        }
+        let error_path_step = PathStep {
+            condition: is_error,
+            is_negated: false,
+            name: "ERROR".to_string(),
+        };
+
+        self.error_path(error_path_step);
     }
 
-    fn error_path(&self, error_path_step: PathStep<Self>) {
+    fn error_path(&mut self, error_path_step: PathStep<Self>) -> ! {
         let init_path_step = PathStep {
             condition: is_init,
             is_negated: false,
             name: "INIT".to_string(),
         };
 
+        self.pending_configuration_ids.clear();
         let path = self.collect_path(vec![init_path_step, error_path_step]);
         self.print_path(&path, &mut stderr());
 
-        eprintln!("ABORTING");
-        exit(1);
+        panic!("ABORTING");
     }
     // END NOT TESTED
 
-    fn reach_configuration<'a>(
-        &'a self,
-        parallel_scope: &ParallelScope<'a>,
-        mut context: <Self as ModelTypes>::Context,
-    ) {
+    fn reach_configuration(&mut self, mut context: <Self as ModelTypes>::Context) {
         self.validate_configuration(&mut context);
 
         if !self.allow_invalid_configurations && context.to_configuration.invalid_id.is_valid() {
             // BEGIN NOT TESTED
+            let configuration_label = self.display_configuration(&context.to_configuration);
             self.error(
                 &context,
-                &format!(
-                    "reached an invalid configuration: {}",
-                    self.display_configuration(&context.to_configuration)
-                ),
+                &format!("reached an invalid configuration: {}", configuration_label),
             );
             // END NOT TESTED
         }
@@ -3061,9 +2970,7 @@ impl<
         }
 
         if self.ensure_init_is_reachable {
-            self.incomings.read()[to_configuration_id.to_usize()]
-                .write()
-                .push(context.incoming);
+            self.incomings[to_configuration_id.to_usize()].push(context.incoming);
         }
 
         let from_configuration_id = context.incoming.from_configuration_id;
@@ -3072,39 +2979,25 @@ impl<
             delivered_message_id: context.incoming.delivered_message_id,
         };
 
-        self.outgoings.read()[from_configuration_id.to_usize()]
-            .write()
-            .push(outgoing);
+        self.outgoings[from_configuration_id.to_usize()].push(outgoing);
 
         if stored.is_new {
             if !self.ensure_init_is_reachable {
                 if let Some(ref step) = self.early_abort_step {
                     if self.step_matches_configuration(&step, to_configuration_id) {
-                        let mut early_abort = self.early_abort.write();
-                        if !*early_abort {
-                            eprintln!("reached {} - aborting further exploration", step.name);
-                            *early_abort = true;
-                        }
+                        eprintln!("reached {} - aborting further exploration", step.name);
+                        self.pending_configuration_ids.clear();
+                        self.early_abort = true;
+                        return;
                     }
                 }
             }
 
-            if !*self.early_abort.read() {
-                parallel_scope
-                    .spawn(move |same_scope| self.explore_configuration(same_scope, stored.id));
-            }
+            self.pending_configuration_ids.push(stored.id);
         }
     }
 
-    fn explore_configuration<'a>(
-        &'a self,
-        parallel_scope: &ParallelScope<'a>,
-        configuration_id: ConfigurationId,
-    ) {
-        if Self::is_aborting() {
-            return;
-        }
-
+    fn explore_configuration(&mut self, configuration_id: ConfigurationId) {
         let configuration = self.configurations.get(configuration_id);
 
         let mut immediate_message_index = usize::max_value();
@@ -3128,7 +3021,6 @@ impl<
 
         if immediate_message_id.is_valid() {
             self.message_event(
-                parallel_scope,
                 configuration_id,
                 configuration,
                 MessageIndex::from_usize(immediate_message_index),
@@ -3136,7 +3028,7 @@ impl<
             );
         } else {
             for agent_index in 0..self.agents_count() {
-                self.activity_event(parallel_scope, configuration_id, configuration, agent_index);
+                self.activity_event(configuration_id, configuration, agent_index);
             }
             configuration
                 .message_ids
@@ -3145,7 +3037,6 @@ impl<
                 .enumerate()
                 .for_each(|(message_index, message_id)| {
                     self.message_event(
-                        parallel_scope,
                         configuration_id,
                         configuration,
                         MessageIndex::from_usize(message_index),
@@ -3155,21 +3046,23 @@ impl<
         }
     }
 
-    fn activity_event<'a>(
-        &'a self,
-        parallel_scope: &ParallelScope<'a>,
+    fn activity_event(
+        &mut self,
         from_configuration_id: ConfigurationId,
         from_configuration: <Self as MetaModel>::Configuration,
         agent_index: usize,
     ) {
-        let agent_type = self.agent_types[agent_index].clone();
-        let agent_instance = self.agent_instance(agent_index);
-        match agent_type.activity(agent_instance, &from_configuration.state_ids) {
+        let activity = {
+            let agent_type = &self.agent_types[agent_index];
+            let agent_instance = self.agent_instance(agent_index);
+            agent_type.activity(agent_instance, &from_configuration.state_ids)
+        };
+
+        match activity {
             Activity::Passive => {}
 
             Activity::Process1(payload1) => {
                 self.activity_message(
-                    parallel_scope,
                     from_configuration_id,
                     from_configuration,
                     agent_index,
@@ -3179,14 +3072,12 @@ impl<
 
             Activity::Process1Of2(payload1, payload2) => {
                 self.activity_message(
-                    parallel_scope,
                     from_configuration_id,
                     from_configuration,
                     agent_index,
                     payload1,
                 );
                 self.activity_message(
-                    parallel_scope,
                     from_configuration_id,
                     from_configuration,
                     agent_index,
@@ -3197,21 +3088,18 @@ impl<
             // BEGIN NOT TESTED
             Activity::Process1Of3(payload1, payload2, payload3) => {
                 self.activity_message(
-                    parallel_scope,
                     from_configuration_id,
                     from_configuration,
                     agent_index,
                     payload1,
                 );
                 self.activity_message(
-                    parallel_scope,
                     from_configuration_id,
                     from_configuration,
                     agent_index,
                     payload2,
                 );
                 self.activity_message(
-                    parallel_scope,
                     from_configuration_id,
                     from_configuration,
                     agent_index,
@@ -3221,28 +3109,24 @@ impl<
 
             Activity::Process1Of4(payload1, payload2, payload3, payload4) => {
                 self.activity_message(
-                    parallel_scope,
                     from_configuration_id,
                     from_configuration,
                     agent_index,
                     payload1,
                 );
                 self.activity_message(
-                    parallel_scope,
                     from_configuration_id,
                     from_configuration,
                     agent_index,
                     payload2,
                 );
                 self.activity_message(
-                    parallel_scope,
                     from_configuration_id,
                     from_configuration,
                     agent_index,
                     payload3,
                 );
                 self.activity_message(
-                    parallel_scope,
                     from_configuration_id,
                     from_configuration,
                     agent_index,
@@ -3252,35 +3136,30 @@ impl<
 
             Activity::Process1Of5(payload1, payload2, payload3, payload4, payload5) => {
                 self.activity_message(
-                    parallel_scope,
                     from_configuration_id,
                     from_configuration,
                     agent_index,
                     payload1,
                 );
                 self.activity_message(
-                    parallel_scope,
                     from_configuration_id,
                     from_configuration,
                     agent_index,
                     payload2,
                 );
                 self.activity_message(
-                    parallel_scope,
                     from_configuration_id,
                     from_configuration,
                     agent_index,
                     payload3,
                 );
                 self.activity_message(
-                    parallel_scope,
                     from_configuration_id,
                     from_configuration,
                     agent_index,
                     payload4,
                 );
                 self.activity_message(
-                    parallel_scope,
                     from_configuration_id,
                     from_configuration,
                     agent_index,
@@ -3290,42 +3169,36 @@ impl<
 
             Activity::Process1Of6(payload1, payload2, payload3, payload4, payload5, payload6) => {
                 self.activity_message(
-                    parallel_scope,
                     from_configuration_id,
                     from_configuration,
                     agent_index,
                     payload1,
                 );
                 self.activity_message(
-                    parallel_scope,
                     from_configuration_id,
                     from_configuration,
                     agent_index,
                     payload2,
                 );
                 self.activity_message(
-                    parallel_scope,
                     from_configuration_id,
                     from_configuration,
                     agent_index,
                     payload3,
                 );
                 self.activity_message(
-                    parallel_scope,
                     from_configuration_id,
                     from_configuration,
                     agent_index,
                     payload4,
                 );
                 self.activity_message(
-                    parallel_scope,
                     from_configuration_id,
                     from_configuration,
                     agent_index,
                     payload5,
                 );
                 self.activity_message(
-                    parallel_scope,
                     from_configuration_id,
                     from_configuration,
                     agent_index,
@@ -3335,9 +3208,8 @@ impl<
         }
     }
 
-    fn activity_message<'a>(
-        &'a self,
-        parallel_scope: &ParallelScope<'a>,
+    fn activity_message(
+        &mut self,
         from_configuration_id: ConfigurationId,
         from_configuration: <Self as MetaModel>::Configuration,
         agent_index: usize,
@@ -3354,7 +3226,6 @@ impl<
         let delivered_message_id = self.messages.store(delivered_message).id;
 
         self.message_event(
-            parallel_scope,
             from_configuration_id,
             from_configuration,
             MessageIndex::invalid(),
@@ -3362,9 +3233,8 @@ impl<
         );
     }
 
-    fn message_event<'a>(
-        &'a self,
-        parallel_scope: &ParallelScope<'a>,
+    fn message_event(
+        &mut self,
         from_configuration_id: ConfigurationId,
         from_configuration: <Self as MetaModel>::Configuration,
         delivered_message_index: MessageIndex,
@@ -3417,12 +3287,11 @@ impl<
             from_configuration,
             to_configuration,
         };
-        self.process_reaction(parallel_scope, context, reaction);
+        self.process_reaction(context, reaction);
     }
 
-    fn process_reaction<'a>(
-        &'a self,
-        parallel_scope: &ParallelScope<'a>,
+    fn process_reaction(
+        &mut self,
         context: <Self as ModelTypes>::Context,
         reaction: <Self as MetaModel>::Reaction,
     ) {
@@ -3430,87 +3299,90 @@ impl<
         {
             Reaction::Unexpected => self.error(&context, "unexpected message"), // MAYBE TESTED
             Reaction::Defer => self.defer_message(context),
-            Reaction::Ignore => self.ignore_message(parallel_scope, context),
-            Reaction::Do1(action1) => self.perform_action(parallel_scope, context, action1),
+            Reaction::Ignore => self.ignore_message(context),
+            Reaction::Do1(action1) => self.perform_action(context, action1),
 
             // BEGIN NOT TESTED
             Reaction::Do1Of2(action1, action2) => {
-                self.perform_action(parallel_scope, context.clone(), action1);
-                self.perform_action(parallel_scope, context, action2);
+                self.perform_action(context.clone(), action1);
+                self.perform_action(context, action2);
             }
 
             Reaction::Do1Of3(action1, action2, action3) => {
-                self.perform_action(parallel_scope, context.clone(), action1);
-                self.perform_action(parallel_scope, context.clone(), action2);
-                self.perform_action(parallel_scope, context, action3);
+                self.perform_action(context.clone(), action1);
+                self.perform_action(context.clone(), action2);
+                self.perform_action(context, action3);
             }
 
             Reaction::Do1Of4(action1, action2, action3, action4) => {
-                self.perform_action(parallel_scope, context.clone(), action1);
-                self.perform_action(parallel_scope, context.clone(), action2);
-                self.perform_action(parallel_scope, context.clone(), action3);
-                self.perform_action(parallel_scope, context, action4);
+                self.perform_action(context.clone(), action1);
+                self.perform_action(context.clone(), action2);
+                self.perform_action(context.clone(), action3);
+                self.perform_action(context, action4);
             }
 
             Reaction::Do1Of5(action1, action2, action3, action4, action5) => {
-                self.perform_action(parallel_scope, context.clone(), action1);
-                self.perform_action(parallel_scope, context.clone(), action2);
-                self.perform_action(parallel_scope, context.clone(), action3);
-                self.perform_action(parallel_scope, context.clone(), action4);
-                self.perform_action(parallel_scope, context, action5);
+                self.perform_action(context.clone(), action1);
+                self.perform_action(context.clone(), action2);
+                self.perform_action(context.clone(), action3);
+                self.perform_action(context.clone(), action4);
+                self.perform_action(context, action5);
             }
 
             Reaction::Do1Of6(action1, action2, action3, action4, action5, action6) => {
-                self.perform_action(parallel_scope, context.clone(), action1);
-                self.perform_action(parallel_scope, context.clone(), action2);
-                self.perform_action(parallel_scope, context.clone(), action3);
-                self.perform_action(parallel_scope, context.clone(), action4);
-                self.perform_action(parallel_scope, context.clone(), action5);
-                self.perform_action(parallel_scope, context, action6);
+                self.perform_action(context.clone(), action1);
+                self.perform_action(context.clone(), action2);
+                self.perform_action(context.clone(), action3);
+                self.perform_action(context.clone(), action4);
+                self.perform_action(context.clone(), action5);
+                self.perform_action(context, action6);
             } // END NOT TESTED
         }
     }
 
-    fn perform_action<'a>(
-        &'a self,
-        parallel_scope: &ParallelScope<'a>,
+    fn perform_action(
+        &mut self,
         mut context: <Self as ModelTypes>::Context,
         action: <Self as MetaModel>::Action,
     ) {
+        if self.early_abort {
+            return;
+        }
+
         match action {
             Action::Defer => self.defer_message(context),
-            Action::Ignore => self.ignore_message(parallel_scope, context), // NOT TESTED
+            Action::Ignore => self.ignore_message(context), // NOT TESTED
 
             Action::Change(agent_to_state_id) => {
                 if agent_to_state_id == context.agent_from_state_id {
-                    self.ignore_message(parallel_scope, context); // NOT TESTED
+                    self.ignore_message(context); // NOT TESTED
                 } else {
                     self.change_state(&mut context, agent_to_state_id);
-                    self.reach_configuration(parallel_scope, context);
+                    self.reach_configuration(context);
                 }
             }
             Action::Send1(emit1) => {
                 self.collect_emit(&mut context, emit1);
-                self.reach_configuration(parallel_scope, context);
+                self.reach_configuration(context);
             }
             Action::ChangeAndSend1(agent_to_state_id, emit1) => {
                 self.change_state(&mut context, agent_to_state_id);
                 self.collect_emit(&mut context, emit1);
-                self.reach_configuration(parallel_scope, context);
+                self.reach_configuration(context);
             }
 
             Action::ChangeAndSend2(agent_to_state_id, emit1, emit2) => {
                 self.change_state(&mut context, agent_to_state_id);
                 self.collect_emit(&mut context, emit1);
                 self.collect_emit(&mut context, emit2);
-                self.reach_configuration(parallel_scope, context);
+                self.reach_configuration(context);
             }
 
             // BEGIN NOT TESTED
             Action::Send2(emit1, emit2) => {
                 self.collect_emit(&mut context, emit1);
                 self.collect_emit(&mut context, emit2);
-                self.reach_configuration(parallel_scope, context);
+                self.reach_configuration(context);
             }
 
             Action::ChangeAndSend3(agent_to_state_id, emit1, emit2, emit3) => {
@@ -3518,14 +3390,14 @@ impl<
                 self.collect_emit(&mut context, emit1);
                 self.collect_emit(&mut context, emit2);
                 self.collect_emit(&mut context, emit3);
-                self.reach_configuration(parallel_scope, context);
+                self.reach_configuration(context);
             }
 
             Action::Send3(emit1, emit2, emit3) => {
                 self.collect_emit(&mut context, emit1);
                 self.collect_emit(&mut context, emit2);
                 self.collect_emit(&mut context, emit3);
-                self.reach_configuration(parallel_scope, context);
+                self.reach_configuration(context);
             }
 
             Action::ChangeAndSend4(agent_to_state_id, emit1, emit2, emit3, emit4) => {
@@ -3534,7 +3406,7 @@ impl<
                 self.collect_emit(&mut context, emit2);
                 self.collect_emit(&mut context, emit3);
                 self.collect_emit(&mut context, emit4);
-                self.reach_configuration(parallel_scope, context);
+                self.reach_configuration(context);
             }
 
             Action::Send4(emit1, emit2, emit3, emit4) => {
@@ -3542,7 +3414,7 @@ impl<
                 self.collect_emit(&mut context, emit2);
                 self.collect_emit(&mut context, emit3);
                 self.collect_emit(&mut context, emit4);
-                self.reach_configuration(parallel_scope, context);
+                self.reach_configuration(context);
             }
 
             Action::ChangeAndSend5(agent_to_state_id, emit1, emit2, emit3, emit4, emit5) => {
@@ -3552,7 +3424,7 @@ impl<
                 self.collect_emit(&mut context, emit3);
                 self.collect_emit(&mut context, emit4);
                 self.collect_emit(&mut context, emit5);
-                self.reach_configuration(parallel_scope, context);
+                self.reach_configuration(context);
             }
 
             Action::Send5(emit1, emit2, emit3, emit4, emit5) => {
@@ -3561,7 +3433,7 @@ impl<
                 self.collect_emit(&mut context, emit3);
                 self.collect_emit(&mut context, emit4);
                 self.collect_emit(&mut context, emit5);
-                self.reach_configuration(parallel_scope, context);
+                self.reach_configuration(context);
             }
 
             Action::ChangeAndSend6(agent_to_state_id, emit1, emit2, emit3, emit4, emit5, emit6) => {
@@ -3572,7 +3444,7 @@ impl<
                 self.collect_emit(&mut context, emit4);
                 self.collect_emit(&mut context, emit5);
                 self.collect_emit(&mut context, emit6);
-                self.reach_configuration(parallel_scope, context);
+                self.reach_configuration(context);
             }
 
             Action::Send6(emit1, emit2, emit3, emit4, emit5, emit6) => {
@@ -3582,13 +3454,13 @@ impl<
                 self.collect_emit(&mut context, emit4);
                 self.collect_emit(&mut context, emit5);
                 self.collect_emit(&mut context, emit6);
-                self.reach_configuration(parallel_scope, context);
+                self.reach_configuration(context);
             } // END NOT TESTED
         }
     }
 
     fn change_state(
-        &self,
+        &mut self,
         mut context: &mut <Self as ModelTypes>::Context,
         agent_to_state_id: StateId,
     ) {
@@ -3611,7 +3483,7 @@ impl<
     }
 
     fn collect_emit(
-        &self,
+        &mut self,
         mut context: &mut <Self as ModelTypes>::Context,
         emit: <Self as MetaModel>::Emit,
     ) {
@@ -3707,7 +3579,7 @@ impl<
     }
 
     fn ordered_message(
-        &self,
+        &mut self,
         to_configuration: &<Self as MetaModel>::Configuration,
         source_index: usize,
         target_index: usize,
@@ -3740,21 +3612,16 @@ impl<
         let mut next_message_id = self.messages.store(next_message).id;
         while order > 0 {
             order -= 1;
-            match self
-                .decr_order_messages
-                .insert(next_message_id, MessageId::from_usize(0))
-            {
-                Ok(result) => {
+            match self.decr_order_messages.entry(next_message_id) {
+                Entry::Occupied(_) => break,
+                Entry::Vacant(entry) => {
                     next_message.order = MessageOrder::Ordered(MessageIndex::from_usize(order));
                     let decr_message_id = self.messages.store(next_message).id;
-                    *result.get().1 = decr_message_id;
-                    assert!(self
-                        .incr_order_messages
-                        .insert(decr_message_id, next_message_id)
-                        .is_ok());
+                    entry.insert(decr_message_id);
+                    self.incr_order_messages
+                        .insert(decr_message_id, next_message_id);
                     next_message_id = decr_message_id;
                 }
-                Err(_) => break,
             }
         }
 
@@ -3762,77 +3629,74 @@ impl<
     }
 
     fn replace_message(
-        &self,
+        &mut self,
         context: &mut <Self as ModelTypes>::Context,
         callback: fn(Option<Payload>) -> bool,
         order: MessageOrder,
         payload: &Payload,
         target_index: usize,
     ) -> Option<Payload> {
-        let replaced = context
+        let mut replaced_message_index: Option<usize> = None;
+        let mut replaced_message: Option<<Self as MetaModel>::Message> = None;
+
+        let replacement_message = Message {
+            order,
+            source_index: context.agent_index,
+            target_index,
+            payload: *payload,
+            replaced: None,
+        };
+
+        for (message_index, message_id) in context
             .to_configuration
             .message_ids
             .iter()
             .take_while(|message_id| message_id.is_valid())
             .enumerate()
-            .map(|(message_index, message_id)| {
-                (message_index, message_id, self.messages.get(*message_id))
-            })
-            .filter(|(_message_index, _message_id, message)| {
-                message.source_index == context.agent_index
-                    && message.target_index == target_index
-                    && callback(Some(message.payload))
-            })
-            .fold(None, |replaced, (message_index, message_id, message)| {
-                match replaced // MAYBE TESTED
-                {
-                    None => Some((message_index, message_id, message)),
+        {
+            let message = self.messages.get(*message_id);
+            if message.source_index == context.agent_index
+                && message.target_index == target_index
+                && callback(Some(message.payload))
+            {
+                if let Some(conflict_message) = replaced_message {
                     // BEGIN NOT TESTED
-                    Some((_conflict_index, _conflict_id, ref conflict_message)) => {
-                        let replacement_message = Message {
-                            order,
-                            source_index: context.agent_index,
-                            target_index,
-                            payload: *payload,
-                            replaced: None,
-                        };
-                        self.error(
-                            context,
-                            &format!(
-                                "both the message {}\n\
-                                 and the message {}\n\
-                                 can be replaced by the ambiguous replacement message {}",
-                                self.display_message(&conflict_message),
-                                self.display_message(&message),
-                                self.display_message(&replacement_message),
-                            ),
-                        );
-                    } // END NOT TESTED
+                    let conflict_label = self.display_message(&conflict_message);
+                    let message_label = self.display_message(&message);
+                    let replacement_label = self.display_message(&replacement_message);
+                    self.error(
+                        context,
+                        &format!(
+                            "both the message {}\n\
+                             and the message {}\n\
+                             can be replaced by the ambiguous replacement message {}",
+                            conflict_label, message_label, replacement_label,
+                        ),
+                    );
+                    // END NOT TESTED
+                } else {
+                    replaced_message_index = Some(message_index);
+                    replaced_message = Some(message);
                 }
-            });
+            }
+        }
 
-        if let Some((replaced_index, _replace_id, replaced_message)) = replaced {
+        if let Some(message) = replaced_message {
             self.remove_message(
                 &mut context.to_configuration,
                 context.agent_index,
-                replaced_index,
+                replaced_message_index.unwrap(),
             );
-            Some(replaced_message.payload)
+            Some(message.payload)
         } else {
             if !callback(None) {
                 // BEGIN NOT TESTED
-                let replacement_message = Message {
-                    order,
-                    source_index: context.agent_index,
-                    target_index,
-                    payload: *payload,
-                    replaced: None,
-                };
+                let replacement_label = self.display_message(&replacement_message);
                 self.error(
                     context,
                     &format!(
                         "nothing was replaced by the required replacement message {}",
-                        self.display_message(&replacement_message)
+                        replacement_label
                     ),
                 );
                 // END NOT TESTED
@@ -3902,9 +3766,7 @@ impl<
     }
 
     fn decr_message_id(&self, message_id: MessageId) -> Option<MessageId> {
-        self.decr_order_messages
-            .get(&message_id)
-            .map(|result| *result.get().1)
+        self.decr_order_messages.get(&message_id).copied()
     }
 
     fn first_message_id(&self, mut message_id: MessageId) -> MessageId {
@@ -3915,53 +3777,46 @@ impl<
     }
 
     fn incr_message_id(&self, message_id: MessageId) -> Option<MessageId> {
-        self.incr_order_messages
-            .get(&message_id)
-            .map(|result| *result.get().1)
+        self.incr_order_messages.get(&message_id).copied()
     }
 
     fn emit_message(
-        &self,
+        &mut self,
         context: &mut <Self as ModelTypes>::Context,
         message: <Self as MetaModel>::Message,
     ) {
-        context
+        for to_message_id in context
             .to_configuration
             .message_ids
             .iter()
             .take_while(|to_message_id| to_message_id.is_valid())
-            .map(|to_message_id| self.messages.get(*to_message_id))
-            .filter(|to_message| {
-                to_message.source_index == message.source_index
-                    && to_message.target_index == message.target_index
-                    && to_message.payload == message.payload
-            })
-            .for_each(|_to_message| {
+        {
+            let to_message = self.messages.get(*to_message_id);
+            if to_message.source_index == message.source_index
+                && to_message.target_index == message.target_index
+                && to_message.payload == message.payload
+            {
                 // BEGIN NOT TESTED
+                let message_label = self.display_message(&message);
                 self.error(
                     context,
-                    &format!(
-                        "sending a duplicate message {}",
-                        self.display_message(&message)
-                    ),
+                    &format!("sending a duplicate message {}", message_label),
                 );
                 // END NOT TESTED
-            });
+            }
+        }
+
         let message_id = self.messages.store(message).id;
         context
             .to_configuration
             .add_message(context.agent_index, message_id);
     }
 
-    fn ignore_message<'a>(
-        &'a self,
-        parallel_scope: &ParallelScope<'a>,
-        context: <Self as ModelTypes>::Context,
-    ) {
-        self.reach_configuration(parallel_scope, context);
+    fn ignore_message(&mut self, context: <Self as ModelTypes>::Context) {
+        self.reach_configuration(context);
     }
 
-    fn defer_message(&self, context: <Self as ModelTypes>::Context) {
+    fn defer_message(&mut self, context: <Self as ModelTypes>::Context) {
         if !context.delivered_message_index.is_valid() {
             // BEGIN NOT TESTED
             self.error(
@@ -4002,7 +3857,7 @@ impl<
         }
     }
 
-    fn validate_configuration(&self, context: &mut <Self as ModelTypes>::Context) {
+    fn validate_configuration(&mut self, context: &mut <Self as ModelTypes>::Context) {
         if context.to_configuration.invalid_id.is_valid() {
             return;
         }
@@ -4016,6 +3871,7 @@ impl<
                     context.to_configuration.message_counts[context.agent_index].to_usize();
                 if in_flight_messages > max_in_flight_messages {
                     // BEGIN NOT TESTED
+                    let configuration_label = self.display_configuration(&context.to_configuration);
                     self.error(
                         context,
                         &format!(
@@ -4024,7 +3880,7 @@ impl<
                             self.agent_labels[context.agent_index],
                             in_flight_messages,
                             max_in_flight_messages,
-                            &self.display_configuration(&context.to_configuration)
+                            configuration_label
                         ),
                     );
                     // END NOT TESTED
@@ -4044,55 +3900,33 @@ impl<
     }
 
     fn store_configuration(
-        &self,
+        &mut self,
         configuration: <Self as MetaModel>::Configuration,
     ) -> Stored<ConfigurationId> {
         let stored = self.configurations.store(configuration);
 
         if stored.is_new {
-            if self.print_progress_every == 1
-                || (self.print_progress_every > 0
-                // BEGIN NOT TESTED
-                    && stored.id.to_usize() > 0
-                    && stored.id.to_usize() % self.print_progress_every == 0)
-            // END NOT TESTED
-            {
+            if self.print_progress(stored.id.to_usize()) {
                 eprintln!("computed {} configurations", stored.id.to_usize());
             }
 
-            let remaining = self.outgoings.read().len() - stored.id.to_usize();
-            if remaining < self.threads {
-                let mut outgoings = self.outgoings.write();
+            self.outgoings.push(vec![]);
 
-                let remaining = outgoings.len() - stored.id.to_usize();
-                if remaining < self.threads {
-                    let additional = max(outgoings.len() / GROWTH_FACTOR, self.threads);
-
-                    eprintln!(
-                        "increasing size from {} to {}",
-                        outgoings.len(),
-                        outgoings.len() + additional
-                    );
-
-                    self.configurations.reserve(additional);
-
-                    outgoings.reserve(additional);
-                    for _ in 0..additional {
-                        outgoings.push(RwLock::new(vec![]));
-                    }
-
-                    if self.ensure_init_is_reachable {
-                        let mut incomings = self.incomings.write();
-                        incomings.reserve(additional);
-                        for _ in 0..additional {
-                            incomings.push(RwLock::new(vec![]));
-                        }
-                    }
-                }
+            if self.ensure_init_is_reachable {
+                self.incomings.push(vec![]);
             }
         }
 
         stored
+    }
+
+    fn print_progress(&self, progress: usize) -> bool {
+        self.print_progress_every == 1
+            || (self.print_progress_every > 0
+            // BEGIN NOT TESTED
+                && progress > 0
+                && progress % self.print_progress_every == 0)
+        // END NOT TESTED
     }
 
     /// Return the total number of agents.
@@ -4101,7 +3935,7 @@ impl<
     }
 
     /// Return the agent type for agents of some name.
-    pub fn agent_type(&self, name: &'static str) -> &<Self as MetaModel>::AgentTypeArc {
+    pub fn agent_type(&self, name: &'static str) -> &<Self as MetaModel>::AgentTypeRc {
         self.agent_types
             .iter()
             .find(|agent_type| agent_type.name() == name)
@@ -4147,8 +3981,8 @@ impl<
 
     /// Display a message.
     pub fn display_message(&self, message: &<Self as MetaModel>::Message) -> String {
-        let max_message_string_size = *self.max_message_string_size.read();
-        let mut string = String::with_capacity(max_message_string_size);
+        let mut max_message_string_size = self.max_message_string_size.borrow_mut();
+        let mut string = String::with_capacity(*max_message_string_size);
 
         if message.source_index != usize::max_value() {
             string.push_str(&*self.agent_labels[message.source_index]);
@@ -4163,12 +3997,7 @@ impl<
         string.push_str(&*self.agent_labels[message.target_index]);
 
         string.shrink_to_fit();
-        if string.len() > max_message_string_size {
-            let mut max_message_string_size = self.max_message_string_size.write();
-            if string.len() > *max_message_string_size {
-                *max_message_string_size = string.len();
-            }
-        }
+        *max_message_string_size = max(*max_message_string_size, string.len());
 
         string
     }
@@ -4179,8 +4008,8 @@ impl<
         message: &<Self as MetaModel>::Message,
         is_final: bool,
     ) -> String {
-        let max_message_string_size = *self.max_message_string_size.read();
-        let mut string = String::with_capacity(max_message_string_size);
+        let max_message_string_size = self.max_message_string_size.borrow();
+        let mut string = String::with_capacity(*max_message_string_size);
         self.push_message_payload(message, true, is_final, &mut string);
         string.shrink_to_fit();
         string
@@ -4223,13 +4052,14 @@ impl<
     // BEGIN NOT TESTED
     /// Display an invalid condition by its identifier.
     fn display_invalid_id(&self, invalid_id: InvalidId) -> String {
-        self.display_invalid(&self.invalids.get(invalid_id))
+        let invalid = self.invalids.get(invalid_id);
+        self.display_invalid(&invalid)
     }
 
     /// Display an invalid condition.
     fn display_invalid(&self, invalid: &<Self as MetaModel>::Invalid) -> String {
-        let max_invalid_string_size = *self.max_invalid_string_size.read();
-        let mut string = String::with_capacity(max_invalid_string_size);
+        let mut max_invalid_string_size = self.max_invalid_string_size.borrow_mut();
+        let mut string = String::with_capacity(*max_invalid_string_size);
 
         match invalid {
             Invalid::Configuration(reason) => {
@@ -4253,12 +4083,7 @@ impl<
         }
 
         string.shrink_to_fit();
-        if string.len() > max_invalid_string_size {
-            let mut max_invalid_string_size = self.max_invalid_string_size.write();
-            if string.len() > *max_invalid_string_size {
-                *max_invalid_string_size = string.len();
-            }
-        }
+        *max_invalid_string_size = max(string.len(), *max_invalid_string_size);
 
         string
     }
@@ -4267,13 +4092,14 @@ impl<
 
     /// Display a configuration by its identifier.
     pub fn display_configuration_id(&self, configuration_id: ConfigurationId) -> String {
-        self.display_configuration(&self.configurations.get(configuration_id))
+        let configuration = self.configurations.get(configuration_id);
+        self.display_configuration(&configuration)
     }
 
     /// Display a configuration.
     fn display_configuration(&self, configuration: &<Self as MetaModel>::Configuration) -> String {
-        let max_configuration_string_size = *self.max_configuration_string_size.read();
-        let mut string = String::with_capacity(max_configuration_string_size);
+        let mut max_configuration_string_size = self.max_configuration_string_size.borrow_mut();
+        let mut string = String::with_capacity(*max_configuration_string_size);
         let mut hash: u64 = 0;
 
         let mut prefix = "\n- ";
@@ -4319,87 +4145,58 @@ impl<
         let hash_label = format!("#{:016X}", hash);
         string.replace_range(0..0, &hash_label);
 
-        if string.len() > max_configuration_string_size {
-            let mut max_configuration_string_size = self.max_configuration_string_size.write();
-            if string.len() > *max_configuration_string_size {
-                *max_configuration_string_size = string.len();
-            }
-        }
+        string.shrink_to_fit();
+        *max_configuration_string_size = max(string.len(), *max_configuration_string_size);
 
         string
     }
 
     fn do_compute(&mut self, arg_matches: &ArgMatches) {
-        self.threads = match arg_matches.value_of("threads").unwrap() {
-            "PHYSICAL" => num_cpus::get_physical(), // NOT TESTED
-            "LOGICAL" => num_cpus::get(),           // NOT TESTED
-            threads => usize::from_str(threads).expect("invalid threads count"),
-        };
-        if self.threads == 0 {
-            self.threads = 1; // NOT TESTED
-        }
-
         let progress_every = arg_matches.value_of("progress").unwrap();
         self.print_progress_every = usize::from_str(progress_every).expect("invalid progress rate");
         self.allow_invalid_configurations = arg_matches.is_present("invalid");
 
         self.ensure_init_is_reachable = arg_matches.is_present("reachable");
         if self.ensure_init_is_reachable {
-            let mut incomings = self.incomings.write();
-            let outgoings = self.outgoings.read();
-
-            assert!(incomings.is_empty());
+            assert!(self.incomings.is_empty());
             assert!(self.configurations.len() == 1);
 
-            let incomings_capacity = incomings.capacity();
-            incomings.reserve(outgoings.capacity() - incomings_capacity);
+            self.incomings.reserve(self.outgoings.capacity());
 
-            while incomings.len() < outgoings.len() {
-                incomings.push(RwLock::new(vec![]));
+            while self.incomings.len() < self.outgoings.len() {
+                self.incomings.push(vec![]);
             }
         }
 
         self.compute();
+
+        if self.ensure_init_is_reachable {
+            self.assert_init_is_reachable();
+        }
     }
 
     fn assert_init_is_reachable(&mut self) {
+        assert!(self.reachable_configurations_count == 0);
+        assert!(self.reachable_configurations_mask.is_empty());
+
         self.reachable_configurations_mask
-            .reserve(self.configurations.len());
-        for _ in 0..self.configurations.len() {
-            self.reachable_configurations_mask.push(RwLock::new(false));
+            .resize(self.configurations.len(), false);
+
+        assert!(self.pending_configuration_ids.is_empty());
+        self.pending_configuration_ids
+            .push(ConfigurationId::from_usize(0));
+        while let Some(configuration_id) = self.pending_configuration_ids.pop() {
+            self.reachable_configuration(configuration_id);
         }
 
-        if self.print_progress_every > 0 {
-            REACHABLE_CONFIGURATIONS_COUNT.store(0, Ordering::Relaxed);
-        }
+        REACHABLE_CONFIGURATIONS_MASK.with(|reachable_configurations_mask| {
+            swap(
+                &mut *reachable_configurations_mask.borrow_mut(),
+                &mut self.reachable_configurations_mask,
+            )
+        });
 
-        ThreadPoolBuilder::new()
-            .num_threads(self.threads)
-            .thread_name(|thread_index| format!("worker-{}", thread_index))
-            .build()
-            .unwrap()
-            .install(|| {
-                scope(|parallel_scope| {
-                    self.reachable_configuration(parallel_scope, 0);
-                });
-            });
-
-        swap(
-            &mut *REACHABLE_CONFIGURATIONS_MASK.lock().unwrap(),
-            &mut self.reachable_configurations_mask,
-        );
-
-        let unreachable_count = if self.print_progress_every > 0 {
-            self.configurations.len() - REACHABLE_CONFIGURATIONS_COUNT.load(Ordering::Relaxed)
-        } else {
-            REACHABLE_CONFIGURATIONS_MASK
-                .lock()
-                .unwrap()
-                .iter()
-                .filter(|rwlock| !*rwlock.read())
-                .count()
-        };
-
+        let unreachable_count = self.configurations.len() - self.reachable_configurations_count;
         if unreachable_count > 0 {
             // BEGIN NOT TESTED
             eprintln!(
@@ -4408,7 +4205,9 @@ impl<
             );
 
             let is_reachable = move |_model: &Self, configuration_id: ConfigurationId| {
-                *REACHABLE_CONFIGURATIONS_MASK.lock().unwrap()[configuration_id.to_usize()].read()
+                REACHABLE_CONFIGURATIONS_MASK.with(|reachable_configurations_mask| {
+                    reachable_configurations_mask.borrow()[configuration_id.to_usize()]
+                })
             };
             let error_path_step = PathStep {
                 condition: is_reachable,
@@ -4421,51 +4220,36 @@ impl<
         }
     }
 
-    fn reachable_configuration<'a>(
-        &'a self,
-        parallel_scope: &ParallelScope<'a>,
-        configuration_id: usize,
-    ) {
-        if *self.reachable_configurations_mask[configuration_id].read() {
+    fn reachable_configuration(&mut self, configuration_id: ConfigurationId) {
+        if self.reachable_configurations_mask[configuration_id.to_usize()] {
             return;
         }
 
         {
-            let mut reachable_configuration =
-                self.reachable_configurations_mask[configuration_id].write();
+            let reachable_configuration =
+                &mut self.reachable_configurations_mask[configuration_id.to_usize()];
             if *reachable_configuration {
                 return;
             }
-
             *reachable_configuration = true;
 
-            if self.print_progress_every > 0 {
-                let reachable_count =
-                    1 + REACHABLE_CONFIGURATIONS_COUNT.fetch_add(1, Ordering::Relaxed);
+            self.reachable_configurations_count += 1;
 
-                if self.print_progress_every == 1
-                    // BEGIN NOT TESTED
-                    || reachable_count % self.print_progress_every == 0
-                // END NOT TESTED
-                {
-                    eprintln!(
-                        "reached {} out of {} configurations",
-                        reachable_count,
-                        self.configurations.len()
-                    );
-                }
+            if self.print_progress(self.reachable_configurations_count) {
+                eprintln!(
+                    "reached {} out of {} configurations ({}%)",
+                    self.reachable_configurations_count,
+                    self.configurations.len(),
+                    (100 * self.reachable_configurations_count) / self.configurations.len(),
+                );
             }
         }
 
-        let incomings = self.incomings.read();
-        for next_configuration_id in incomings[configuration_id]
-            .read()
+        for next_configuration_id in self.incomings[configuration_id.to_usize()]
             .iter()
-            .map(|incoming| incoming.from_configuration_id.to_usize())
+            .map(|incoming| incoming.from_configuration_id)
         {
-            parallel_scope.spawn(move |same_scope| {
-                self.reachable_configuration(same_scope, next_configuration_id);
-            });
+            self.pending_configuration_ids.push(next_configuration_id);
         }
     }
 
@@ -4482,21 +4266,19 @@ impl<
     }
 
     fn find_closest_configuration_id(
-        &self,
+        &mut self,
         from_configuration_id: ConfigurationId,
         from_name: &str,
         to_step: &<Self as ModelTypes>::PathStep,
-        pending_configuration_ids: &mut VecDeque<ConfigurationId>,
         prev_configuration_ids: &mut [ConfigurationId],
     ) -> ConfigurationId {
-        pending_configuration_ids.clear();
-        pending_configuration_ids.push_back(from_configuration_id);
+        assert!(self.pending_configuration_ids.is_empty());
+        self.pending_configuration_ids.push(from_configuration_id);
 
         prev_configuration_ids.fill(ConfigurationId::invalid());
 
-        let outgoings = self.outgoings.read();
-        while let Some(next_configuration_id) = pending_configuration_ids.pop_front() {
-            for outgoing in outgoings[next_configuration_id.to_usize()].read().iter() {
+        while let Some(next_configuration_id) = self.pending_configuration_ids.pop() {
+            for outgoing in self.outgoings[next_configuration_id.to_usize()].iter() {
                 let to_configuration_id = outgoing.to_configuration_id;
                 if prev_configuration_ids[to_configuration_id.to_usize()].is_valid() {
                     continue;
@@ -4512,10 +4294,11 @@ impl<
                 }
 
                 if is_condition {
+                    self.pending_configuration_ids.clear();
                     return to_configuration_id;
                 }
 
-                pending_configuration_ids.push_back(to_configuration_id);
+                self.pending_configuration_ids.push(to_configuration_id);
             }
         }
 
@@ -4550,9 +4333,9 @@ impl<
                     None => (name, false),
                     Some(suffix) => (suffix, true),
                 };
-                if let Some(result) = self.conditions.get(&key.to_string()) {
+                if let Some(condition) = self.conditions.get(&key.to_string()) {
                     PathStep {
-                        condition: result.get().1 .0,
+                        condition: condition.0,
                         is_negated,
                         name: name.to_string(),
                     }
@@ -4572,13 +4355,11 @@ impl<
     }
 
     fn collect_path(
-        &self,
+        &mut self,
         mut steps: Vec<<Self as ModelTypes>::PathStep>,
     ) -> Vec<<Self as ModelTypes>::PathTransition> {
         let mut prev_configuration_ids =
             vec![ConfigurationId::invalid(); self.configurations.len()];
-
-        let mut pending_configuration_ids: VecDeque<ConfigurationId> = VecDeque::new();
 
         let initial_configuration_id = ConfigurationId::from_usize(0);
 
@@ -4594,7 +4375,6 @@ impl<
                 initial_configuration_id,
                 "INIT",
                 &steps[0],
-                &mut pending_configuration_ids,
                 &mut prev_configuration_ids,
             );
         }
@@ -4612,7 +4392,6 @@ impl<
                 current_configuration_id,
                 &current_name,
                 step,
-                &mut pending_configuration_ids,
                 &mut prev_configuration_ids,
             );
             self.collect_path_step(
@@ -4630,7 +4409,7 @@ impl<
     }
 
     fn collect_path_step(
-        &self,
+        &mut self,
         from_configuration_id: ConfigurationId,
         to_configuration_id: ConfigurationId,
         to_name: Option<&str>,
@@ -4672,14 +4451,13 @@ impl<
     }
 
     fn collect_small_path_step(
-        &self,
+        &mut self,
         from_configuration_id: ConfigurationId,
         to_configuration_id: ConfigurationId,
         to_name: Option<&str>,
         path: &mut Vec<<Self as ModelTypes>::PathTransition>,
     ) {
-        let all_outgoings = self.outgoings.read();
-        let from_outgoings = all_outgoings[from_configuration_id.to_usize()].read();
+        let from_outgoings = &self.outgoings[from_configuration_id.to_usize()];
         let outgoing_index = from_outgoings
             .iter()
             .position(|outgoing| outgoing.to_configuration_id == to_configuration_id)
@@ -4701,16 +4479,16 @@ impl<
         });
     }
 
-    fn print_path(&self, path: &[<Self as ModelTypes>::PathTransition], stdout: &mut dyn Write) {
+    fn print_path(
+        &mut self,
+        path: &[<Self as ModelTypes>::PathTransition],
+        stdout: &mut dyn Write,
+    ) {
         path.iter().for_each(|transition| {
             let is_first = transition.to_configuration_id == transition.from_configuration_id;
             if !is_first {
-                writeln!(
-                    stdout,
-                    "BY: {}",
-                    self.display_message_id(transition.delivered_message_id)
-                )
-                .unwrap();
+                let delivered_label = self.display_message_id(transition.delivered_message_id);
+                writeln!(stdout, "BY: {}", delivered_label).unwrap();
             }
 
             let prefix = if is_first { "FROM" } else { "TO" };
@@ -4754,11 +4532,9 @@ impl<
         const MAX_MESSAGES: usize,
     > Model<StateId, MessageId, InvalidId, ConfigurationId, Payload, MAX_AGENTS, MAX_MESSAGES>
 {
-    fn compute_terse(&self, condense: &Condense) {
-        let mut terse_of_message_id = self.terse_of_message_id.write();
-        let mut message_of_terse_id = self.message_of_terse_id.write();
-        assert!(terse_of_message_id.is_empty());
-        assert!(message_of_terse_id.is_empty());
+    fn compute_terse(&mut self, condense: &Condense) {
+        assert!(self.terse_of_message_id.is_empty());
+        assert!(self.message_of_terse_id.is_empty());
 
         if condense.names_only {
             for (agent_index, agent_type) in self.agent_types.iter().enumerate() {
@@ -4768,10 +4544,10 @@ impl<
             }
         }
 
-        let mut seen_messages: StdHashMap<TerseMessage, usize> = StdHashMap::new();
+        let mut seen_messages: HashMap<TerseMessage, usize> = HashMap::new();
         seen_messages.reserve(self.messages.len());
-        terse_of_message_id.reserve(self.messages.len());
-        message_of_terse_id.reserve(self.messages.len());
+        self.terse_of_message_id.reserve(self.messages.len());
+        self.message_of_terse_id.reserve(self.messages.len());
 
         for message_id in 0..self.messages.len() {
             let message = self.messages.get(MessageId::from_usize(message_id));
@@ -4821,19 +4597,21 @@ impl<
             };
 
             let terse_id = *seen_messages.entry(terse_message).or_insert_with(|| {
-                let next_terse_id = message_of_terse_id.len();
-                message_of_terse_id.push(MessageId::from_usize(message_id));
+                let next_terse_id = self.message_of_terse_id.len();
+                self.message_of_terse_id
+                    .push(MessageId::from_usize(message_id));
                 next_terse_id
             });
 
-            terse_of_message_id.push(MessageId::from_usize(terse_id));
+            self.terse_of_message_id
+                .push(MessageId::from_usize(terse_id));
         }
 
-        message_of_terse_id.shrink_to_fit();
+        self.message_of_terse_id.shrink_to_fit();
     }
 
     fn print_states_diagram(
-        &self,
+        &mut self,
         condense: &Condense,
         agent_index: usize,
         stdout: &mut dyn Write,
@@ -5231,7 +5009,7 @@ impl<
         )
         .unwrap();
 
-        message_id = self.message_of_terse_id.read()[message_id.to_usize()];
+        message_id = self.message_of_terse_id[message_id.to_usize()];
         let message = self.messages.get(message_id);
         if prefix == "D" {
             let source = if message.source_index == usize::max_value() {
@@ -5314,7 +5092,7 @@ impl<
         stdout: &mut dyn Write,
     ) {
         let show_message_id = if from_message_id.is_valid() {
-            self.message_of_terse_id.read()[from_message_id.to_usize()]
+            self.message_of_terse_id[from_message_id.to_usize()]
         } else {
             from_message_id // NOT TESTED
         };
@@ -5390,7 +5168,7 @@ impl<
 
         let to_message_id = to_message_id.unwrap();
         let show_message_id = if to_message_id.is_valid() {
-            self.message_of_terse_id.read()[to_message_id.to_usize()]
+            self.message_of_terse_id[to_message_id.to_usize()]
         } else {
             to_message_id // NOT TESTED
         };
@@ -5419,11 +5197,10 @@ impl<
     }
 
     fn collect_sequence_steps(
-        &self,
+        &mut self,
         path: &[<Self as ModelTypes>::PathTransition],
     ) -> Vec<<Self as ModelTypes>::SequenceStep> {
         let mut sequence_steps: Vec<<Self as ModelTypes>::SequenceStep> = vec![];
-        let all_outgoings = self.outgoings.read();
         for path_transition in path {
             let agent_index = path_transition.agent_index;
             let from_configuration_id = path_transition.from_configuration_id;
@@ -5432,7 +5209,7 @@ impl<
             let to_configuration = self.configurations.get(to_configuration_id);
             let did_change_state = to_configuration.state_ids[agent_index]
                 != from_configuration.state_ids[agent_index];
-            let from_outgoings = all_outgoings[from_configuration_id.to_usize()].read();
+            let from_outgoings = &self.outgoings[from_configuration_id.to_usize()];
             let outgoing_index = from_outgoings
                 .iter()
                 .position(|outgoing| outgoing.to_configuration_id == to_configuration_id)
@@ -5746,7 +5523,7 @@ impl<
     }
 
     fn print_sequence_diagram(
-        &self,
+        &mut self,
         first_configuration: &<Self as MetaModel>::Configuration,
         last_configuration: &<Self as MetaModel>::Configuration,
         sequence_steps: &[<Self as ModelTypes>::SequenceStep],
@@ -5775,7 +5552,7 @@ impl<
 
         let mut sequence_state = SequenceState {
             timelines: vec![],
-            message_timelines: StdHashMap::new(),
+            message_timelines: HashMap::new(),
             agents_timelines,
             has_reactivation_message: false,
         };
@@ -5881,11 +5658,13 @@ impl<
                 .copied()
                 .find(|timeline_index| sequence_state.timelines[*timeline_index].is_none())
         } else {
+            // BEGIN NOT TESTED
             sequence_state.agents_timelines[message.source_index]
                 .left
                 .iter()
                 .copied()
                 .find(|timeline_index| sequence_state.timelines[*timeline_index].is_none())
+            // END NOT TESTED
         };
 
         let timeline_index = empty_timeline_index.unwrap_or_else(|| sequence_state.timelines.len());
@@ -5911,6 +5690,7 @@ impl<
                     .right
                     .len()
         } else {
+            // BEGIN NOT TESTED
             sequence_state.agents_timelines[message.source_index]
                 .left
                 .push(timeline_index);
@@ -5918,6 +5698,7 @@ impl<
                 - sequence_state.agents_timelines[message.source_index]
                     .left
                     .len()
+            // END NOT TESTED
         };
 
         writeln!(
@@ -6115,7 +5896,7 @@ impl<
                 let arrow = match message.order {
                     MessageOrder::Immediate => "-[#Crimson]>",
                     MessageOrder::Unordered => "->",
-                    MessageOrder::Ordered(_) => "-[#Blue]>", // NOT TESTED
+                    MessageOrder::Ordered(_) => "-[#Blue]>",
                 };
                 writeln!(
                     stdout,
@@ -6237,15 +6018,22 @@ impl<
     ) -> <Self as ModelTypes>::AgentStateTransitions {
         let mut state_transitions = <Self as ModelTypes>::AgentStateTransitions::default();
         self.outgoings
-            .read()
             .iter()
             .take(self.configurations.len())
             .enumerate()
             .for_each(|(from_configuration_id, outgoings)| {
+                if self.print_progress(from_configuration_id) {
+                    eprintln!(
+                        "collected {} out of {} configurations ({}%)",
+                        from_configuration_id,
+                        self.configurations.len(),
+                        (100 * from_configuration_id) / self.configurations.len(),
+                    );
+                }
                 let from_configuration = self
                     .configurations
                     .get(ConfigurationId::from_usize(from_configuration_id));
-                outgoings.read().iter().for_each(|outgoing| {
+                outgoings.iter().for_each(|outgoing| {
                     let to_configuration = self.configurations.get(outgoing.to_configuration_id);
                     self.collect_agent_state_transition(
                         condense,
@@ -6300,7 +6088,7 @@ impl<
                     &from_configuration,
                     delivered_message_id,
                 ) {
-                    let message_id = self.terse_of_message_id.read()[to_message_id.to_usize()];
+                    let message_id = self.terse_of_message_id[to_message_id.to_usize()];
                     sent_message_ids.push(message_id);
                     sent_message_ids.sort();
                 }
@@ -6317,9 +6105,9 @@ impl<
 
         state_transitions
             .entry(context)
-            .or_insert_with(StdHashMap::new);
+            .or_insert_with(HashMap::new);
 
-        let state_delivered_message_ids: &mut StdHashMap<Vec<MessageId>, Vec<MessageId>> =
+        let state_delivered_message_ids: &mut HashMap<Vec<MessageId>, Vec<MessageId>> =
             state_transitions.get_mut(&context).unwrap();
 
         state_delivered_message_ids
@@ -6330,7 +6118,7 @@ impl<
             .get_mut(&sent_message_ids.to_vec())
             .unwrap();
 
-        delivered_message_id = self.terse_of_message_id.read()[delivered_message_id.to_usize()];
+        delivered_message_id = self.terse_of_message_id[delivered_message_id.to_usize()];
 
         if !delivered_message_ids
             .iter()
@@ -6390,14 +6178,6 @@ pub fn add_clap<'a, 'b>(app: App<'a, 'b>) -> App<'a, 'b> {
             .long("progress-every")
             .default_value("0")
             .help("print configurations as they are reached"),
-    )
-    .arg(
-        Arg::with_name("threads")
-            .short("t")
-            .long("threads")
-            .value_name("COUNT")
-            .help("set the number of threads to use (may also specify PHYSICAL or LOGICAL)")
-            .default_value("LOGICAL"),
     )
     .arg(
         Arg::with_name("size")
@@ -6569,7 +6349,7 @@ impl<
                 names.sort();
                 names
                     .iter()
-                    .map(|name| (*name, self.conditions.get(*name).unwrap().get().1 .1))
+                    .map(|name| (*name, self.conditions.get(*name).unwrap().1))
                     .for_each(|(name, about)| {
                         writeln!(stdout, "{}: {}", name, about).unwrap();
                     });
@@ -6596,9 +6376,18 @@ impl<
 
                 (0..self.configurations.len())
                     .map(ConfigurationId::from_usize)
-                    .map(|configuration_id| self.display_configuration_id(configuration_id))
-                    .for_each(|configuration_label| {
-                        writeln!(stdout, "{}\n", configuration_label,).unwrap();
+                    .for_each(|configuration_id| {
+                        if self.print_progress(configuration_id.to_usize()) {
+                            eprintln!(
+                                "printed {} out of {} configurations ({}%)",
+                                configuration_id.to_usize(),
+                                self.configurations.len(),
+                                (100 * configuration_id.to_usize()) / self.configurations.len(),
+                            );
+                        }
+
+                        let configuration_label = self.display_configuration_id(configuration_id);
+                        writeln!(stdout, "{}\n", configuration_label).unwrap();
                     });
                 true
             }
@@ -6612,11 +6401,19 @@ impl<
                 self.do_compute(arg_matches);
 
                 self.outgoings
-                    .read()
                     .iter()
                     .enumerate()
                     .take(self.configurations.len())
                     .for_each(|(from_configuration_id, outgoings)| {
+                        if self.print_progress(from_configuration_id) {
+                            eprintln!(
+                                "printed {} out of {} configurations ({}%)",
+                                from_configuration_id,
+                                self.configurations.len(),
+                                (100 * from_configuration_id) / self.configurations.len(),
+                            );
+                        }
+
                         let from_configuration_id =
                             ConfigurationId::from_usize(from_configuration_id);
                         let from_configuration_label =
@@ -6624,7 +6421,7 @@ impl<
 
                         writeln!(stdout, "FROM {}\n", from_configuration_label,).unwrap();
 
-                        outgoings.read().iter().for_each(|outgoing| {
+                        outgoings.iter().for_each(|outgoing| {
                             let delivered_label =
                                 self.display_message_id(outgoing.delivered_message_id);
                             let to_configuration_label =

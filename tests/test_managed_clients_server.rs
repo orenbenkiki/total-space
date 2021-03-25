@@ -2,20 +2,19 @@ mod common;
 
 use clap::App;
 use clap::ArgMatches;
-use lazy_static::*;
 use num_traits::cast::FromPrimitive;
 use num_traits::cast::ToPrimitive;
 use std::fmt::Display;
 use std::fmt::Formatter;
 use std::fmt::Result as FormatterResult;
+use std::rc::Rc;
 use std::str;
-use std::sync::Arc;
 use strum::IntoStaticStr;
 use total_space::*;
 
-declare_global_agent_indices! { CLIENTS }
-declare_global_agent_index! { MANAGER }
-declare_global_agent_index! { SERVER }
+declare_agent_indices! { CLIENTS }
+declare_agent_index! { MANAGER }
+declare_agent_index! { SERVER }
 
 // BEGIN MAYBE TESTED
 #[derive(PartialEq, Eq, Hash, Copy, Clone, Debug, IntoStaticStr)]
@@ -179,12 +178,12 @@ type TestModel = Model<
 
 fn test_model(arg_matches: &ArgMatches) -> TestModel {
     const CLIENTS_COUNT: usize = 2;
-    let client_type = Arc::new(AgentTypeData::<ClientState, StateId, Payload>::new(
+    let client_type = Rc::new(AgentTypeData::<ClientState, StateId, Payload>::new(
         "C",
         Instances::Count(CLIENTS_COUNT),
         None,
     ));
-    let manager_type = Arc::new(ContainerOf1TypeData::<
+    let manager_type = Rc::new(ContainerOf1TypeData::<
         ManagerState,
         ClientState,
         StateId,
@@ -196,24 +195,24 @@ fn test_model(arg_matches: &ArgMatches) -> TestModel {
         client_type.clone(),
         client_type.clone(),
     ));
-    let server_type = Arc::new(AgentTypeData::<ServerState, StateId, Payload>::new(
+    let server_type = Rc::new(AgentTypeData::<ServerState, StateId, Payload>::new(
         "SRV",
         Instances::Singleton,
         Some(manager_type.clone()),
     ));
     let model = TestModel::new(model_size(arg_matches, 1), server_type, vec![]);
-    init_global_agent_indices!(CLIENTS, "C", model);
-    init_global_agent_index!(MANAGER, "MGR", model);
-    init_global_agent_index!(SERVER, "SRV", model);
+    init_agent_indices!(CLIENTS, "C", model);
+    init_agent_index!(MANAGER, "MGR", model);
+    init_agent_index!(SERVER, "SRV", model);
     model
 }
 
 test_case! { agents, "txt", vec!["test", "agents"] }
-test_case! { configurations, "txt", vec!["test", "-r", "-p", "1", "-t", "1", "configurations"] }
-test_case! { transitions, "txt", vec!["test", "-p", "1", "-t", "1", "transitions"] }
-test_case! { path, "txt", vec!["test", "-p", "1", "-t", "1", "path", "INIT", "2MSG", "INIT"] }
-test_case! { sequence, "uml", vec!["test", "-p", "1", "-t", "1", "sequence", "INIT", "2MSG", "INIT"] }
-test_case! { client_states, "dot", vec!["test", "-p", "1", "-t", "1", "states", "C(0)"] }
-test_case! { client_states_condensed, "dot", vec!["test", "-p", "1", "-t", "1", "states", "C(0)", "-c"] }
-test_case! { server_states, "dot", vec!["test", "-p", "1", "-t", "1", "states", "SRV"] }
-test_case! { server_states_condensed, "dot", vec!["test", "-p", "1", "-t", "1", "states", "SRV", "-c"] }
+test_case! { configurations, "txt", vec!["test", "-r", "-p", "1", "configurations"] }
+test_case! { transitions, "txt", vec!["test", "-p", "1", "transitions"] }
+test_case! { path, "txt", vec!["test", "-p", "1", "path", "INIT", "2MSG", "INIT"] }
+test_case! { sequence, "uml", vec!["test", "-p", "1", "sequence", "INIT", "2MSG", "INIT"] }
+test_case! { client_states, "dot", vec!["test", "-p", "1", "states", "C(0)"] }
+test_case! { client_states_condensed, "dot", vec!["test", "-p", "1", "states", "C(0)", "-c"] }
+test_case! { server_states, "dot", vec!["test", "-p", "1", "states", "SRV"] }
+test_case! { server_states_condensed, "dot", vec!["test", "-p", "1", "states", "SRV", "-c"] }
