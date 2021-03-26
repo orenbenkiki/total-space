@@ -160,8 +160,8 @@ In addition, the code can generate two types of diagrams:
 
 ## Example
 
-See [examples/client_server.rs](examples/client_server.rs)] for a complete simple example. See
-[tests/expected/example_client_server](tests/expected/example_client_server)] for the expected
+See [examples/clients_server.rs](examples/client_server.rs) for a complete simple example. See
+[tests/expected/example_clients_server](tests/expected/example_client_server) for the expected
 results of running various commands. The `svg` files were generated from the `dot` and `uml` files
 using [GraphViz](https://www.graphviz.org/) and [PlantUML](https://plantuml.com/starting).
 
