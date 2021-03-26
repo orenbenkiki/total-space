@@ -301,6 +301,9 @@ pub trait MetaModel {
     /// The type of the included configurations.
     type Configuration;
 
+    /// The type of a hash table entry for the configurations (should be cache-friendly).
+    type ConfigurationHashEntry;
+
     /// The type of a configuration validation function.
     type Validator;
 
@@ -334,6 +337,10 @@ impl<
     type Emit = Emit<Payload>;
     type Invalid = Invalid<MessageId>;
     type Configuration = Configuration<StateId, MessageId, InvalidId, MAX_AGENTS, MAX_MESSAGES>;
+    type ConfigurationHashEntry = (
+        Configuration<StateId, MessageId, InvalidId, MAX_AGENTS, MAX_MESSAGES>,
+        ConfigurationId,
+    );
     type Validator = fn(
         &Configuration<StateId, MessageId, InvalidId, MAX_AGENTS, MAX_MESSAGES>,
     ) -> Option<&'static str>;
@@ -1305,7 +1312,7 @@ impl<
         let target_from_state_id = from_configuration.state_ids[target_index];
         let target_type = self.agent_types[target_index].clone();
         let reaction =
-            target_type.receive_message(target_instance, &from_configuration.state_ids, &payload);
+            target_type.reaction(target_instance, &from_configuration.state_ids, &payload);
 
         let incoming = Incoming {
             from_configuration_id,
@@ -1659,7 +1666,8 @@ impl<
         while order > 0 {
             order -= 1;
             let entry = self.decr_order_messages.entry(next_message_id);
-            let new_message = match entry {
+            let new_message = match entry // MAYBE TESTED
+            {
                 Entry::Occupied(_) => break,
                 Entry::Vacant(entry) => {
                     next_message.order = MessageOrder::Ordered(MessageIndex::from_usize(order));
@@ -1956,6 +1964,8 @@ impl<
         }
     }
 
+    // BEGIN NOT TESTED
+
     fn store_invalid(&mut self, invalid: <Self as MetaModel>::Invalid) -> Stored<InvalidId> {
         let stored = self.invalids.store(invalid);
         if stored.is_new {
@@ -1964,6 +1974,8 @@ impl<
         }
         stored
     }
+
+    // END NOT TESTED
 
     fn store_message(&mut self, message: <Self as MetaModel>::Message) -> Stored<MessageId> {
         let stored = self.messages.store(message);
@@ -2069,7 +2081,7 @@ impl<
                 }
 
                 self.print_configuration_id(configuration_id, stdout);
-                write!(stdout, "\n").unwrap();
+                writeln!(stdout).unwrap();
             });
     }
 
@@ -2319,8 +2331,6 @@ impl<
         string
     }
 
-    // END NOT TESTED
-
     /// Display a configuration by its identifier.
     pub fn display_configuration_id(&self, configuration_id: ConfigurationId) -> String {
         let configuration = self.configurations.get(configuration_id);
@@ -2337,6 +2347,8 @@ impl<
         *max_configuration_string_size = max(string.len(), *max_configuration_string_size);
         string
     }
+
+    // END NOT TESTED
 
     /// Display a configuration.
     fn print_configuration_id(&self, configuration_id: ConfigurationId, stdout: &mut dyn Write) {

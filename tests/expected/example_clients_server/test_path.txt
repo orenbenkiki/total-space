@@ -1,0 +1,36 @@
+FROM INIT:
+- C(0):IDL
+& C(1):IDL
+& SRV:LST
+# B47A7D886FC33146
+
+BY: Activity -> Need -> C(0)
+TO !INIT:
+- C(0):WAT
+& C(1):IDL
+& SRV:LST
+| C(0) -> REQ(C=0) -> SRV
+# 6BAF2A724F3B0650
+
+BY: C(0) -> REQ(C=0) -> SRV
+TO:
+- C(0):WAT
+& C(1):IDL
+& SRV:WRK(C=0)
+# 0D97822B4AAC418D
+
+BY: Activity -> Completed -> SRV
+TO:
+- C(0):WAT
+& C(1):IDL
+& SRV:LST
+| SRV -> RSP -> C(0)
+# AC635309BB44193F
+
+BY: SRV -> RSP -> C(0)
+TO INIT:
+- C(0):IDL
+& C(1):IDL
+& SRV:LST
+# B47A7D886FC33146
+

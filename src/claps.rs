@@ -121,7 +121,10 @@ pub trait ClapModel {
             || self.do_clap_path(arg_matches, stdout)
             || self.do_clap_sequence(arg_matches, stdout)
             || self.do_clap_states(arg_matches, stdout);
-        assert!(did_clap);
+        assert!(
+            did_clap,
+            "no command specified; use --help to list the commands"
+        );
     }
 
     /// Compute the model.

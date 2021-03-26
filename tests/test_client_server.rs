@@ -58,7 +58,7 @@ impl AgentState<ClientState, Payload> for ClientState {
         }
     }
 
-    fn receive_message(&self, _instance: usize, payload: &Payload) -> Reaction<Self, Payload> {
+    fn reaction(&self, _instance: usize, payload: &Payload) -> Reaction<Self, Payload> {
         match (self, payload) {
             (Self::Idle, Payload::Need) => Reaction::Do1(Action::ChangeAndSend2(
                 Self::Wait,
@@ -97,7 +97,7 @@ impl AgentState<ServerState, Payload> for ServerState {
         }
     }
 
-    fn receive_message(&self, _instance: usize, payload: &Payload) -> Reaction<Self, Payload> {
+    fn reaction(&self, _instance: usize, payload: &Payload) -> Reaction<Self, Payload> {
         match (self, payload) {
             (_, Payload::Ping) => Reaction::Ignore,
             (Self::Listen, Payload::Request) => Reaction::Do1(Action::Change(Self::Work)),

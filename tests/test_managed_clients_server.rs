@@ -49,7 +49,7 @@ impl_enum_data! {
 // END MAYBE TESTED
 
 impl ContainerOf1State<ManagerState, ClientState, Payload> for ManagerState {
-    fn receive_message(
+    fn reaction(
         &self,
         _instance: usize,
         payload: &Payload,
@@ -95,7 +95,7 @@ impl AgentState<ClientState, Payload> for ClientState {
         }
     }
 
-    fn receive_message(&self, instance: usize, payload: &Payload) -> Reaction<Self, Payload> {
+    fn reaction(&self, instance: usize, payload: &Payload) -> Reaction<Self, Payload> {
         match (self, payload) {
             (Self::Idle, Payload::Need) => Reaction::Do1(Action::ChangeAndSend1(
                 Self::Wait,
@@ -138,7 +138,7 @@ impl AgentState<ServerState, Payload> for ServerState {
         }
     }
 
-    fn receive_message(&self, _instance: usize, payload: &Payload) -> Reaction<Self, Payload> {
+    fn reaction(&self, _instance: usize, payload: &Payload) -> Reaction<Self, Payload> {
         match (self, payload) {
             (Self::Listen, Payload::Request { client }) => {
                 Reaction::Do1(Action::Change(Self::Work { client: *client }))

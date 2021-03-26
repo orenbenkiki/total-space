@@ -57,8 +57,8 @@ pub trait AgentType<StateId: IndexLike, Payload: DataLike>:
     AgentInstances<StateId, Payload>
 {
     /// Return the actions that may be taken by an agent instance with some state when receiving a
-    /// message.
-    fn receive_message(
+    /// payload.
+    fn reaction(
         &self,
         instance: usize,
         state_ids: &[StateId],
@@ -341,8 +341,8 @@ impl<State: DataLike, StateId: IndexLike, Payload: DataLike> PartType<State, Sta
 /// A trait for a single agent state.
 pub trait AgentState<State: DataLike, Payload: DataLike> {
     /// Return the actions that may be taken by an agent instance with this state when receiving a
-    /// message.
-    fn receive_message(&self, instance: usize, payload: &Payload) -> Reaction<State, Payload>;
+    /// payload.
+    fn reaction(&self, instance: usize, payload: &Payload) -> Reaction<State, Payload>;
 
     /// Return the actions that may be taken by an agent with some state when time passes.
     fn activity(&self, _instance: usize) -> Activity<Payload> {
@@ -369,8 +369,8 @@ pub trait AgentState<State: DataLike, Payload: DataLike> {
 /// A trait for a container agent state.
 pub trait ContainerOf1State<State: DataLike, Part: DataLike, Payload: DataLike> {
     /// Return the actions that may be taken by an agent instance with this state when receiving a
-    /// message.
-    fn receive_message(
+    /// payload.
+    fn reaction(
         &self,
         instance: usize,
         payload: &Payload,
@@ -408,8 +408,8 @@ pub trait ContainerOf1State<State: DataLike, Part: DataLike, Payload: DataLike> 
 /// A trait for a container agent state.
 pub trait ContainerOf2State<State: DataLike, Part1: DataLike, Part2: DataLike, Payload: DataLike> {
     /// Return the actions that may be taken by an agent instance with this state when receiving a
-    /// message.
-    fn receive_message(
+    /// payload.
+    fn reaction(
         &self,
         instance: usize,
         payload: &Payload,
@@ -739,7 +739,7 @@ impl<
 impl<State: DataLike + AgentState<State, Payload>, StateId: IndexLike, Payload: DataLike>
     AgentType<StateId, Payload> for AgentTypeData<State, StateId, Payload>
 {
-    fn receive_message(
+    fn reaction(
         &self,
         instance: usize,
         state_ids: &[StateId],
@@ -755,7 +755,7 @@ impl<State: DataLike + AgentState<State, Payload>, StateId: IndexLike, Payload: 
             .states
             .borrow()
             .get(state_ids[self.first_index + instance]);
-        let reaction = state.receive_message(instance, payload);
+        let reaction = state.reaction(instance, payload);
         self.translate_reaction(reaction)
     }
 
@@ -901,7 +901,7 @@ impl<
     > AgentType<StateId, Payload>
     for ContainerOf1TypeData<State, Part, StateId, Payload, MAX_PARTS>
 {
-    fn receive_message(
+    fn reaction(
         &self,
         instance: usize,
         state_ids: &[StateId],
@@ -921,7 +921,7 @@ impl<
             .states
             .borrow()
             .get(state_ids[self.agent_type_data.first_index + instance])
-            .receive_message(instance, payload, &parts);
+            .reaction(instance, payload, &parts);
         self.agent_type_data.translate_reaction(reaction)
     }
 
@@ -1025,7 +1025,7 @@ impl<
     > AgentType<StateId, Payload>
     for ContainerOf2TypeData<State, Part1, Part2, StateId, Payload, MAX_PARTS>
 {
-    fn receive_message(
+    fn reaction(
         &self,
         instance: usize,
         state_ids: &[StateId],
@@ -1045,7 +1045,7 @@ impl<
             .states
             .borrow()
             .get(state_ids[self.agent_type_data.first_index + instance])
-            .receive_message(instance, payload, &parts1, &parts2);
+            .reaction(instance, payload, &parts1, &parts2);
         self.agent_type_data.translate_reaction(reaction)
     }
 

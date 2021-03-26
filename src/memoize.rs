@@ -34,7 +34,10 @@ pub struct Memoize<T: KeyLike, I: IndexLike> {
     max_count: usize,
 
     /// Convert a memoized identifier to the value.
-    value_by_id: Vec<T>,
+    ///
+    /// We waste the size of I here so we can optimize the size of T+I to be cache-friendly to
+    /// reduce the need to fetch two cache lines to get a single item.
+    value_by_id: Vec<(T, I)>,
 }
 
 impl<T: KeyLike + Default, I: IndexLike> Memoize<T, I> {
@@ -81,7 +84,7 @@ impl<T: KeyLike + Default, I: IndexLike> Memoize<T, I> {
         });
 
         if is_new {
-            self.value_by_id.push(value);
+            self.value_by_id.push((value, I::from_usize(0)));
         }
 
         Stored { id, is_new }
@@ -90,6 +93,6 @@ impl<T: KeyLike + Default, I: IndexLike> Memoize<T, I> {
     /// Given a short identifier previously returned by `store`, return the full value.
     pub fn get(&self, id: I) -> T {
         debug_assert!(id.to_usize() < self.len());
-        self.value_by_id[id.to_usize()]
+        self.value_by_id[id.to_usize()].0
     }
 }

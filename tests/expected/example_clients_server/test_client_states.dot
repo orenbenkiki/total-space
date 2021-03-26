@@ -1,0 +1,25 @@
+digraph {
+color=white;
+graph [ fontname="sans-serif" ];
+node [ fontname="sans-serif" ];
+edge [ fontname="sans-serif" ];
+A_0_false [ label="IDL", shape=ellipse ];
+A_1_false [ label="WAT", shape=ellipse ];
+subgraph cluster_0 {
+T_0_18446744073709551615 [ shape=point, height=0.015, width=0.015 ];
+A_0_false -> T_0_18446744073709551615 [ arrowhead=none, direction=forward ];
+T_0_18446744073709551615 -> A_1_false;
+D_0_18446744073709551615_0 [ label="Activity &#8594;\nNeed", shape=plain ];
+D_0_18446744073709551615_0 -> T_0_18446744073709551615 [ color=Black, style=dashed ];
+S_0_18446744073709551615_1 [ label="REQ\n&#8594; SRV", shape=plain ];
+T_0_18446744073709551615 -> S_0_18446744073709551615_1 [ color=Black, style=dashed ];
+S_0_18446744073709551615_1 -> A_1_false [ style=invis ];
+}
+subgraph cluster_1 {
+T_1_18446744073709551615 [ shape=point, height=0.015, width=0.015 ];
+A_1_false -> T_1_18446744073709551615 [ arrowhead=none, direction=forward ];
+T_1_18446744073709551615 -> A_0_false;
+D_1_18446744073709551615_3 [ label="SRV &#8594;\nRSP", shape=plain ];
+D_1_18446744073709551615_3 -> T_1_18446744073709551615 [ color=Black, style=dashed ];
+}
+}
