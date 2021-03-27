@@ -1,6 +1,5 @@
 mod common;
-
-use std::process::Command;
+use escargot::CargoBuild;
 
 fn check_example(example: &str, test_name: &str, suffix: &str, flags: &[&str]) {
     let path = if cfg!(debug_assertions) {
@@ -11,12 +10,21 @@ fn check_example(example: &str, test_name: &str, suffix: &str, flags: &[&str]) {
 
     let error = format!("failed to run: {} {:?}", path, flags);
 
-    let actual_output = Command::new(path).args(flags).output().expect(&error);
-    let actual_bytes = actual_output.stdout.as_slice();
+    let actual_output = CargoBuild::new()
+        .example(example)
+        .current_release()
+        .current_target()
+        .run()
+        .expect(&error)
+        .command()
+        .args(flags)
+        .output()
+        .expect(&error);
 
     if !actual_output.status.success() {
         panic!("{}", error); // NOT TESTED
     }
+    let actual_bytes = actual_output.stdout.as_slice();
 
     common::impl_assert_output(
         &format!("example_{}", example),
