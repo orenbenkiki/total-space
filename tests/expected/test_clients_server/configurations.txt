@@ -23,6 +23,11 @@
 & C(1) -> REQ(C=1) -> SRV
 # 9A81BC4D0DF76496
 
+- C(0):WAT
+& C(1):IDL
+& SRV:WRK(C=0)
+# 0D97822B4AAC418D
+
 - C(0):IDL
 & C(1):WAT
 & SRV:WRK(C=1)
@@ -30,9 +35,21 @@
 
 - C(0):WAT
 & C(1):WAT
+& SRV:WRK(C=0)
+| C(1) -> REQ(C=1) -> SRV
+# FCB914140860234B
+
+- C(0):WAT
+& C(1):WAT
 & SRV:WRK(C=1)
 | C(0) -> REQ(C=0) -> SRV
 # D7094450C5691468
+
+- C(0):WAT
+& C(1):IDL
+& SRV:LST
+| SRV -> RSP -> C(0)
+# AC635309BB44193F
 
 - C(0):IDL
 & C(1):WAT
@@ -43,9 +60,22 @@
 - C(0):WAT
 & C(1):WAT
 & SRV:LST
+| C(1) -> REQ(C=1) -> SRV
+& SRV -> RSP -> C(0)
+# 5D4DC536F9887BF9
+
+- C(0):WAT
+& C(1):WAT
+& SRV:LST
 | C(0) -> REQ(C=0) -> SRV
 & SRV -> RSP -> C(1)
 # 7EE5F78D0B56D4A3
+
+- C(0):WAT
+& C(1):WAT
+& SRV:WRK(C=1)
+| SRV -> RSP -> C(0)
+# 10C53D2B31160B07
 
 - C(0):WAT
 & C(1):WAT
@@ -56,36 +86,6 @@
 - C(0):WAT
 & C(1):WAT
 & SRV:LST
-| SRV -> RSP -> C(1)
-& SRV -> RSP -> C(0)
+| SRV -> RSP -> C(0)
+& SRV -> RSP -> C(1)
 # B9298EF6FF29CBCC
-
-- C(0):WAT
-& C(1):IDL
-& SRV:WRK(C=0)
-# 0D97822B4AAC418D
-
-- C(0):WAT
-& C(1):WAT
-& SRV:WRK(C=0)
-| C(1) -> REQ(C=1) -> SRV
-# FCB914140860234B
-
-- C(0):WAT
-& C(1):IDL
-& SRV:LST
-| SRV -> RSP -> C(0)
-# AC635309BB44193F
-
-- C(0):WAT
-& C(1):WAT
-& SRV:LST
-| C(1) -> REQ(C=1) -> SRV
-& SRV -> RSP -> C(0)
-# 5D4DC536F9887BF9
-
-- C(0):WAT
-& C(1):WAT
-& SRV:WRK(C=1)
-| SRV -> RSP -> C(0)
-# 10C53D2B31160B07

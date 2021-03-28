@@ -10,43 +10,43 @@ ParticipantBorderColor Black
 }
 skinparam ControlBorderColor White
 skinparam ControlBackgroundColor White
-participant "C(0)" as A0 order 10100
+participant "W(0)" as A0 order 10100
 activate A0 #CadetBlue
-participant "C(1)" as A1 order 10200
-activate A1 #CadetBlue
-participant "SRV" as A2 order 10300
+participant "S" as A1 order 110200
+activate A1 #MediumPurple
+participant "C(0)" as A2 order 210300
 activate A2 #CadetBlue
 rnote over A0 : IDL
-/ rnote over A1 : IDL
-/ rnote over A2 : LST
-autonumber stop
-[<[#White]-- A0
-autonumber resume
-deactivate A0
-note over A0 : Need
-A0 -> A2 : REQ(C=0)
-deactivate A2
-autonumber stop
-[<[#White]-- A0
-autonumber resume
-activate A0 #CadetBlue
-activate A2 #MediumPurple
-rnote over A0 : WAT
-/ rnote over A2 : WRK(C=0)
+/ rnote over A2 : RUN
 autonumber stop
 [<[#White]-- A0
 autonumber resume
 deactivate A2
-note over A2 : Completed
-A2 -> A0 : RSP
-deactivate A0
-autonumber stop
-[<[#White]-- A0
-autonumber resume
+note over A2 : Need
+A2 -> A1 : Task(client=0)
 activate A2 #CadetBlue
+rnote over A2 : BLK
+A1 -[#Crimson]> A0 : Task(client=0)
+deactivate A0
+autonumber stop
+[<[#White]-- A0
+autonumber resume
 activate A0 #CadetBlue
-rnote over A2 : LST
-/ rnote over A0 : IDL
+rnote over A0 : WRK(C=0)
+autonumber stop
+[<[#White]-- A0
+autonumber resume
+deactivate A0
+note over A0 : Completed
+A0 -> A2 : Result
+deactivate A2
+autonumber stop
+[<[#White]-- A0
+autonumber resume
+activate A0 #CadetBlue
+activate A2 #CadetBlue
+rnote over A0 : IDL
+/ rnote over A2 : RUN
 autonumber stop
 [<[#White]-- A0
 autonumber resume

@@ -20,10 +20,10 @@ A_1_true -> T_1_18446744073709551615 [ arrowhead=none, direction=forward ];
 T_1_18446744073709551615 -> A_0_false;
 D_1_18446744073709551615_4 [ label="Activity &#8594;\nCompleted", shape=plain ];
 D_1_18446744073709551615_4 -> T_1_18446744073709551615 [ color=Black, style=dashed ];
-S_1_18446744073709551615_5 [ label="RSP\n&#8594; C(1)", shape=plain ];
+S_1_18446744073709551615_5 [ label="RSP\n&#8594; C(0)", shape=plain ];
 T_1_18446744073709551615 -> S_1_18446744073709551615_5 [ color=Black, style=dashed ];
 S_1_18446744073709551615_5 -> A_0_false [ style=invis ];
-S_1_18446744073709551615_6 [ label="RSP\n&#8594; C(0)", shape=plain ];
+S_1_18446744073709551615_6 [ label="RSP\n&#8594; C(1)", shape=plain ];
 T_1_18446744073709551615 -> S_1_18446744073709551615_6 [ color=Black, style=dashed ];
 S_1_18446744073709551615_6 -> A_0_false [ style=invis ];
 }

@@ -151,6 +151,20 @@ TO:
 # 617946D9B03C0B81
 
 FROM:
+- Client:Wait(3)
+& Server:Listen
+| Server -> @0 Response(1) -> Client
+& Server -> @1 Response(2) -> Client
+# 84F08A08477ABE51
+
+BY: Server -> @0 Response(1) -> Client
+TO:
+- Client:Wait(2)
+& Server:Listen
+| Server -> @0 Response(2) -> Client
+# F15AA9DDC1F205C7
+
+FROM:
 - Client:Wait(2)
 & Server:Work(2)
 # 617946D9B03C0B81
@@ -173,18 +187,4 @@ TO:
 - Client:Idle
 & Server:Listen
 # E178EAB018048F0D
-
-FROM:
-- Client:Wait(3)
-& Server:Listen
-| Server -> @0 Response(1) -> Client
-& Server -> @1 Response(2) -> Client
-# 84F08A08477ABE51
-
-BY: Server -> @0 Response(1) -> Client
-TO:
-- Client:Wait(2)
-& Server:Listen
-| Server -> @0 Response(2) -> Client
-# F15AA9DDC1F205C7
 

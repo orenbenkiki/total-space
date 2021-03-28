@@ -1,0 +1,90 @@
+FROM INIT:
+- W(0):IDL
+& C(0):RUN
+& C(1):RUN
+# 0420881A93B0B020
+
+BY: Activity -> Need -> C(0)
+TO:
+- W(0):IDL
+& C(0):BLK
+& C(1):RUN
+| C(0) -> Task(client=0) -> S
+# 903ED8CE29326B97
+
+BY: Activity -> Need -> C(1)
+TO DEFERRED_TASK:
+- W(0):IDL
+& C(0):BLK
+& C(1):BLK
+| C(0) -> Task(client=0) -> S
+& C(1) -> Task(client=1) -> S
+# 4773367E3B98A14A
+
+BY: C(0) -> Task(client=0) -> S
+TO:
+- W(0):IDL
+& C(0):BLK
+& C(1):BLK
+| C(1) -> Task(client=1) -> S
+& S -> * Task(client=0) -> W(0)
+# 7307622C1F707ED1
+
+BY: S -> * Task(client=0) -> W(0)
+TO:
+- W(0):WRK(C=0)
+& C(0):BLK
+& C(1):BLK
+| C(1) -> Task(client=1) -> S
+# 450AE12471F847DA
+
+BY: Activity -> Completed -> W(0)
+TO:
+- W(0):IDL
+& C(0):BLK
+& C(1):BLK
+| C(1) -> Task(client=1) -> S
+& W(0) -> Result -> C(0)
+# 8B3C60EE807971E3
+
+BY: C(1) -> Task(client=1) -> S
+TO:
+- W(0):IDL
+& C(0):BLK
+& C(1):BLK
+| S -> * Task(client=1) -> W(0)
+& W(0) -> Result -> C(0)
+# 476BE9A1962068C7
+
+BY: S -> * Task(client=1) -> W(0)
+TO:
+- W(0):WRK(C=1)
+& C(0):BLK
+& C(1):BLK
+| W(0) -> Result -> C(0)
+# 35DDBE90DE04787F
+
+BY: Activity -> Completed -> W(0)
+TO:
+- W(0):IDL
+& C(0):BLK
+& C(1):BLK
+| W(0) -> Result -> C(0)
+& W(0) -> Result -> C(1)
+# 67DE8005C7D76D3E
+
+BY: W(0) -> Result -> C(0)
+TO:
+- W(0):IDL
+& C(0):RUN
+& C(1):BLK
+| W(0) -> Result -> C(1)
+# 3F8F8641C6B46620
+
+BY: W(0) -> Result -> C(1)
+TO INIT:
+- W(0):IDL
+& C(0):RUN
+& C(1):RUN
+# 0420881A93B0B020
+

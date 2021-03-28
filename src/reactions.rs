@@ -2,6 +2,14 @@
 
 use crate::utilities::*;
 
+/// The maximal number of alternative actions in a reaction, payloads in an activity or emitted
+/// messages within an action.
+///
+/// Making this static allows us to avoid dynamic memory allocation when computing reactions which
+/// speeds things up a lot. As a result, the size of a reaction is pretty large, but we allocate it
+/// on the stack so that seems like an acceptable trade-off.
+pub const MAX_COUNT: usize = 6;
+
 /// A message sent by an agent as part of an alternative action triggered by some event.
 #[derive(PartialEq, Eq, Copy, Clone, Debug)]
 pub enum Emit<Payload: DataLike> {
@@ -56,69 +64,11 @@ pub enum Action<State: KeyLike, Payload: DataLike> {
     /// Consume (handle) the event, change the agent state, send a single message.
     ChangeAndSend1(State, Emit<Payload>),
 
-    /// Consume (handle) the event, keep the state the same, send two messages.
-    Send2(Emit<Payload>, Emit<Payload>),
+    /// Consume (handle) the event, keep the state the same, send multiple messages.
+    Sends([Option<Emit<Payload>>; MAX_COUNT]),
 
-    /// Consume (handle) the event, change the agent state, send two messages.
-    ChangeAndSend2(State, Emit<Payload>, Emit<Payload>),
-
-    /// Consume (handle) the event, keep the state the same, send three messages.
-    Send3(Emit<Payload>, Emit<Payload>, Emit<Payload>),
-
-    /// Consume (handle) the event, change the agent state, send three messages.
-    ChangeAndSend3(State, Emit<Payload>, Emit<Payload>, Emit<Payload>),
-
-    /// Consume (handle) the event, keep the state the same, send four messages.
-    Send4(Emit<Payload>, Emit<Payload>, Emit<Payload>, Emit<Payload>),
-
-    /// Consume (handle) the event, change the agent state, send four messages.
-    ChangeAndSend4(
-        State,
-        Emit<Payload>,
-        Emit<Payload>,
-        Emit<Payload>,
-        Emit<Payload>,
-    ),
-
-    /// Consume (handle) the event, keep the state the same, send five messages.
-    Send5(
-        Emit<Payload>,
-        Emit<Payload>,
-        Emit<Payload>,
-        Emit<Payload>,
-        Emit<Payload>,
-    ),
-
-    /// Consume (handle) the event, change the agent state, send five messages.
-    ChangeAndSend5(
-        State,
-        Emit<Payload>,
-        Emit<Payload>,
-        Emit<Payload>,
-        Emit<Payload>,
-        Emit<Payload>,
-    ),
-
-    /// Consume (handle) the event, keep the state the same, send six messages.
-    Send6(
-        Emit<Payload>,
-        Emit<Payload>,
-        Emit<Payload>,
-        Emit<Payload>,
-        Emit<Payload>,
-        Emit<Payload>,
-    ),
-
-    /// Consume (handle) the event, change the agent state, send six messages.
-    ChangeAndSend6(
-        State,
-        Emit<Payload>,
-        Emit<Payload>,
-        Emit<Payload>,
-        Emit<Payload>,
-        Emit<Payload>,
-        Emit<Payload>,
-    ),
+    /// Consume (handle) the event, change the agent state, send multiple messages.
+    ChangeAndSends(State, [Option<Emit<Payload>>; MAX_COUNT]),
 }
 
 /// The reaction of an agent to time passing.
@@ -130,20 +80,8 @@ pub enum Activity<Payload: DataLike> {
     /// The agent activity generates a message, to be delivered to it for processing.
     Process1(Payload),
 
-    /// The agent activity generates one of two messages, to be delivered to it for processing.
-    Process1Of2(Payload, Payload),
-
-    /// The agent activity generates one of three messages, to be delivered to it for processing.
-    Process1Of3(Payload, Payload, Payload),
-
-    /// The agent activity generates one of four messages, to be delivered to it for processing.
-    Process1Of4(Payload, Payload, Payload, Payload),
-
-    /// The agent activity generates one of five messages, to be delivered to it for processing.
-    Process1Of5(Payload, Payload, Payload, Payload, Payload),
-
-    /// The agent activity generates one of six messages, to be delivered to it for processing.
-    Process1Of6(Payload, Payload, Payload, Payload, Payload, Payload),
+    /// The agent activity generates one of several messages, to be delivered to it for processing.
+    Process1Of([Option<Payload>; MAX_COUNT]),
 }
 
 /// The reaction of an agent to receiving a message.
@@ -165,40 +103,6 @@ pub enum Reaction<State: KeyLike, Payload: DataLike> {
     /// A single action (deterministic).
     Do1(Action<State, Payload>),
 
-    /// One of two alternative actions (non-deterministic).
-    Do1Of2(Action<State, Payload>, Action<State, Payload>),
-
-    /// One of three alternative actions (non-deterministic).
-    Do1Of3(
-        Action<State, Payload>,
-        Action<State, Payload>,
-        Action<State, Payload>,
-    ),
-
-    /// One of four alternative actions (non-deterministic).
-    Do1Of4(
-        Action<State, Payload>,
-        Action<State, Payload>,
-        Action<State, Payload>,
-        Action<State, Payload>,
-    ),
-
-    /// One of five alternative actions (non-deterministic).
-    Do1Of5(
-        Action<State, Payload>,
-        Action<State, Payload>,
-        Action<State, Payload>,
-        Action<State, Payload>,
-        Action<State, Payload>,
-    ),
-
-    /// One of four alternative actions (non-deterministic).
-    Do1Of6(
-        Action<State, Payload>,
-        Action<State, Payload>,
-        Action<State, Payload>,
-        Action<State, Payload>,
-        Action<State, Payload>,
-        Action<State, Payload>,
-    ),
+    /// One of several alternative actions (non-deterministic).
+    Do1Of([Option<Action<State, Payload>>; MAX_COUNT]),
 }

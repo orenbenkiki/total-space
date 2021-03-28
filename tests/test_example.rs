@@ -36,43 +36,28 @@ fn check_example(example: &str, test_name: &str, suffix: &str, flags: &[&str]) {
 
 #[test]
 fn test_configurations() {
-    check_example(
-        "clients_server",
-        test_name!(),
-        "txt",
-        &vec!["configurations"],
-    );
+    check_example("simple", test_name!(), "txt", &vec!["configurations"]);
 }
 
 #[test]
 fn test_transitions() {
-    check_example("clients_server", test_name!(), "txt", &vec!["transitions"]);
+    check_example("simple", test_name!(), "txt", &vec!["transitions"]);
 }
 
 #[test]
 fn test_client_states() {
-    check_example(
-        "clients_server",
-        test_name!(),
-        "dot",
-        &vec!["states", "-c", "C(0)"],
-    );
+    check_example("simple", test_name!(), "dot", &vec!["states", "-c", "C(0)"]);
 }
 
 #[test]
 fn test_server_states() {
-    check_example(
-        "clients_server",
-        test_name!(),
-        "dot",
-        &vec!["states", "-c", "SRV"],
-    );
+    check_example("simple", test_name!(), "dot", &vec!["states", "-c", "S"]);
 }
 
 #[test]
-fn test_path() {
+fn test_1_1_path() {
     check_example(
-        "clients_server",
+        "simple",
         test_name!(),
         "txt",
         &vec!["path", "INIT", "!INIT", "INIT"],
@@ -80,11 +65,31 @@ fn test_path() {
 }
 
 #[test]
-fn test_sequence() {
+fn test_1_1_sequence() {
     check_example(
-        "clients_server",
+        "simple",
         test_name!(),
         "uml",
         &vec!["sequence", "INIT", "!INIT", "INIT"],
+    );
+}
+
+#[test]
+fn test_2_1_path() {
+    check_example(
+        "simple",
+        test_name!(),
+        "txt",
+        &vec!["-C", "2", "path", "INIT", "DEFERRED_TASK", "INIT"],
+    );
+}
+
+#[test]
+fn test_2_1_sequence() {
+    check_example(
+        "simple",
+        test_name!(),
+        "uml",
+        &vec!["-C", "2", "sequence", "INIT", "DEFERRED_TASK", "INIT"],
     );
 }

@@ -88,7 +88,7 @@
 <g id="node8" class="node">
 <title>S_1_18446744073709551615_5</title>
 <text text-anchor="middle" x="90" y="-215.88" font-family="sans-serif" font-size="14.00">RSP</text>
-<text text-anchor="middle" x="90" y="-200.88" font-family="sans-serif" font-size="14.00">→ C(1)</text>
+<text text-anchor="middle" x="90" y="-200.88" font-family="sans-serif" font-size="14.00">→ C(0)</text>
 </g>
 <!-- T_1_18446744073709551615&#45;&gt;S_1_18446744073709551615_5 -->
 <g id="edge8" class="edge">
@@ -100,7 +100,7 @@
 <g id="node9" class="node">
 <title>S_1_18446744073709551615_6</title>
 <text text-anchor="middle" x="153" y="-215.88" font-family="sans-serif" font-size="14.00">RSP</text>
-<text text-anchor="middle" x="153" y="-200.88" font-family="sans-serif" font-size="14.00">→ C(0)</text>
+<text text-anchor="middle" x="153" y="-200.88" font-family="sans-serif" font-size="14.00">→ C(1)</text>
 </g>
 <!-- T_1_18446744073709551615&#45;&gt;S_1_18446744073709551615_6 -->
 <g id="edge10" class="edge">

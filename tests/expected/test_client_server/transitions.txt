@@ -63,6 +63,18 @@ FROM:
 - C:WAT
 & S:LST
 | C -> REQ -> S
+# 14B91300A41CF74F
+
+BY: C -> REQ -> S
+TO:
+- C:WAT
+& S:WRK
+# 0C310AE36BAA93C1
+
+FROM:
+- C:WAT
+& S:LST
+| C -> REQ -> S
 & C -> * PNG => PNG -> S
 # EE0E7B891EDDE982
 
@@ -92,18 +104,6 @@ TO:
 - C:IDL
 & S:LST
 # B3AC72F3FA48764C
-
-FROM:
-- C:WAT
-& S:LST
-| C -> REQ -> S
-# 14B91300A41CF74F
-
-BY: C -> REQ -> S
-TO:
-- C:WAT
-& S:WRK
-# 0C310AE36BAA93C1
 
 FROM:
 - C:WAT

@@ -11,6 +11,7 @@ use hashbrown::hash_map::Entry;
 use hashbrown::HashMap;
 use std::cell::RefCell;
 use std::cmp::max;
+use std::collections::VecDeque;
 use std::fmt::Debug;
 use std::io::stderr;
 use std::io::Write;
@@ -52,10 +53,29 @@ pub struct Incoming<MessageId: IndexLike, ConfigurationId: IndexLike> {
 
 // END MAYBE TESTED
 
+/// A function to identify specific configurations.
+pub(crate) enum ConditionFunction<Model: MetaModel> {
+    /// Using just the configuration identifier.
+    ById(fn(&Model, Model::ConfigurationId) -> bool),
+
+    /// Using the configuration itself.
+    ByConfig(fn(&Model, &Model::Configuration) -> bool),
+}
+
+impl<Model: MetaModel> Clone for ConditionFunction<Model> {
+    /// Clone this (somehow can't be derived or declared as implemented).
+    fn clone(&self) -> Self {
+        match *self {
+            ConditionFunction::ById(by_id) => ConditionFunction::ById(by_id),
+            ConditionFunction::ByConfig(by_config) => ConditionFunction::ByConfig(by_config),
+        }
+    }
+}
+
 /// A path step (possibly negated named condition).
 pub(crate) struct PathStep<Model: MetaModel> {
     /// The condition function.
-    condition: fn(&Model, Model::ConfigurationId) -> bool,
+    function: ConditionFunction<Model>,
 
     /// Whether to negate the condition.
     is_negated: bool,
@@ -65,10 +85,10 @@ pub(crate) struct PathStep<Model: MetaModel> {
 }
 
 impl<Model: MetaModel> PathStep<Model> {
-    /// Clone this (somehow can't be derived).
+    /// Clone this (can't be derived due to ConditionFunction).
     fn clone(&self) -> Self {
         PathStep {
-            condition: self.condition,
+            function: self.function.clone(),
             is_negated: self.is_negated,
             name: self.name.clone(),
         }
@@ -182,7 +202,7 @@ pub struct Model<
     first_indices: Vec<usize>,
 
     /// Validation functions for the configuration.
-    validators: Vec<<Self as MetaModel>::Validator>,
+    validator: Option<<Self as MetaModel>::Validator>,
 
     /// Memoization of the configurations.
     configurations: Memoize<<Self as MetaModel>::Configuration, ConfigurationId>,
@@ -245,7 +265,7 @@ pub struct Model<
     early_abort: bool,
 
     /// Named conditions on a configuration.
-    conditions: HashMap<String, (<Self as MetaModel>::Condition, &'static str)>,
+    conditions: HashMap<String, (ConditionFunction<Self>, &'static str)>,
 
     /// Mask of configurations that can reach back to the initial state.
     reachable_configurations_mask: Vec<bool>,
@@ -254,7 +274,7 @@ pub struct Model<
     reachable_configurations_count: usize,
 
     /// The configurations we need to process.
-    pending_configuration_ids: Vec<ConfigurationId>,
+    pending_configuration_ids: VecDeque<ConfigurationId>,
 }
 
 /// Allow querying the model's meta-parameters for public types.
@@ -342,9 +362,11 @@ impl<
         ConfigurationId,
     );
     type Validator = fn(
+        &Self,
         &Configuration<StateId, MessageId, InvalidId, MAX_AGENTS, MAX_MESSAGES>,
     ) -> Option<&'static str>;
-    type Condition = fn(&Self, ConfigurationId) -> bool;
+    type Condition =
+        fn(&Self, &Configuration<StateId, MessageId, InvalidId, MAX_AGENTS, MAX_MESSAGES>) -> bool;
 }
 
 /// Allow querying the model's meta-parameters for private types.
@@ -422,14 +444,27 @@ impl<
         const MAX_MESSAGES: usize,
     > Model<StateId, MessageId, InvalidId, ConfigurationId, Payload, MAX_AGENTS, MAX_MESSAGES>
 {
-    /// Create a new model, without computing anything yet.
+    /// Create a new model, without computing anything yet, with a validation function.
+    pub fn with_validator(
+        size: usize,
+        last_agent_type: Rc<dyn AgentType<StateId, Payload>>,
+        validator: <Self as MetaModel>::Validator,
+    ) -> Self {
+        Self::create(size, last_agent_type, Some(validator))
+    }
+
+    /// Create a new model, without a validation function.
     ///
     /// This allows querying the model for the `agent_index` of all the agents to use the results as
     /// a target for messages.
-    pub fn new(
+    pub fn new(size: usize, last_agent_type: Rc<dyn AgentType<StateId, Payload>>) -> Self {
+        Self::create(size, last_agent_type, None)
+    }
+
+    fn create(
         size: usize,
         last_agent_type: Rc<dyn AgentType<StateId, Payload>>,
-        validators: Vec<<Self as MetaModel>::Validator>,
+        validator: Option<<Self as MetaModel>::Validator>,
     ) -> Self {
         assert!(
             MAX_MESSAGES < MessageIndex::invalid().to_usize(),
@@ -453,7 +488,7 @@ impl<
             agent_types,
             agent_labels,
             first_indices,
-            validators,
+            validator,
             configurations: Memoize::with_capacity(usize::max_value(), size),
             transitions_count: 0,
             messages: Memoize::new(MessageId::invalid().to_usize()),
@@ -477,7 +512,7 @@ impl<
             conditions: HashMap::with_capacity(128),
             reachable_configurations_mask: Vec::new(),
             reachable_configurations_count: 0,
-            pending_configuration_ids: Vec::new(),
+            pending_configuration_ids: VecDeque::new(),
         };
 
         model.add_standard_conditions();
@@ -540,165 +575,81 @@ impl<
     }
 
     fn add_standard_conditions(&mut self) {
-        self.add_condition("INIT", is_init, "matches the initial configuration");
+        self.conditions.insert(
+            "INIT".to_string(),
+            (
+                ConditionFunction::ById(Self::is_init_condition),
+                "matches the initial configuration",
+            ),
+        );
         self.add_condition(
             "VALID",
-            is_valid,
+            Self::is_valid_condition,
             "matches any valid configuration (is typically negated)",
         );
         self.add_condition(
             "IMMEDIATE_REPLACEMENT",
-            has_immediate_replacement,
+            Self::has_immediate_replacement,
             "matches a configuration with a message replaced by an immediate message",
         );
         self.add_condition(
             "UNORDERED_REPLACEMENT",
-            has_unordered_replacement,
+            Self::has_unordered_replacement,
             "matches a configuration with a message replaced by an unordered message",
         );
         self.add_condition(
             "ORDERED_REPLACEMENT",
-            has_ordered_replacement,
+            Self::has_ordered_replacement,
             "matches a configuration with a message replaced by an ordered message",
         );
         self.add_condition(
             "0MSG",
-            has_messages_count::<
-                StateId,
-                MessageId,
-                InvalidId,
-                ConfigurationId,
-                Payload,
-                MAX_AGENTS,
-                MAX_MESSAGES,
-                0,
-            >,
+            Self::has_messages_count::<0>,
             "matches any configuration with no in-flight messages",
         );
         self.add_condition(
             "1MSG",
-            has_messages_count::<
-                StateId,
-                MessageId,
-                InvalidId,
-                ConfigurationId,
-                Payload,
-                MAX_AGENTS,
-                MAX_MESSAGES,
-                1,
-            >,
+            Self::has_messages_count::<1>,
             "matches any configuration with a single in-flight message",
         );
         self.add_condition(
             "2MSG",
-            has_messages_count::<
-                StateId,
-                MessageId,
-                InvalidId,
-                ConfigurationId,
-                Payload,
-                MAX_AGENTS,
-                MAX_MESSAGES,
-                2,
-            >,
+            Self::has_messages_count::<2>,
             "matches any configuration with 2 in-flight messages",
         );
         self.add_condition(
             "3MSG",
-            has_messages_count::<
-                StateId,
-                MessageId,
-                InvalidId,
-                ConfigurationId,
-                Payload,
-                MAX_AGENTS,
-                MAX_MESSAGES,
-                3,
-            >,
+            Self::has_messages_count::<3>,
             "matches any configuration with 3 in-flight messages",
         );
         self.add_condition(
             "4MSG",
-            has_messages_count::<
-                StateId,
-                MessageId,
-                InvalidId,
-                ConfigurationId,
-                Payload,
-                MAX_AGENTS,
-                MAX_MESSAGES,
-                4,
-            >,
+            Self::has_messages_count::<4>,
             "matches any configuration with 4 in-flight messages",
         );
         self.add_condition(
             "5MSG",
-            has_messages_count::<
-                StateId,
-                MessageId,
-                InvalidId,
-                ConfigurationId,
-                Payload,
-                MAX_AGENTS,
-                MAX_MESSAGES,
-                5,
-            >,
+            Self::has_messages_count::<5>,
             "matches any configuration with 5 in-flight messages",
         );
         self.add_condition(
             "6MSG",
-            has_messages_count::<
-                StateId,
-                MessageId,
-                InvalidId,
-                ConfigurationId,
-                Payload,
-                MAX_AGENTS,
-                MAX_MESSAGES,
-                6,
-            >,
+            Self::has_messages_count::<6>,
             "matches any configuration with 6 in-flight messages",
         );
         self.add_condition(
             "7MSG",
-            has_messages_count::<
-                StateId,
-                MessageId,
-                InvalidId,
-                ConfigurationId,
-                Payload,
-                MAX_AGENTS,
-                MAX_MESSAGES,
-                7,
-            >,
+            Self::has_messages_count::<7>,
             "matches any configuration with 7 in-flight messages",
         );
         self.add_condition(
             "8MSG",
-            has_messages_count::<
-                StateId,
-                MessageId,
-                InvalidId,
-                ConfigurationId,
-                Payload,
-                MAX_AGENTS,
-                MAX_MESSAGES,
-                8,
-            >,
+            Self::has_messages_count::<8>,
             "matches any configuration with 8 in-flight messages",
         );
         self.add_condition(
             "9MSG",
-            has_messages_count::<
-                StateId,
-                MessageId,
-                InvalidId,
-                ConfigurationId,
-                Payload,
-                MAX_AGENTS,
-                MAX_MESSAGES,
-                9,
-            >,
+            Self::has_messages_count::<9>,
             "matches any configuration with 9 in-flight messages",
         );
     }
@@ -714,161 +665,82 @@ pub fn model_size(arg_matches: &ArgMatches, auto: usize) -> usize {
     }
 }
 
-fn is_init<Model, ConfigurationId: IndexLike>(
-    _model: &Model,
-    configuration_id: ConfigurationId,
-) -> bool {
-    configuration_id.to_usize() == 0
-}
+// Conditions:
 
-// BEGIN NOT TESTED
-fn is_valid<
-    StateId: IndexLike,
-    MessageId: IndexLike,
-    InvalidId: IndexLike,
-    ConfigurationId: IndexLike,
-    Payload: DataLike,
-    const MAX_AGENTS: usize,
-    const MAX_MESSAGES: usize,
->(
-    model: &Model<
-        StateId,
-        MessageId,
-        InvalidId,
-        ConfigurationId,
-        Payload,
-        MAX_AGENTS,
-        MAX_MESSAGES,
-    >,
-    configuration_id: ConfigurationId,
-) -> bool {
-    !model
-        .get_configuration(configuration_id)
-        .invalid_id
-        .is_valid()
-}
+impl<
+        StateId: IndexLike,
+        MessageId: IndexLike,
+        InvalidId: IndexLike,
+        ConfigurationId: IndexLike,
+        Payload: DataLike,
+        const MAX_AGENTS: usize,
+        const MAX_MESSAGES: usize,
+    > Model<StateId, MessageId, InvalidId, ConfigurationId, Payload, MAX_AGENTS, MAX_MESSAGES>
+{
+    fn is_init_condition(_model: &Self, configuration_id: ConfigurationId) -> bool {
+        configuration_id.to_usize() == 0
+    }
 
-// END NOT TESTED
+    // BEGIN NOT TESTED
+    fn is_valid_condition(
+        _model: &Self,
+        configuration: &<Self as MetaModel>::Configuration,
+    ) -> bool {
+        configuration.invalid_id.is_valid()
+    }
+    // END NOT TESTED
 
-fn has_immediate_replacement<
-    StateId: IndexLike,
-    MessageId: IndexLike,
-    InvalidId: IndexLike,
-    ConfigurationId: IndexLike,
-    Payload: DataLike,
-    const MAX_AGENTS: usize,
-    const MAX_MESSAGES: usize,
->(
-    model: &Model<
-        StateId,
-        MessageId,
-        InvalidId,
-        ConfigurationId,
-        Payload,
-        MAX_AGENTS,
-        MAX_MESSAGES,
-    >,
-    configuration_id: ConfigurationId,
-) -> bool {
-    model
-        .get_configuration(configuration_id)
-        .message_ids
-        .iter()
-        .take_while(|message_id| message_id.is_valid())
-        .map(|message_id| model.get_message(*message_id))
-        .any(|message| message.replaced.is_some() && message.order == MessageOrder::Immediate)
-}
+    fn has_immediate_replacement(
+        model: &Self,
+        configuration: &<Self as MetaModel>::Configuration,
+    ) -> bool {
+        configuration
+            .message_ids
+            .iter()
+            .take_while(|message_id| message_id.is_valid())
+            .map(|message_id| model.get_message(*message_id))
+            .any(|message| message.replaced.is_some() && message.order == MessageOrder::Immediate)
+    }
 
-fn has_unordered_replacement<
-    StateId: IndexLike,
-    MessageId: IndexLike,
-    InvalidId: IndexLike,
-    ConfigurationId: IndexLike,
-    Payload: DataLike,
-    const MAX_AGENTS: usize,
-    const MAX_MESSAGES: usize,
->(
-    model: &Model<
-        StateId,
-        MessageId,
-        InvalidId,
-        ConfigurationId,
-        Payload,
-        MAX_AGENTS,
-        MAX_MESSAGES,
-    >,
-    configuration_id: ConfigurationId,
-) -> bool {
-    model
-        .get_configuration(configuration_id)
-        .message_ids
-        .iter()
-        .take_while(|message_id| message_id.is_valid())
-        .map(|message_id| model.get_message(*message_id))
-        .any(|message| message.replaced.is_some() && message.order == MessageOrder::Unordered)
-}
+    fn has_unordered_replacement(
+        model: &Self,
+        configuration: &<Self as MetaModel>::Configuration,
+    ) -> bool {
+        configuration
+            .message_ids
+            .iter()
+            .take_while(|message_id| message_id.is_valid())
+            .map(|message_id| model.get_message(*message_id))
+            .any(|message| message.replaced.is_some() && message.order == MessageOrder::Unordered)
+    }
 
-// BEGIN NOT TESTED
-fn has_ordered_replacement<
-    StateId: IndexLike,
-    MessageId: IndexLike,
-    InvalidId: IndexLike,
-    ConfigurationId: IndexLike,
-    Payload: DataLike,
-    const MAX_AGENTS: usize,
-    const MAX_MESSAGES: usize,
->(
-    model: &Model<
-        StateId,
-        MessageId,
-        InvalidId,
-        ConfigurationId,
-        Payload,
-        MAX_AGENTS,
-        MAX_MESSAGES,
-    >,
-    configuration_id: ConfigurationId,
-) -> bool {
-    model
-        .get_configuration(configuration_id)
-        .message_ids
-        .iter()
-        .take_while(|message_id| message_id.is_valid())
-        .map(|message_id| model.get_message(*message_id))
-        .any(|message| {
-            message.replaced.is_some() && matches!(message.order, MessageOrder::Ordered(_))
-        })
-}
-// END NOT TESTED
+    // BEGIN NOT TESTED
+    fn has_ordered_replacement(
+        model: &Self,
+        configuration: &<Self as MetaModel>::Configuration,
+    ) -> bool {
+        configuration
+            .message_ids
+            .iter()
+            .take_while(|message_id| message_id.is_valid())
+            .map(|message_id| model.get_message(*message_id))
+            .any(|message| {
+                message.replaced.is_some() && matches!(message.order, MessageOrder::Ordered(_))
+            })
+    }
+    // END NOT TESTED
 
-fn has_messages_count<
-    StateId: IndexLike,
-    MessageId: IndexLike,
-    InvalidId: IndexLike,
-    ConfigurationId: IndexLike,
-    Payload: DataLike,
-    const MAX_AGENTS: usize,
-    const MAX_MESSAGES: usize,
-    const MESSAGES_COUNT: usize,
->(
-    model: &Model<
-        StateId,
-        MessageId,
-        InvalidId,
-        ConfigurationId,
-        Payload,
-        MAX_AGENTS,
-        MAX_MESSAGES,
-    >,
-    configuration_id: ConfigurationId,
-) -> bool {
-    model
-        .get_configuration(configuration_id)
-        .message_ids
-        .iter()
-        .take_while(|message_id| message_id.is_valid())
-        .count()
-        == MESSAGES_COUNT
+    fn has_messages_count<const MESSAGES_COUNT: usize>(
+        _model: &Self,
+        configuration: &<Self as MetaModel>::Configuration,
+    ) -> bool {
+        configuration
+            .message_ids
+            .iter()
+            .take_while(|message_id| message_id.is_valid())
+            .count()
+            == MESSAGES_COUNT
+    }
 }
 
 // Model accessors:
@@ -890,7 +762,10 @@ impl<
         condition: <Self as MetaModel>::Condition,
         help: &'static str,
     ) {
-        self.conditions.insert(name.to_string(), (condition, help));
+        self.conditions.insert(
+            name.to_string(),
+            (ConditionFunction::ByConfig(condition), help),
+        );
     }
 
     /// Return the total number of agents.
@@ -914,10 +789,12 @@ impl<
     pub fn agent_instance_index(&self, name: &'static str, instance: Option<usize>) -> usize {
         let agent_type = self.agent_type(name);
         if let Some(lookup_instance) = instance {
+            // BEGIN NOT TESTED
             assert!(lookup_instance < agent_type.instances_count(),
                     "out of bounds instance {} specified when locating an agent of type {} which has {} instances",
-                    lookup_instance, name, agent_type.instances_count()); // NOT TESTED
+                    lookup_instance, name, agent_type.instances_count());
             self.first_indices[agent_type.first_index()] + lookup_instance
+            // END NOT TESTED
         } else {
             assert!(
                 agent_type.is_singleton(),
@@ -990,9 +867,9 @@ impl<
 
         assert!(self.pending_configuration_ids.is_empty());
         self.pending_configuration_ids
-            .push(ConfigurationId::from_usize(0));
+            .push_back(ConfigurationId::from_usize(0));
 
-        while let Some(configuration_id) = self.pending_configuration_ids.pop() {
+        while let Some(configuration_id) = self.pending_configuration_ids.pop_front() {
             self.explore_configuration(configuration_id);
         }
 
@@ -1046,7 +923,7 @@ impl<
                 }
             }
 
-            self.pending_configuration_ids.push(stored.id);
+            self.pending_configuration_ids.push_back(stored.id);
         }
     }
 
@@ -1123,141 +1000,16 @@ impl<
                 );
             }
 
-            Activity::Process1Of2(payload1, payload2) => {
-                self.activity_message(
-                    from_configuration_id,
-                    from_configuration,
-                    agent_index,
-                    payload1,
-                );
-                self.activity_message(
-                    from_configuration_id,
-                    from_configuration,
-                    agent_index,
-                    payload2,
-                );
+            Activity::Process1Of(payloads) => {
+                for payload in payloads.iter().flatten() {
+                    self.activity_message(
+                        from_configuration_id,
+                        from_configuration,
+                        agent_index,
+                        *payload,
+                    );
+                }
             }
-
-            // BEGIN NOT TESTED
-            Activity::Process1Of3(payload1, payload2, payload3) => {
-                self.activity_message(
-                    from_configuration_id,
-                    from_configuration,
-                    agent_index,
-                    payload1,
-                );
-                self.activity_message(
-                    from_configuration_id,
-                    from_configuration,
-                    agent_index,
-                    payload2,
-                );
-                self.activity_message(
-                    from_configuration_id,
-                    from_configuration,
-                    agent_index,
-                    payload3,
-                );
-            }
-
-            Activity::Process1Of4(payload1, payload2, payload3, payload4) => {
-                self.activity_message(
-                    from_configuration_id,
-                    from_configuration,
-                    agent_index,
-                    payload1,
-                );
-                self.activity_message(
-                    from_configuration_id,
-                    from_configuration,
-                    agent_index,
-                    payload2,
-                );
-                self.activity_message(
-                    from_configuration_id,
-                    from_configuration,
-                    agent_index,
-                    payload3,
-                );
-                self.activity_message(
-                    from_configuration_id,
-                    from_configuration,
-                    agent_index,
-                    payload4,
-                );
-            }
-
-            Activity::Process1Of5(payload1, payload2, payload3, payload4, payload5) => {
-                self.activity_message(
-                    from_configuration_id,
-                    from_configuration,
-                    agent_index,
-                    payload1,
-                );
-                self.activity_message(
-                    from_configuration_id,
-                    from_configuration,
-                    agent_index,
-                    payload2,
-                );
-                self.activity_message(
-                    from_configuration_id,
-                    from_configuration,
-                    agent_index,
-                    payload3,
-                );
-                self.activity_message(
-                    from_configuration_id,
-                    from_configuration,
-                    agent_index,
-                    payload4,
-                );
-                self.activity_message(
-                    from_configuration_id,
-                    from_configuration,
-                    agent_index,
-                    payload5,
-                );
-            }
-
-            Activity::Process1Of6(payload1, payload2, payload3, payload4, payload5, payload6) => {
-                self.activity_message(
-                    from_configuration_id,
-                    from_configuration,
-                    agent_index,
-                    payload1,
-                );
-                self.activity_message(
-                    from_configuration_id,
-                    from_configuration,
-                    agent_index,
-                    payload2,
-                );
-                self.activity_message(
-                    from_configuration_id,
-                    from_configuration,
-                    agent_index,
-                    payload3,
-                );
-                self.activity_message(
-                    from_configuration_id,
-                    from_configuration,
-                    agent_index,
-                    payload4,
-                );
-                self.activity_message(
-                    from_configuration_id,
-                    from_configuration,
-                    agent_index,
-                    payload5,
-                );
-                self.activity_message(
-                    from_configuration_id,
-                    from_configuration,
-                    agent_index,
-                    payload6,
-                );
-            } // END NOT TESTED
         }
     }
 
@@ -1340,63 +1092,40 @@ impl<
             from_configuration,
             to_configuration,
         };
-        self.process_reaction(context, reaction);
+        self.process_reaction(context, &reaction);
     }
 
     fn process_reaction(
         &mut self,
         context: <Self as ModelTypes>::Context,
-        reaction: <Self as MetaModel>::Reaction,
+        reaction: &<Self as MetaModel>::Reaction,
     ) {
         match reaction // MAYBE TESTED
         {
             Reaction::Unexpected => self.error(&context, "unexpected message"), // MAYBE TESTED
             Reaction::Defer => self.defer_message(context),
             Reaction::Ignore => self.ignore_message(context),
-            Reaction::Do1(action1) => self.perform_action(context, action1),
+            Reaction::Do1(action) => self.perform_action(context, action),
 
             // BEGIN NOT TESTED
-            Reaction::Do1Of2(action1, action2) => {
-                self.perform_action(context.clone(), action1);
-                self.perform_action(context, action2);
+            Reaction::Do1Of(actions) => {
+                let mut did_action = false;
+                for action in actions.iter().flatten() {
+                    self.perform_action(context.clone(), action);
+                    did_action = true;
+                }
+                if !did_action {
+                    self.ignore_message(context);
+                }
             }
-
-            Reaction::Do1Of3(action1, action2, action3) => {
-                self.perform_action(context.clone(), action1);
-                self.perform_action(context.clone(), action2);
-                self.perform_action(context, action3);
-            }
-
-            Reaction::Do1Of4(action1, action2, action3, action4) => {
-                self.perform_action(context.clone(), action1);
-                self.perform_action(context.clone(), action2);
-                self.perform_action(context.clone(), action3);
-                self.perform_action(context, action4);
-            }
-
-            Reaction::Do1Of5(action1, action2, action3, action4, action5) => {
-                self.perform_action(context.clone(), action1);
-                self.perform_action(context.clone(), action2);
-                self.perform_action(context.clone(), action3);
-                self.perform_action(context.clone(), action4);
-                self.perform_action(context, action5);
-            }
-
-            Reaction::Do1Of6(action1, action2, action3, action4, action5, action6) => {
-                self.perform_action(context.clone(), action1);
-                self.perform_action(context.clone(), action2);
-                self.perform_action(context.clone(), action3);
-                self.perform_action(context.clone(), action4);
-                self.perform_action(context.clone(), action5);
-                self.perform_action(context, action6);
-            } // END NOT TESTED
+            // END NOT TESTED
         }
     }
 
     fn perform_action(
         &mut self,
         mut context: <Self as ModelTypes>::Context,
-        action: <Self as MetaModel>::Action,
+        action: &<Self as MetaModel>::Action,
     ) {
         if self.early_abort {
             return;
@@ -1407,108 +1136,58 @@ impl<
             Action::Ignore => self.ignore_message(context), // NOT TESTED
 
             Action::Change(agent_to_state_id) => {
-                if agent_to_state_id == context.agent_from_state_id {
+                if *agent_to_state_id == context.agent_from_state_id {
                     self.ignore_message(context); // NOT TESTED
                 } else {
-                    self.change_state(&mut context, agent_to_state_id);
+                    self.change_state(&mut context, *agent_to_state_id);
                     self.reach_configuration(context);
                 }
             }
-            Action::Send1(emit1) => {
-                self.collect_emit(&mut context, emit1);
+            Action::Send1(emit) => {
+                self.collect_emit(&mut context, emit);
                 self.reach_configuration(context);
             }
-            Action::ChangeAndSend1(agent_to_state_id, emit1) => {
-                self.change_state(&mut context, agent_to_state_id);
-                self.collect_emit(&mut context, emit1);
-                self.reach_configuration(context);
-            }
-
-            Action::ChangeAndSend2(agent_to_state_id, emit1, emit2) => {
-                self.change_state(&mut context, agent_to_state_id);
-                self.collect_emit(&mut context, emit1);
-                self.collect_emit(&mut context, emit2);
+            Action::ChangeAndSend1(agent_to_state_id, emit) => {
+                if *agent_to_state_id != context.agent_from_state_id {
+                    self.change_state(&mut context, *agent_to_state_id);
+                }
+                self.collect_emit(&mut context, emit);
                 self.reach_configuration(context);
             }
 
             // BEGIN NOT TESTED
-            Action::Send2(emit1, emit2) => {
-                self.collect_emit(&mut context, emit1);
-                self.collect_emit(&mut context, emit2);
-                self.reach_configuration(context);
+            Action::Sends(emits) => {
+                let mut did_emit = false;
+                for emit in emits.iter().flatten() {
+                    self.collect_emit(&mut context, emit);
+                    did_emit = true;
+                }
+                if did_emit {
+                    self.reach_configuration(context);
+                } else {
+                    self.ignore_message(context);
+                }
             }
+            // END NOT TESTED
+            Action::ChangeAndSends(agent_to_state_id, emits) => {
+                let mut did_react = false;
 
-            Action::ChangeAndSend3(agent_to_state_id, emit1, emit2, emit3) => {
-                self.change_state(&mut context, agent_to_state_id);
-                self.collect_emit(&mut context, emit1);
-                self.collect_emit(&mut context, emit2);
-                self.collect_emit(&mut context, emit3);
-                self.reach_configuration(context);
+                if *agent_to_state_id != context.agent_from_state_id {
+                    self.change_state(&mut context, *agent_to_state_id);
+                    did_react = true;
+                }
+
+                for emit in emits.iter().flatten() {
+                    self.collect_emit(&mut context, emit);
+                    did_react = true;
+                }
+
+                if !did_react {
+                    self.ignore_message(context); // NOT TESTED
+                } else {
+                    self.reach_configuration(context);
+                }
             }
-
-            Action::Send3(emit1, emit2, emit3) => {
-                self.collect_emit(&mut context, emit1);
-                self.collect_emit(&mut context, emit2);
-                self.collect_emit(&mut context, emit3);
-                self.reach_configuration(context);
-            }
-
-            Action::ChangeAndSend4(agent_to_state_id, emit1, emit2, emit3, emit4) => {
-                self.change_state(&mut context, agent_to_state_id);
-                self.collect_emit(&mut context, emit1);
-                self.collect_emit(&mut context, emit2);
-                self.collect_emit(&mut context, emit3);
-                self.collect_emit(&mut context, emit4);
-                self.reach_configuration(context);
-            }
-
-            Action::Send4(emit1, emit2, emit3, emit4) => {
-                self.collect_emit(&mut context, emit1);
-                self.collect_emit(&mut context, emit2);
-                self.collect_emit(&mut context, emit3);
-                self.collect_emit(&mut context, emit4);
-                self.reach_configuration(context);
-            }
-
-            Action::ChangeAndSend5(agent_to_state_id, emit1, emit2, emit3, emit4, emit5) => {
-                self.change_state(&mut context, agent_to_state_id);
-                self.collect_emit(&mut context, emit1);
-                self.collect_emit(&mut context, emit2);
-                self.collect_emit(&mut context, emit3);
-                self.collect_emit(&mut context, emit4);
-                self.collect_emit(&mut context, emit5);
-                self.reach_configuration(context);
-            }
-
-            Action::Send5(emit1, emit2, emit3, emit4, emit5) => {
-                self.collect_emit(&mut context, emit1);
-                self.collect_emit(&mut context, emit2);
-                self.collect_emit(&mut context, emit3);
-                self.collect_emit(&mut context, emit4);
-                self.collect_emit(&mut context, emit5);
-                self.reach_configuration(context);
-            }
-
-            Action::ChangeAndSend6(agent_to_state_id, emit1, emit2, emit3, emit4, emit5, emit6) => {
-                self.change_state(&mut context, agent_to_state_id);
-                self.collect_emit(&mut context, emit1);
-                self.collect_emit(&mut context, emit2);
-                self.collect_emit(&mut context, emit3);
-                self.collect_emit(&mut context, emit4);
-                self.collect_emit(&mut context, emit5);
-                self.collect_emit(&mut context, emit6);
-                self.reach_configuration(context);
-            }
-
-            Action::Send6(emit1, emit2, emit3, emit4, emit5, emit6) => {
-                self.collect_emit(&mut context, emit1);
-                self.collect_emit(&mut context, emit2);
-                self.collect_emit(&mut context, emit3);
-                self.collect_emit(&mut context, emit4);
-                self.collect_emit(&mut context, emit5);
-                self.collect_emit(&mut context, emit6);
-                self.reach_configuration(context);
-            } // END NOT TESTED
         }
     }
 
@@ -1538,9 +1217,9 @@ impl<
     fn collect_emit(
         &mut self,
         mut context: &mut <Self as ModelTypes>::Context,
-        emit: <Self as MetaModel>::Emit,
+        emit: &<Self as MetaModel>::Emit,
     ) {
-        match emit {
+        match *emit {
             Emit::Immediate(payload, target_index) => {
                 let message = Message {
                     order: MessageOrder::Immediate,
@@ -1680,7 +1359,7 @@ impl<
                     if stored.is_new {
                         Some(next_message)
                     } else {
-                        None
+                        None // NOT TESTED
                     }
                 }
             };
@@ -1953,9 +1632,9 @@ impl<
             }
         }
 
-        for validator in self.validators.iter() {
+        if let Some(validator) = self.validator {
             // BEGIN NOT TESTED
-            if let Some(reason) = validator(&context.to_configuration) {
+            if let Some(reason) = validator(self, &context.to_configuration) {
                 let invalid = <Self as MetaModel>::Invalid::Configuration(reason);
                 context.to_configuration.invalid_id = self.store_invalid(invalid).id;
                 return;
@@ -2182,7 +1861,7 @@ impl<
         };
 
         let error_path_step = PathStep {
-            condition: is_error,
+            function: ConditionFunction::ById(is_error),
             is_negated: false,
             name: "ERROR".to_string(),
         };
@@ -2192,7 +1871,7 @@ impl<
 
     fn error_path(&mut self, error_path_step: PathStep<Self>) -> ! {
         let init_path_step = PathStep {
-            condition: is_init,
+            function: ConditionFunction::ById(Self::is_init_condition),
             is_negated: false,
             name: "INIT".to_string(),
         };
@@ -2424,8 +2103,8 @@ impl<
 
         assert!(self.pending_configuration_ids.is_empty());
         self.pending_configuration_ids
-            .push(ConfigurationId::from_usize(0));
-        while let Some(configuration_id) = self.pending_configuration_ids.pop() {
+            .push_back(ConfigurationId::from_usize(0));
+        while let Some(configuration_id) = self.pending_configuration_ids.pop_front() {
             self.reachable_configuration(configuration_id);
         }
 
@@ -2450,7 +2129,7 @@ impl<
                 })
             };
             let error_path_step = PathStep {
-                condition: is_reachable,
+                function: ConditionFunction::ById(is_reachable),
                 is_negated: true,
                 name: "DEADEND".to_string(),
             };
@@ -2489,7 +2168,8 @@ impl<
             .iter()
             .map(|incoming| incoming.from_configuration_id)
         {
-            self.pending_configuration_ids.push(next_configuration_id);
+            self.pending_configuration_ids
+                .push_back(next_configuration_id);
         }
     }
 }
@@ -2511,10 +2191,18 @@ impl<
         step: &<Self as ModelTypes>::PathStep,
         configuration_id: ConfigurationId,
     ) -> bool {
-        let mut is_match = (step.condition)(self, configuration_id);
+        let mut is_match = match step.function // MAYBE TESTED
+        {
+            ConditionFunction::ById(by_id) => by_id(self, configuration_id),
+            ConditionFunction::ByConfig(by_config) => {
+                by_config(self, &self.get_configuration(configuration_id))
+            }
+        };
+
         if step.is_negated {
             is_match = !is_match
         }
+
         is_match
     }
 
@@ -2526,11 +2214,12 @@ impl<
         prev_configuration_ids: &mut [ConfigurationId],
     ) -> ConfigurationId {
         assert!(self.pending_configuration_ids.is_empty());
-        self.pending_configuration_ids.push(from_configuration_id);
+        self.pending_configuration_ids
+            .push_back(from_configuration_id);
 
         prev_configuration_ids.fill(ConfigurationId::invalid());
 
-        while let Some(next_configuration_id) = self.pending_configuration_ids.pop() {
+        while let Some(next_configuration_id) = self.pending_configuration_ids.pop_front() {
             for outgoing in self.outgoings[next_configuration_id.to_usize()].iter() {
                 let to_configuration_id = outgoing.to_configuration_id;
                 if prev_configuration_ids[to_configuration_id.to_usize()].is_valid() {
@@ -2551,7 +2240,8 @@ impl<
                     return to_configuration_id;
                 }
 
-                self.pending_configuration_ids.push(to_configuration_id);
+                self.pending_configuration_ids
+                    .push_back(to_configuration_id);
             }
         }
 
@@ -2588,7 +2278,7 @@ impl<
                 };
                 if let Some(condition) = self.conditions.get(&key.to_string()) {
                     PathStep {
-                        condition: condition.0,
+                        function: condition.0.clone(),
                         is_negated,
                         name: name.to_string(),
                     }
@@ -3913,13 +3603,11 @@ impl<
                 .copied()
                 .find(|timeline_index| sequence_state.timelines[*timeline_index].is_none())
         } else {
-            // BEGIN NOT TESTED
             sequence_state.agents_timelines[message.source_index]
                 .left
                 .iter()
                 .copied()
                 .find(|timeline_index| sequence_state.timelines[*timeline_index].is_none())
-            // END NOT TESTED
         };
 
         let timeline_index = empty_timeline_index.unwrap_or_else(|| sequence_state.timelines.len());
@@ -3945,7 +3633,6 @@ impl<
                     .right
                     .len()
         } else {
-            // BEGIN NOT TESTED
             sequence_state.agents_timelines[message.source_index]
                 .left
                 .push(timeline_index);
@@ -3953,7 +3640,6 @@ impl<
                 - sequence_state.agents_timelines[message.source_index]
                     .left
                     .len()
-            // END NOT TESTED
         };
 
         writeln!(
@@ -4151,7 +3837,7 @@ impl<
                 let arrow = match message.order {
                     MessageOrder::Immediate => "-[#Crimson]>",
                     MessageOrder::Unordered => "->",
-                    MessageOrder::Ordered(_) => "-[#Blue]>",
+                    MessageOrder::Ordered(_) => "-[#Blue]>", // NOT TESTED
                 };
                 writeln!(
                     stdout,

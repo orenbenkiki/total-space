@@ -45,15 +45,11 @@ autonumber stop
 autonumber resume
 deactivate A1
 note over A1 : Completed
-A1 -[#Blue]> A0 : Response(1)
-deactivate A0
-autonumber stop
-[<[#White]-- A0
-autonumber resume
+control " " as T1 order 10199
+A1 -[#Blue]> T1 : Response(1)
+activate T1 #Silver
 activate A1 #CadetBlue
-activate A0 #CadetBlue
 rnote over A1 : Listen
-/ rnote over A0 : Wait(2)
 T0 -[#Blue]> A1 : Request(2)
 deactivate T0
 deactivate A1
@@ -67,15 +63,23 @@ autonumber stop
 autonumber resume
 deactivate A1
 note over A1 : Completed
-A1 -[#Blue]> A0 : Response(2)
+T1 -[#Blue]> A0 : Response(1)
+deactivate T1
+deactivate A0
+A1 -[#Blue]> T1 : Response(2)
+activate T1 #Silver
+activate A1 #CadetBlue
+activate A0 #CadetBlue
+rnote over A1 : Listen
+/ rnote over A0 : Wait(2)
+T1 -[#Blue]> A0 : Response(2)
+deactivate T1
 deactivate A0
 autonumber stop
 [<[#White]-- A0
 autonumber resume
-activate A1 #CadetBlue
 activate A0 #CadetBlue
-rnote over A1 : Listen
-/ rnote over A0 : Idle
+rnote over A0 : Idle
 autonumber stop
 [<[#White]-- A0
 autonumber resume

@@ -54,28 +54,29 @@ impl AgentState<ClientState, Payload> for ClientState {
     fn activity(&self, _instance: usize) -> Activity<Payload> {
         match self {
             Self::Wait => Activity::Passive,
-            Self::Idle => Activity::Process1Of2(Payload::Need, Payload::Worry),
+            Self::Idle => activity_alternatives!(Payload::Need, Payload::Worry),
         }
     }
 
     fn reaction(&self, _instance: usize, payload: &Payload) -> Reaction<Self, Payload> {
         match (self, payload) {
-            (Self::Idle, Payload::Need) => Reaction::Do1(Action::ChangeAndSend2(
+            (Self::Idle, Payload::Need) => Reaction::Do1(action_change_and_sends!(
                 Self::Wait,
                 Emit::Unordered(Payload::Request, agent_index!(SERVER)),
                 Emit::ImmediateReplacement(is_maybe_ping, Payload::Ping, agent_index!(SERVER)),
             )),
+
             (Self::Idle, Payload::Worry) => Reaction::Do1(Action::Send1(
                 Emit::UnorderedReplacement(is_maybe_ping, Payload::Ping, agent_index!(SERVER)),
             )),
+
             (Self::Wait, Payload::Response) => Reaction::Do1(Action::Change(Self::Idle)),
-            _ => {
-                Reaction::Unexpected // NOT TESTED
-            }
+
+            _ => Reaction::Unexpected, // NOT TESTED
         }
     }
 
-    fn max_in_flight_messages(&self) -> Option<usize> {
+    fn max_in_flight_messages(&self, _instance: usize) -> Option<usize> {
         Some(2)
     }
 }
@@ -110,11 +111,11 @@ impl AgentState<ServerState, Payload> for ServerState {
         }
     }
 
-    fn is_deferring(&self) -> bool {
+    fn is_deferring(&self, _instance: usize) -> bool {
         self == &Self::Work
     }
 
-    fn max_in_flight_messages(&self) -> Option<usize> {
+    fn max_in_flight_messages(&self, _instance: usize) -> Option<usize> {
         Some(1)
     }
 }
@@ -149,7 +150,7 @@ fn test_model(arg_matches: &ArgMatches) -> TestModel {
         "S", Instances::Singleton, Some(client_type.clone())
     ));
 
-    let model = TestModel::new(model_size(arg_matches, 1), server_type, vec![]);
+    let model = TestModel::new(model_size(arg_matches, 1), server_type);
     init_agent_index!(CLIENT, "C", model);
     init_agent_index!(SERVER, "S", model);
     model

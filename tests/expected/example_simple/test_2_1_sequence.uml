@@ -1,0 +1,98 @@
+@startuml
+autonumber " <b>#</b> "
+skinparam shadowing false
+skinparam sequence {
+ArrowColor Black
+ActorBorderColor Black
+LifeLineBorderColor Black
+LifeLineBackgroundColor Black
+ParticipantBorderColor Black
+}
+skinparam ControlBorderColor White
+skinparam ControlBackgroundColor White
+participant "W(0)" as A0 order 10100
+activate A0 #CadetBlue
+participant "S" as A1 order 110200
+activate A1 #MediumPurple
+participant "C(0)" as A2 order 210300
+activate A2 #CadetBlue
+participant "C(1)" as A3 order 220400
+activate A3 #CadetBlue
+rnote over A0 : IDL
+/ rnote over A2 : RUN
+/ rnote over A3 : RUN
+autonumber stop
+[<[#White]-- A0
+autonumber resume
+deactivate A2
+note over A2 : Need
+control " " as T0 order 210299
+A2 -> T0 : Task(client=0)
+activate T0 #Silver
+activate A2 #CadetBlue
+rnote over A2 : BLK
+autonumber stop
+[<[#White]-- A0
+autonumber resume
+deactivate A3
+note over A3 : Need
+T0 -> A1 : Task(client=0)
+deactivate T0
+control " " as T1 order 220399
+A3 -> T1 : Task(client=1)
+activate T1 #Silver
+activate A3 #CadetBlue
+rnote over A3 : BLK
+A1 -[#Crimson]> A0 : Task(client=0)
+deactivate A0
+autonumber stop
+[<[#White]-- A0
+autonumber resume
+activate A0 #CadetBlue
+rnote over A0 : WRK(C=0)
+autonumber stop
+[<[#White]-- A0
+autonumber resume
+deactivate A0
+note over A0 : Completed
+T1 -> A1 : Task(client=1)
+deactivate T1
+control " " as T2 order 10101
+A0 -> T2 : Result
+activate T2 #Silver
+activate A0 #CadetBlue
+rnote over A0 : IDL
+A1 -[#Crimson]> A0 : Task(client=1)
+deactivate A0
+autonumber stop
+[<[#White]-- A0
+autonumber resume
+activate A0 #CadetBlue
+rnote over A0 : WRK(C=1)
+autonumber stop
+[<[#White]-- A0
+autonumber resume
+deactivate A0
+note over A0 : Completed
+T2 -> A2 : Result
+deactivate T2
+deactivate A2
+A0 -> A3 : Result
+deactivate A3
+autonumber stop
+[<[#White]-- A0
+autonumber resume
+activate A0 #CadetBlue
+activate A2 #CadetBlue
+rnote over A0 : IDL
+/ rnote over A2 : RUN
+activate A3 #CadetBlue
+rnote over A3 : RUN
+autonumber stop
+[<[#White]-- A0
+autonumber resume
+deactivate A0
+deactivate A1
+deactivate A2
+deactivate A3
+@enduml

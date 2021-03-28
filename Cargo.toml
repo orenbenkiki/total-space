@@ -23,4 +23,4 @@ strum_macros = "^0.20.0"
 strum = { version = "^0.20.0", features = [ "derive" ] }
 
 [dev-dependencies]
-escargot = "^0.5.1"
+escargot = "^0.5.2"

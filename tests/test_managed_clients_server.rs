@@ -67,7 +67,7 @@ impl ContainerOf1State<ManagerState, ClientState, Payload> for ManagerState {
         }
     }
 
-    fn max_in_flight_messages(&self, clients: &[ClientState]) -> Option<usize> {
+    fn max_in_flight_messages(&self, _instance: usize, clients: &[ClientState]) -> Option<usize> {
         Some(clients.len())
     }
 }
@@ -90,7 +90,7 @@ impl_enum_data! {
 impl AgentState<ClientState, Payload> for ClientState {
     fn activity(&self, _instance: usize) -> Activity<Payload> {
         match self {
-            Self::Idle => Activity::Process1Of2(Payload::Need, Payload::Worry),
+            Self::Idle => activity_alternatives!(Payload::Need, Payload::Worry),
             _ => Activity::Passive,
         }
     }
@@ -111,7 +111,7 @@ impl AgentState<ClientState, Payload> for ClientState {
         }
     }
 
-    fn max_in_flight_messages(&self) -> Option<usize> {
+    fn max_in_flight_messages(&self, _instance: usize) -> Option<usize> {
         Some(2)
     }
 }
@@ -143,20 +143,23 @@ impl AgentState<ServerState, Payload> for ServerState {
             (Self::Listen, Payload::Request { client }) => {
                 Reaction::Do1(Action::Change(Self::Work { client: *client }))
             }
+
             (Self::Work { client }, Payload::Completed) => Reaction::Do1(Action::ChangeAndSend1(
                 Self::Listen,
                 Emit::Unordered(Payload::Response, agent_index!(CLIENTS[*client])),
             )),
+
             (Self::Work { .. }, Payload::Request { .. }) => Reaction::Defer,
+
             _ => Reaction::Unexpected, // NOT TESTED
         }
     }
 
-    fn is_deferring(&self) -> bool {
+    fn is_deferring(&self, _instance: usize) -> bool {
         matches!(self, &Self::Work { .. })
     }
 
-    fn max_in_flight_messages(&self) -> Option<usize> {
+    fn max_in_flight_messages(&self, _instance: usize) -> Option<usize> {
         Some(agents_count!(CLIENTS))
     }
 }
@@ -200,7 +203,7 @@ fn test_model(arg_matches: &ArgMatches) -> TestModel {
         Instances::Singleton,
         Some(manager_type.clone()),
     ));
-    let model = TestModel::new(model_size(arg_matches, 1), server_type, vec![]);
+    let model = TestModel::new(model_size(arg_matches, 1), server_type);
     init_agent_indices!(CLIENTS, "C", model);
     init_agent_index!(MANAGER, "MGR", model);
     init_agent_index!(SERVER, "SRV", model);

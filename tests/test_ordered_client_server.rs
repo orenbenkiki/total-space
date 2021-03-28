@@ -64,7 +64,7 @@ impl AgentState<ClientState, Payload> for ClientState {
         }
     }
 
-    fn max_in_flight_messages(&self) -> Option<usize> {
+    fn max_in_flight_messages(&self, _instance: usize) -> Option<usize> {
         Some(2)
     }
 }
@@ -100,11 +100,11 @@ impl AgentState<ServerState, Payload> for ServerState {
         }
     }
 
-    fn is_deferring(&self) -> bool {
+    fn is_deferring(&self, _instance: usize) -> bool {
         matches!(self, Self::Work(_))
     }
 
-    fn max_in_flight_messages(&self) -> Option<usize> {
+    fn max_in_flight_messages(&self, _instance: usize) -> Option<usize> {
         Some(2)
     }
 }
@@ -138,7 +138,7 @@ fn test_model(arg_matches: &ArgMatches) -> TestModel {
         "Server", Instances::Singleton, Some(client_type.clone())
     ));
 
-    let model = TestModel::new(model_size(arg_matches, 1), server_type, vec![]);
+    let model = TestModel::new(model_size(arg_matches, 1), server_type);
     init_agent_index!(CLIENT, "Client", model);
     init_agent_index!(SERVER, "Server", model);
     model

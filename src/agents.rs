@@ -350,18 +350,18 @@ pub trait AgentState<State: DataLike, Payload: DataLike> {
     }
 
     /// Whether any agent in this state is deferring messages.
-    fn is_deferring(&self) -> bool {
+    fn is_deferring(&self, _instance: usize) -> bool {
         false
     }
 
     /// If this object is invalid, return why.
-    fn invalid_because(&self) -> Option<&'static str> {
+    fn invalid_because(&self, _instance: usize) -> Option<&'static str> {
         None
     }
 
     /// The maximal number of messages sent by this agent which may be in-flight when it is in this
     /// state.
-    fn max_in_flight_messages(&self) -> Option<usize> {
+    fn max_in_flight_messages(&self, _instance: usize) -> Option<usize> {
         None
     }
 }
@@ -383,14 +383,14 @@ pub trait ContainerOf1State<State: DataLike, Part: DataLike, Payload: DataLike> 
     }
 
     /// Whether any agent in this state is deferring messages.
-    fn is_deferring(&self, _parts: &[Part]) -> bool {
+    fn is_deferring(&self, _instance: usize, _parts: &[Part]) -> bool {
         false
     }
 
     // BEGIN NOT TESTED
 
     /// If this object is invalid, return why.
-    fn invalid_because(&self, _parts: &[Part]) -> Option<&'static str> {
+    fn invalid_because(&self, _instance: usize, _parts: &[Part]) -> Option<&'static str> {
         None
     }
 
@@ -398,7 +398,7 @@ pub trait ContainerOf1State<State: DataLike, Part: DataLike, Payload: DataLike> 
 
     /// The maximal number of messages sent by this agent which may be in-flight when it is in this
     /// state.
-    fn max_in_flight_messages(&self, _parts: &[Part]) -> Option<usize> {
+    fn max_in_flight_messages(&self, _instance: usize, _parts: &[Part]) -> Option<usize> {
         None
     }
 }
@@ -428,18 +428,28 @@ pub trait ContainerOf2State<State: DataLike, Part1: DataLike, Part2: DataLike, P
     }
 
     /// Whether any agent in this state is deferring messages.
-    fn is_deferring(&self, _parts1: &[Part1], _parts2: &[Part2]) -> bool {
+    fn is_deferring(&self, _instance: usize, _parts1: &[Part1], _parts2: &[Part2]) -> bool {
         false
     }
 
     /// If this object is invalid, return why.
-    fn invalid_because(&self, _parts1: &[Part1], _parts2: &[Part2]) -> Option<&'static str> {
+    fn invalid_because(
+        &self,
+        _instance: usize,
+        _parts1: &[Part1],
+        _parts2: &[Part2],
+    ) -> Option<&'static str> {
         None
     }
 
     /// The maximal number of messages sent by this agent which may be in-flight when it is in this
     /// state.
-    fn max_in_flight_messages(&self, _parts1: &[Part1], _parts2: &[Part2]) -> Option<usize> {
+    fn max_in_flight_messages(
+        &self,
+        _instance: usize,
+        _parts1: &[Part1],
+        _parts2: &[Part2],
+    ) -> Option<usize> {
         None
     }
 }
@@ -449,50 +459,21 @@ pub trait ContainerOf2State<State: DataLike, Part1: DataLike, Part2: DataLike, P
 impl<State: DataLike, StateId: IndexLike, Payload: DataLike>
     AgentTypeData<State, StateId, Payload>
 {
-    fn translate_reaction(&self, reaction: Reaction<State, Payload>) -> Reaction<StateId, Payload> {
+    fn translate_reaction(
+        &self,
+        reaction: &Reaction<State, Payload>,
+    ) -> Reaction<StateId, Payload> {
         match reaction {
             Reaction::Unexpected => Reaction::Unexpected,
             Reaction::Ignore => Reaction::Ignore,
             Reaction::Defer => Reaction::Defer,
             Reaction::Do1(action) => Reaction::Do1(self.translate_action(action)),
-            // BEGIN NOT TESTED
-            Reaction::Do1Of2(action1, action2) => Reaction::Do1Of2(
-                self.translate_action(action1),
-                self.translate_action(action2),
-            ),
-            Reaction::Do1Of3(action1, action2, action3) => Reaction::Do1Of3(
-                self.translate_action(action1),
-                self.translate_action(action2),
-                self.translate_action(action3),
-            ),
-            Reaction::Do1Of4(action1, action2, action3, action4) => Reaction::Do1Of4(
-                self.translate_action(action1),
-                self.translate_action(action2),
-                self.translate_action(action3),
-                self.translate_action(action4),
-            ),
-            Reaction::Do1Of5(action1, action2, action3, action4, action5) => Reaction::Do1Of5(
-                self.translate_action(action1),
-                self.translate_action(action2),
-                self.translate_action(action3),
-                self.translate_action(action4),
-                self.translate_action(action5),
-            ),
-            Reaction::Do1Of6(action1, action2, action3, action4, action5, action6) => {
-                Reaction::Do1Of6(
-                    self.translate_action(action1),
-                    self.translate_action(action2),
-                    self.translate_action(action3),
-                    self.translate_action(action4),
-                    self.translate_action(action5),
-                    self.translate_action(action6),
-                )
-            } // END NOT TESTED
+            Reaction::Do1Of(actions) => Reaction::Do1Of(self.translate_actions(&actions)), // NOT TESTED
         }
     }
 
-    fn translate_action(&self, action: Action<State, Payload>) -> Action<StateId, Payload> {
-        match action {
+    fn translate_action(&self, action: &Action<State, Payload>) -> Action<StateId, Payload> {
+        match *action {
             Action::Defer => Action::Defer,
 
             Action::Ignore => Action::Ignore, // NOT TESTED
@@ -503,52 +484,30 @@ impl<State: DataLike, StateId: IndexLike, Payload: DataLike>
                 Action::ChangeAndSend1(self.translate_state(state), emit)
             }
 
-            Action::Send2(emit1, emit2) => Action::Send2(emit1, emit2), // NOT TESTED
-            Action::ChangeAndSend2(state, emit1, emit2) => {
-                Action::ChangeAndSend2(self.translate_state(state), emit1, emit2)
+            Action::Sends(emits) => Action::Sends(emits), // NOT TESTED
+            Action::ChangeAndSends(state, emits) => {
+                Action::ChangeAndSends(self.translate_state(state), emits)
             }
-
-            // BEGIN NOT TESTED
-            Action::Send3(emit1, emit2, emit3) => Action::Send3(emit1, emit2, emit3),
-            Action::ChangeAndSend3(state, emit1, emit2, emit3) => {
-                Action::ChangeAndSend3(self.translate_state(state), emit1, emit2, emit3)
-            }
-
-            Action::Send4(emit1, emit2, emit3, emit4) => Action::Send4(emit1, emit2, emit3, emit4),
-            Action::ChangeAndSend4(state, emit1, emit2, emit3, emit4) => {
-                Action::ChangeAndSend4(self.translate_state(state), emit1, emit2, emit3, emit4)
-            }
-
-            Action::Send5(emit1, emit2, emit3, emit4, emit5) => {
-                Action::Send5(emit1, emit2, emit3, emit4, emit5)
-            }
-            Action::ChangeAndSend5(state, emit1, emit2, emit3, emit4, emit5) => {
-                Action::ChangeAndSend5(
-                    self.translate_state(state),
-                    emit1,
-                    emit2,
-                    emit3,
-                    emit4,
-                    emit5,
-                )
-            }
-
-            Action::Send6(emit1, emit2, emit3, emit4, emit5, emit6) => {
-                Action::Send6(emit1, emit2, emit3, emit4, emit5, emit6)
-            }
-            Action::ChangeAndSend6(state, emit1, emit2, emit3, emit4, emit5, emit6) => {
-                Action::ChangeAndSend6(
-                    self.translate_state(state),
-                    emit1,
-                    emit2,
-                    emit3,
-                    emit4,
-                    emit5,
-                    emit6,
-                )
-            } // END NOT TESTED
         }
     }
+
+    // BEGIN NOT TESTED
+
+    fn translate_actions(
+        &self,
+        actions: &[Option<Action<State, Payload>>; MAX_COUNT],
+    ) -> [Option<Action<StateId, Payload>>; MAX_COUNT] {
+        let mut translated_actions: [Option<Action<StateId, Payload>>; MAX_COUNT] =
+            [None; MAX_COUNT];
+        for (maybe_action, maybe_translated) in actions.iter().zip(translated_actions.iter_mut()) {
+            *maybe_translated = maybe_action
+                .as_ref()
+                .map(|action| self.translate_action(action));
+        }
+        translated_actions
+    }
+
+    // END NOT TESTED
 
     fn translate_state(&self, state: State) -> StateId {
         let stored = self.states.borrow_mut().store(state);
@@ -756,7 +715,7 @@ impl<State: DataLike + AgentState<State, Payload>, StateId: IndexLike, Payload: 
             .borrow()
             .get(state_ids[self.first_index + instance]);
         let reaction = state.reaction(instance, payload);
-        self.translate_reaction(reaction)
+        self.translate_reaction(&reaction)
     }
 
     fn activity(&self, instance: usize, state_ids: &[StateId]) -> Activity<Payload> {
@@ -782,7 +741,7 @@ impl<State: DataLike + AgentState<State, Payload>, StateId: IndexLike, Payload: 
         self.states
             .borrow()
             .get(state_ids[self.first_index + instance])
-            .is_deferring()
+            .is_deferring(instance)
     }
 
     fn state_invalid_because(
@@ -799,7 +758,7 @@ impl<State: DataLike + AgentState<State, Payload>, StateId: IndexLike, Payload: 
         self.states
             .borrow()
             .get(state_ids[self.first_index + instance])
-            .invalid_because()
+            .invalid_because(instance)
     }
 
     fn state_max_in_flight_messages(
@@ -816,7 +775,7 @@ impl<State: DataLike + AgentState<State, Payload>, StateId: IndexLike, Payload: 
         self.states
             .borrow()
             .get(state_ids[self.first_index + instance])
-            .max_in_flight_messages()
+            .max_in_flight_messages(instance)
     }
 
     fn states_count(&self) -> usize {
@@ -914,15 +873,16 @@ impl<
             self.instances_count() // NOT TESTED
         );
 
-        let parts = self.collect_parts(state_ids);
+        let all_parts = self.collect_parts(state_ids);
+        let parts = &all_parts[..self.part_type.parts_count()];
 
         let reaction = self
             .agent_type_data
             .states
             .borrow()
             .get(state_ids[self.agent_type_data.first_index + instance])
-            .reaction(instance, payload, &parts);
-        self.agent_type_data.translate_reaction(reaction)
+            .reaction(instance, payload, parts);
+        self.agent_type_data.translate_reaction(&reaction)
     }
 
     fn activity(&self, instance: usize, state_ids: &[StateId]) -> Activity<Payload> {
@@ -933,13 +893,14 @@ impl<
             self.instances_count() // NOT TESTED
         );
 
-        let parts = self.collect_parts(state_ids);
+        let all_parts = self.collect_parts(state_ids);
+        let parts = &all_parts[..self.part_type.parts_count()];
 
         self.agent_type_data
             .states
             .borrow()
             .get(state_ids[self.agent_type_data.first_index + instance])
-            .activity(instance, &parts)
+            .activity(instance, parts)
     }
 
     fn state_is_deferring(&self, instance: usize, state_ids: &[StateId]) -> bool {
@@ -950,13 +911,14 @@ impl<
             self.instances_count() // NOT TESTED
         );
 
-        let parts = self.collect_parts(state_ids);
+        let all_parts = self.collect_parts(state_ids);
+        let parts = &all_parts[..self.part_type.parts_count()];
 
         self.agent_type_data
             .states
             .borrow()
             .get(state_ids[self.agent_type_data.first_index + instance])
-            .is_deferring(&parts)
+            .is_deferring(instance, parts)
     }
 
     // BEGIN NOT TESTED
@@ -972,13 +934,14 @@ impl<
             self.instances_count()
         );
 
-        let parts = self.collect_parts(state_ids);
+        let all_parts = self.collect_parts(state_ids);
+        let parts = &all_parts[..self.part_type.parts_count()];
 
         self.agent_type_data
             .states
             .borrow()
             .get(state_ids[self.agent_type_data.first_index + instance])
-            .invalid_because(&parts)
+            .invalid_because(instance, parts)
     }
     // END NOT TESTED
 
@@ -994,13 +957,14 @@ impl<
             self.instances_count() // NOT TESTED
         );
 
-        let parts = self.collect_parts(state_ids);
+        let all_parts = self.collect_parts(state_ids);
+        let parts = &all_parts[..self.part_type.parts_count()];
 
         self.agent_type_data
             .states
             .borrow()
             .get(state_ids[self.agent_type_data.first_index + instance])
-            .max_in_flight_messages(&parts)
+            .max_in_flight_messages(instance, parts)
     }
 
     // BEGIN NOT TESTED
@@ -1038,15 +1002,17 @@ impl<
             self.instances_count()
         );
 
-        let (parts1, parts2) = self.collect_parts(state_ids);
+        let (all_parts1, all_parts2) = self.collect_parts(state_ids);
+        let parts1 = &all_parts1[..self.part1_type.parts_count()];
+        let parts2 = &all_parts2[..self.part2_type.parts_count()];
 
         let reaction = self
             .agent_type_data
             .states
             .borrow()
             .get(state_ids[self.agent_type_data.first_index + instance])
-            .reaction(instance, payload, &parts1, &parts2);
-        self.agent_type_data.translate_reaction(reaction)
+            .reaction(instance, payload, parts1, parts2);
+        self.agent_type_data.translate_reaction(&reaction)
     }
 
     fn activity(&self, instance: usize, state_ids: &[StateId]) -> Activity<Payload> {
@@ -1057,13 +1023,15 @@ impl<
             self.instances_count()
         );
 
-        let (parts1, parts2) = self.collect_parts(state_ids);
+        let (all_parts1, all_parts2) = self.collect_parts(state_ids);
+        let parts1 = &all_parts1[..self.part1_type.parts_count()];
+        let parts2 = &all_parts2[..self.part2_type.parts_count()];
 
         self.agent_type_data
             .states
             .borrow()
             .get(state_ids[self.agent_type_data.first_index + instance])
-            .activity(instance, &parts1, &parts2)
+            .activity(instance, parts1, parts2)
     }
 
     fn state_is_deferring(&self, instance: usize, state_ids: &[StateId]) -> bool {
@@ -1074,13 +1042,15 @@ impl<
             self.instances_count()
         );
 
-        let (parts1, parts2) = self.collect_parts(state_ids);
+        let (all_parts1, all_parts2) = self.collect_parts(state_ids);
+        let parts1 = &all_parts1[..self.part1_type.parts_count()];
+        let parts2 = &all_parts2[..self.part2_type.parts_count()];
 
         self.agent_type_data
             .states
             .borrow()
             .get(state_ids[self.agent_type_data.first_index + instance])
-            .is_deferring(&parts1, &parts2)
+            .is_deferring(instance, parts1, parts2)
     }
 
     fn state_invalid_because(
@@ -1095,13 +1065,15 @@ impl<
             self.instances_count()
         );
 
-        let (parts1, parts2) = self.collect_parts(state_ids);
+        let (all_parts1, all_parts2) = self.collect_parts(state_ids);
+        let parts1 = &all_parts1[..self.part1_type.parts_count()];
+        let parts2 = &all_parts2[..self.part2_type.parts_count()];
 
         self.agent_type_data
             .states
             .borrow()
             .get(state_ids[self.agent_type_data.first_index + instance])
-            .invalid_because(&parts1, &parts2)
+            .invalid_because(instance, parts1, parts2)
     }
 
     fn state_max_in_flight_messages(
@@ -1116,13 +1088,15 @@ impl<
             self.instances_count()
         );
 
-        let (parts1, parts2) = self.collect_parts(state_ids);
+        let (all_parts1, all_parts2) = self.collect_parts(state_ids);
+        let parts1 = &all_parts1[..self.part1_type.parts_count()];
+        let parts2 = &all_parts2[..self.part2_type.parts_count()];
 
         self.agent_type_data
             .states
             .borrow()
             .get(state_ids[self.agent_type_data.first_index + instance])
-            .max_in_flight_messages(&parts1, &parts2)
+            .max_in_flight_messages(instance, parts1, parts2)
     }
 
     fn states_count(&self) -> usize {

@@ -17,6 +17,11 @@
 - C:WAT
 & S:LST
 | C -> REQ -> S
+# 14B91300A41CF74F
+
+- C:WAT
+& S:LST
+| C -> REQ -> S
 & C -> * PNG => PNG -> S
 # EE0E7B891EDDE982
 
@@ -24,11 +29,6 @@
 & S:LST
 | C -> PNG => PNG -> S
 # 276E7D304DDA5AE5
-
-- C:WAT
-& S:LST
-| C -> REQ -> S
-# 14B91300A41CF74F
 
 - C:WAT
 & S:WRK

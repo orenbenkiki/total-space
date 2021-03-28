@@ -5,14 +5,16 @@ FROM 1MSG:
 | C(0) -> REQ(C=0) -> SRV
 # 6BAF2A724F3B0650
 
-BY: C(0) -> REQ(C=0) -> SRV
+BY: Activity -> Need -> C(1)
 TO:
 - C(0):WAT
-& C(1):IDL
-& SRV:WRK(C=0)
-# 0D97822B4AAC418D
+& C(1):WAT
+& SRV:LST
+| C(0) -> REQ(C=0) -> SRV
+& C(1) -> REQ(C=1) -> SRV
+# 9A81BC4D0DF76496
 
-BY: Activity -> Need -> C(1)
+BY: C(0) -> REQ(C=0) -> SRV
 TO 1MSG:
 - C(0):WAT
 & C(1):WAT
@@ -29,22 +31,24 @@ TO 2MSG:
 & SRV -> RSP -> C(0)
 # 5D4DC536F9887BF9
 
-BY: SRV -> RSP -> C(0)
-TO:
-- C(0):IDL
-& C(1):WAT
-& SRV:LST
-| C(1) -> REQ(C=1) -> SRV
-# 4554EBB72D0F5380
-
 BY: C(1) -> REQ(C=1) -> SRV
 TO:
-- C(0):IDL
+- C(0):WAT
 & C(1):WAT
 & SRV:WRK(C=1)
-# 08DC13AAE591237E
+| SRV -> RSP -> C(0)
+# 10C53D2B31160B07
 
 BY: Activity -> Completed -> SRV
+TO:
+- C(0):WAT
+& C(1):WAT
+& SRV:LST
+| SRV -> RSP -> C(0)
+& SRV -> RSP -> C(1)
+# B9298EF6FF29CBCC
+
+BY: SRV -> RSP -> C(0)
 TO:
 - C(0):IDL
 & C(1):WAT

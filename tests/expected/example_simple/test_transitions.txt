@@ -1,0 +1,61 @@
+FROM:
+- W(0):IDL
+& C(0):RUN
+# FF5455FAA8F7FB27
+
+BY: Activity -> Need -> C(0)
+TO:
+- W(0):IDL
+& C(0):BLK
+| C(0) -> Task(client=0) -> S
+# 6B4A052E12752090
+
+FROM:
+- W(0):IDL
+& C(0):BLK
+| C(0) -> Task(client=0) -> S
+# 6B4A052E12752090
+
+BY: C(0) -> Task(client=0) -> S
+TO:
+- W(0):IDL
+& C(0):BLK
+| S -> * Task(client=0) -> W(0)
+# 5F3E517C369DFF0B
+
+FROM:
+- W(0):IDL
+& C(0):BLK
+| S -> * Task(client=0) -> W(0)
+# 5F3E517C369DFF0B
+
+BY: S -> * Task(client=0) -> W(0)
+TO:
+- W(0):WRK(C=0)
+& C(0):BLK
+# 6933D2745815C600
+
+FROM:
+- W(0):WRK(C=0)
+& C(0):BLK
+# 6933D2745815C600
+
+BY: Activity -> Completed -> W(0)
+TO:
+- W(0):IDL
+& C(0):BLK
+| W(0) -> Result -> C(0)
+# A70553BEA994F039
+
+FROM:
+- W(0):IDL
+& C(0):BLK
+| W(0) -> Result -> C(0)
+# A70553BEA994F039
+
+BY: W(0) -> Result -> C(0)
+TO:
+- W(0):IDL
+& C(0):RUN
+# FF5455FAA8F7FB27
+
