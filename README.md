@@ -39,6 +39,16 @@ The trick, of course, is in creating the model. Having done so, you get an execu
 allows computing the model (that is, collecting all the possible configurations that can be reached
 by the model) and generating all sorts of outputs from it (statistics, lists, and diagrams).
 
+## Example
+
+Documentation lies, only the code speaks the truth: See
+[examples/clients_server.rs](examples/clients_server.rs) for a complete simple model example. See
+[tests/expected/example_clients_server](tests/expected/example_clients_server) for the expected
+results of running various commands. The `svg` files were generated from the `dot` and `uml` files
+using [GraphViz](https://www.graphviz.org/) and [PlantUML](https://plantuml.com/starting).
+
+That said, to understand the code, the following will help.
+
 ## Concepts
 
 * We have a finite collection of *Agents*.
@@ -49,7 +59,8 @@ by the model) and generating all sorts of outputs from it (statistics, lists, an
 * Each *Agent* has an *Index* in the overall system. The *Index* is a small unsigned
   integer (0..).
 
-* An *Agent* may be a *Container* of some *Part* *Agents*.
+* An *Agent* may be a *Container* of some *Part* *Agents* (there's also support for an agent
+  containing two types of *Parts*).
 
 * Each *Agent* has a *State*. The type of the *State* is the same for all *Instances* of the same
   *Type* of *Agent*.
@@ -119,9 +130,8 @@ by the model) and generating all sorts of outputs from it (statistics, lists, an
 
 ## Validation
 
-The code allows applying a validation function to each *State*, *Payload* and overall
-*Configuration*. Thus, simply computing the total *Configurations* space can ensure arbitrary
-validation conditions.
+The code allows applying a validation function to each *State* and overall *Configuration*. Thus,
+simply computing the total *Configurations* space can ensure arbitrary validation conditions.
 
 The *Reaction* logic in each agent will typically `match` some combinations of its *State* and the
 *Payload*, which will include a catch-all `Reaction::Unexpected` clause. Thus computing the model
@@ -139,7 +149,7 @@ arbitrary conditions, which can be used to ensure that any *Configuration* of in
 reachable from the initial *Configuration*.
 
 Another way to ensure the model is covered is to collect coverage information for the model (see
-[grcov](https://marco-c.github.io/2020/11/24/rust-source-based-code-coverage.html) and looking at
+[grcov](https://marco-c.github.io/2020/11/24/rust-source-based-code-coverage.html)) and looking at
 the output to ensure that all the code was reached. Uncovered `match` clauses will indicate that
 that specific flow is not reachable from the initial *Configuration*, which could indicate a bug in
 the model or that a simpler model may suffice.
@@ -157,13 +167,6 @@ In addition, the code can generate two types of diagrams:
 * A UML sequence diagram of all the *Transitions* between *Configurations* along the shortest path
   between *Configurations* that satisfy arbitrary conditions. This is used to visualize complete
   system scenarios.
-
-## Example
-
-See [examples/clients_server.rs](examples/clients_server.rs) for a complete simple example. See
-[tests/expected/example_clients_server](tests/expected/example_clients_server) for the expected
-results of running various commands. The `svg` files were generated from the `dot` and `uml` files
-using [GraphViz](https://www.graphviz.org/) and [PlantUML](https://plantuml.com/starting).
 
 ## License
 

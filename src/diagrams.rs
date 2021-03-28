@@ -91,6 +91,7 @@ pub(crate) enum SequenceStep<StateId: IndexLike, MessageId: IndexLike> {
         agent_index: usize,
         message_id: MessageId,
         replaced: Option<MessageId>,
+        is_immediate: bool,
     },
 
     /// A message passed from one agent to another (e.g., immediate), possibly changing their
@@ -119,17 +120,4 @@ pub(crate) enum SequenceStep<StateId: IndexLike, MessageId: IndexLike> {
         second_state_id: StateId,
         second_is_deferring: bool,
     },
-}
-
-/// How to patch a pair of sequence steps
-#[derive(Debug)]
-pub(crate) enum SequencePatch<StateId: IndexLike, MessageId: IndexLike> {
-    /// Keep them as-is.
-    Keep,
-
-    /// Swap the order of the steps.
-    Swap,
-
-    /// Merge the steps into a new step.
-    Merge(SequenceStep<StateId, MessageId>),
 }

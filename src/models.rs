@@ -386,9 +386,6 @@ pub(crate) trait ModelTypes: MetaModel {
     /// A transition along a path between configurations.
     type SequenceStep;
 
-    /// How to patch a pair of sequence steps.
-    type SequencePatch;
-
     /// A transition along a path between configurations.
     type PathTransition;
 
@@ -423,7 +420,6 @@ impl<
         Context<StateId, MessageId, InvalidId, ConfigurationId, Payload, MAX_AGENTS, MAX_MESSAGES>;
     type PathStep = PathStep<Self>;
     type SequenceStep = SequenceStep<StateId, MessageId>;
-    type SequencePatch = SequencePatch<StateId, MessageId>;
     type PathTransition = PathTransition<MessageId, ConfigurationId, MAX_MESSAGES>;
     type AgentStateTransitionContext = AgentStateTransitionContext<StateId>;
     type AgentStateTransitions =
@@ -3197,6 +3193,7 @@ impl<
                         agent_index,
                         message_id: *to_message_id,
                         replaced,
+                        is_immediate: to_message.order == MessageOrder::Immediate,
                     });
                 });
 
@@ -3218,247 +3215,141 @@ impl<
     }
 
     fn patch_sequence_steps(&self, sequence_steps: &mut [<Self as ModelTypes>::SequenceStep]) {
-        self.first_patch_sequence_steps(sequence_steps);
-        self.second_patch_sequence_steps(sequence_steps);
-        self.third_patch_sequence_steps(sequence_steps);
+        self.move_immediates_up(sequence_steps);
+        self.merge_message_steps(sequence_steps);
+        self.merge_state_steps(sequence_steps);
     }
 
-    fn first_patch_sequence_steps(
-        &self,
-        sequence_steps: &mut [<Self as ModelTypes>::SequenceStep],
-    ) {
-        let mut last_patched = 0;
-        while last_patched + 1 < sequence_steps.len() {
-            let last_step = sequence_steps[last_patched];
-            let next_step = sequence_steps[last_patched + 1];
+    fn move_immediates_up(&self, sequence_steps: &mut [<Self as ModelTypes>::SequenceStep]) {
+        let mut first_index: usize = 0;
+        while first_index < sequence_steps.len() - 1 {
+            let second_index = first_index + 1;
 
-            let patch = match (last_step, next_step) {
-                (SequenceStep::NoStep, SequenceStep::NoStep) => SequencePatch::Keep,
-                (_, SequenceStep::NoStep) => SequencePatch::Swap,
-
-                (
-                    SequenceStep::Received {
-                        is_activity: true, ..
-                    },
-                    _,
-                ) => SequencePatch::Keep,
-                (
-                    _,
-                    SequenceStep::Received {
-                        is_activity: true, ..
-                    },
-                ) => SequencePatch::Keep,
-
-                // BEGIN MAYBE TESTED
-                (
-                    SequenceStep::Received {
-                        message_id: last_message_id,
-                        ..
-                    },
-                    SequenceStep::Received {
-                        message_id: next_message_id,
-                        ..
-                    },
-                ) => self.swap_immediate(last_message_id, next_message_id),
-
-                // END MAYBE TESTED
+            let to_swap = matches!((sequence_steps[first_index], sequence_steps[second_index]),
                 (
                     SequenceStep::Emitted {
-                        message_id: last_message_id,
-                        ..
-                    },
-                    SequenceStep::Received {
-                        message_id: next_message_id,
-                        ..
-                    },
-                ) if last_message_id != next_message_id => SequencePatch::Swap,
-
-                (
-                    SequenceStep::Emitted {
-                        agent_index: source_index,
-                        message_id: source_message_id,
-                        replaced,
-                    },
-                    SequenceStep::Received {
-                        agent_index: target_index,
-                        did_change_state: target_did_change_state,
-                        is_activity: false,
-                        message_id: target_message_id,
-                    },
-                ) if source_message_id == target_message_id => {
-                    SequencePatch::Merge(SequenceStep::Passed {
-                        source_index,
-                        target_index,
-                        target_did_change_state,
-                        message_id: target_message_id,
-                        replaced,
-                    })
-                }
-
-                (
-                    SequenceStep::Emitted {
-                        message_id: last_message_id,
+                        agent_index: first_source_index,
+                        is_immediate: false,
                         ..
                     },
                     SequenceStep::Emitted {
-                        message_id: next_message_id,
+                        agent_index: second_source_index,
+                        is_immediate: true,
                         ..
                     },
-                ) => self.swap_immediate(last_message_id, next_message_id),
+                ) if first_source_index == second_source_index);
 
-                (
-                    SequenceStep::NewState {
-                        agent_index: next_agent_index,
-                        ..
-                    },
-                    SequenceStep::Received {
-                        agent_index: last_agent_index,
-                        ..
-                    },
-                ) if last_agent_index != next_agent_index => SequencePatch::Swap,
-
-                _ => SequencePatch::Keep,
-            };
-
-            last_patched = Self::apply_patch(sequence_steps, last_patched, patch);
-        }
-    }
-
-    fn second_patch_sequence_steps(
-        &self,
-        sequence_steps: &mut [<Self as ModelTypes>::SequenceStep],
-    ) {
-        let mut last_patched = 0;
-        while last_patched + 1 < sequence_steps.len() {
-            let last_step = sequence_steps[last_patched];
-            let next_step = sequence_steps[last_patched + 1];
-
-            let patch = match (last_step, next_step) {
-                (SequenceStep::NoStep, SequenceStep::NoStep) => SequencePatch::Keep,
-                (_, SequenceStep::NoStep) => SequencePatch::Swap,
-
-                (
-                    SequenceStep::Received {
-                        agent_index: last_agent_index,
-                        is_activity,
-                        ..
-                    },
-                    SequenceStep::NewState {
-                        agent_index: next_agent_index,
-                        ..
-                    },
-                ) if !is_activity && last_agent_index != next_agent_index => SequencePatch::Swap,
-
-                (
-                    SequenceStep::Passed {
-                        source_index,
-                        target_index,
-                        ..
-                    },
-                    SequenceStep::NewState { agent_index, .. },
-                ) if agent_index != source_index && agent_index != target_index => {
-                    SequencePatch::Swap // NOT TESTED
-                }
-
-                _ => SequencePatch::Keep,
-            };
-
-            last_patched = Self::apply_patch(sequence_steps, last_patched, patch);
-        }
-    }
-
-    fn third_patch_sequence_steps(
-        &self,
-        sequence_steps: &mut [<Self as ModelTypes>::SequenceStep],
-    ) {
-        let mut last_patched = 0;
-        while last_patched + 1 < sequence_steps.len() {
-            let last_step = sequence_steps[last_patched];
-            let next_step = sequence_steps[last_patched + 1];
-
-            let patch = match (last_step, next_step) {
-                (
-                    SequenceStep::Received {
-                        is_activity: true, ..
-                    },
-                    _,
-                ) => SequencePatch::Keep,
-                (
-                    _,
-                    SequenceStep::Received {
-                        is_activity: true, ..
-                    },
-                ) => SequencePatch::Keep,
-
-                (
-                    SequenceStep::NewState {
-                        agent_index: first_agent_index,
-                        state_id: first_state_id,
-                        is_deferring: first_is_deferring,
-                    },
-                    SequenceStep::NewState {
-                        agent_index: second_agent_index,
-                        state_id: second_state_id,
-                        is_deferring: second_is_deferring,
-                    },
-                ) => SequencePatch::Merge(SequenceStep::NewStates {
-                    first_agent_index,
-                    first_state_id,
-                    first_is_deferring,
-                    second_agent_index,
-                    second_state_id,
-                    second_is_deferring,
-                }),
-
-                _ => SequencePatch::Keep,
-            };
-
-            last_patched = Self::apply_patch(sequence_steps, last_patched, patch);
-        }
-    }
-
-    fn apply_patch(
-        sequence_steps: &mut [<Self as ModelTypes>::SequenceStep],
-        mut last_patched: usize,
-        patch: <Self as ModelTypes>::SequencePatch,
-    ) -> usize {
-        match patch {
-            SequencePatch::Keep => {
-                last_patched += 1;
-            }
-            SequencePatch::Swap => {
-                let last_step = sequence_steps[last_patched];
-                let next_step = sequence_steps[last_patched + 1];
-                sequence_steps[last_patched] = next_step;
-                sequence_steps[last_patched + 1] = last_step;
-                if last_patched > 0 {
-                    last_patched -= 1;
-                } else {
-                    last_patched += 1;
-                }
-            }
-            SequencePatch::Merge(merged_step) => {
-                sequence_steps[last_patched] = SequenceStep::NoStep;
-                sequence_steps[last_patched + 1] = merged_step;
-                last_patched += 1;
+            if to_swap {
+                sequence_steps.swap(first_index, second_index);
+            } else {
+                first_index = second_index;
             }
         }
-        last_patched
     }
 
-    fn swap_immediate(
-        &self,
-        last_message_id: MessageId,
-        next_message_id: MessageId,
-    ) -> <Self as ModelTypes>::SequencePatch {
-        let last_message = self.messages.get(last_message_id);
-        let next_message = self.messages.get(next_message_id);
-        if next_message.order == MessageOrder::Immediate
-            && last_message.order != MessageOrder::Immediate
-        {
-            SequencePatch::Swap
-        } else {
-            SequencePatch::Keep
+    fn merge_message_steps(&self, sequence_steps: &mut [<Self as ModelTypes>::SequenceStep]) {
+        for first_index in 0..(sequence_steps.len() - 1) {
+            if let SequenceStep::Emitted {
+                message_id: emit_message_id,
+                agent_index: source_index,
+                replaced,
+                ..
+            } = sequence_steps[first_index]
+            {
+                for second_index in (first_index + 1)..sequence_steps.len() {
+                    match sequence_steps[second_index] {
+                        SequenceStep::Emitted { agent_index, .. }
+                            if agent_index == source_index =>
+                        {
+                            continue;
+                        }
+
+                        SequenceStep::NewState {
+                            agent_index: state_index,
+                            ..
+                        } if source_index == state_index => {
+                            continue;
+                        }
+
+                        SequenceStep::Received {
+                            message_id: received_message_id,
+                            agent_index: target_index,
+                            did_change_state,
+                            is_activity: false,
+                        } if received_message_id == emit_message_id => {
+                            sequence_steps[first_index] = SequenceStep::Passed {
+                                source_index,
+                                target_index,
+                                target_did_change_state: did_change_state,
+                                message_id: emit_message_id,
+                                replaced,
+                            };
+                            sequence_steps[second_index] = SequenceStep::NoStep;
+                            break;
+                        }
+
+                        _ => {
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    fn merge_state_steps(&self, sequence_steps: &mut [<Self as ModelTypes>::SequenceStep]) {
+        for first_index in 0..(sequence_steps.len() - 1) {
+            if let SequenceStep::NewState {
+                agent_index: first_agent_index,
+                state_id: first_state_id,
+                is_deferring: first_is_deferring,
+            } = sequence_steps[first_index]
+            {
+                for second_index in (first_index + 1)..sequence_steps.len() {
+                    match sequence_steps[second_index] {
+                        SequenceStep::NoStep => {
+                            continue;
+                        }
+
+                        // BEGIN NOT TESTED
+                        SequenceStep::Emitted {
+                            agent_index: source_index,
+                            ..
+                        } => {
+                            if source_index == first_agent_index {
+                                continue;
+                            }
+                        }
+
+                        SequenceStep::Passed { source_index, .. } => {
+                            if source_index == first_agent_index {
+                                continue;
+                            }
+                        }
+                        // END NOT TESTED
+                        SequenceStep::NewState {
+                            agent_index: second_agent_index,
+                            state_id: second_state_id,
+                            is_deferring: second_is_deferring,
+                        } if first_agent_index != second_agent_index => {
+                            sequence_steps[first_index] = SequenceStep::NewStates {
+                                first_agent_index,
+                                first_state_id,
+                                first_is_deferring,
+                                second_agent_index,
+                                second_state_id,
+                                second_is_deferring,
+                            };
+                            sequence_steps[second_index] = SequenceStep::NoStep;
+                            break;
+                        }
+
+                        _ => {
+                            break;
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -3709,6 +3600,7 @@ impl<
                 did_change_state,
                 is_activity: true,
                 message_id,
+                ..
             } => {
                 let message = self.messages.get(message_id);
 
@@ -3733,6 +3625,7 @@ impl<
                 did_change_state,
                 is_activity: false,
                 message_id,
+                ..
             } => {
                 let message = self.messages.get(message_id);
                 let first_message_id = self.first_message_id(message_id);
@@ -3772,6 +3665,7 @@ impl<
                 agent_index,
                 message_id,
                 replaced,
+                ..
             } => {
                 let timeline_index = match replaced // MAYBE TESTED
                 {
@@ -3820,19 +3714,25 @@ impl<
                 target_did_change_state,
                 message_id,
                 replaced,
+                ..
             } => {
-                let replaced_timeline_index = replaced.map(|replaced_message_id| {
-                    let replaced_first_message_id = self.first_message_id(replaced_message_id);
-                    let timeline_index = *sequence_state
-                        .message_timelines
-                        .get(&replaced_first_message_id)
-                        .unwrap();
-                    sequence_state
-                        .message_timelines
-                        .remove(&replaced_first_message_id);
-                    sequence_state.timelines[timeline_index] = None;
-                    timeline_index
-                });
+                let replaced_timeline_index: Option<usize> =
+                    if let Some(replaced_message_id) = replaced {
+                        let replaced_first_message_id = self.first_message_id(replaced_message_id);
+                        sequence_state
+                            .message_timelines
+                            .get(&replaced_first_message_id)
+                            .copied()
+                            .map(|timeline_index| {
+                                sequence_state
+                                    .message_timelines
+                                    .remove(&replaced_first_message_id);
+                                sequence_state.timelines[timeline_index] = None;
+                                timeline_index
+                            })
+                    } else {
+                        None
+                    };
                 let message = self.messages.get(message_id);
                 let arrow = match message.order {
                     MessageOrder::Immediate => "-[#Crimson]>",
@@ -3896,7 +3796,9 @@ impl<
                 }
 
                 if second_is_deferring {
+                    // BEGIN NOT TESTED
                     writeln!(stdout, "activate A{} #MediumPurple", second_agent_index).unwrap();
+                    // END NOT TESTED
                 } else {
                     writeln!(stdout, "activate A{} #CadetBlue", second_agent_index).unwrap();
                 }

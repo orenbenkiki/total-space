@@ -25,14 +25,11 @@ deactivate A2
 note over A2 : Need
 A2 -> A1 : Task(client=0)
 activate A2 #CadetBlue
+activate A0 #CadetBlue
 rnote over A2 : BLK
+/ rnote over A0 : WRK(C=0)
 A1 -[#Crimson]> A0 : Task(client=0)
 deactivate A0
-autonumber stop
-[<[#White]-- A0
-autonumber resume
-activate A0 #CadetBlue
-rnote over A0 : WRK(C=0)
 autonumber stop
 [<[#White]-- A0
 autonumber resume

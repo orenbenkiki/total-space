@@ -22,15 +22,19 @@ autonumber resume
 deactivate A0
 note over A0 : Need
 A0 -[#Crimson]> A1 : PNG
-A0 -> A1 : REQ
+control " " as T0 order 10101
+A0 -> T0 : REQ
+activate T0 #Silver
+activate A0 #CadetBlue
+rnote over A0 : WAT
+T0 -> A1 : REQ
+deactivate T0
 deactivate A1
 autonumber stop
 [<[#White]-- A0
 autonumber resume
-activate A0 #CadetBlue
 activate A1 #MediumPurple
-rnote over A0 : WAT
-/ rnote over A1 : WRK
+rnote over A1 : WRK
 autonumber stop
 [<[#White]-- A0
 autonumber resume
@@ -46,7 +50,6 @@ activate A0 #CadetBlue
 rnote over A1 : LST
 / rnote over A0 : IDL
 note over A0 : Worry
-control " " as T0 order 10101
 A0 -> T0 : PNG
 activate T0 #Silver
 note over A0 : Worry
@@ -58,15 +61,18 @@ deactivate A0
 note over A0 : Need
 A0 -[#Crimson]> A1 : &#8658; PNG
 deactivate T0
-A0 -> A1 : REQ
+A0 -> T0 : REQ
+activate T0 #Silver
+activate A0 #CadetBlue
+rnote over A0 : WAT
+T0 -> A1 : REQ
+deactivate T0
 deactivate A1
 autonumber stop
 [<[#White]-- A0
 autonumber resume
-activate A0 #CadetBlue
 activate A1 #MediumPurple
-rnote over A0 : WAT
-/ rnote over A1 : WRK
+rnote over A1 : WRK
 autonumber stop
 [<[#White]-- A0
 autonumber resume
