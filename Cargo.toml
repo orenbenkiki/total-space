@@ -8,7 +8,7 @@ description = "Explore the total space of states of communicating finite state m
 repository = "https://github.com/orenbenkiki/total-space"
 readme = "README.md"
 keywords = [ "validation" ]
-categories =[ "Algorithms", "Visualization" ]
+categories =[ "algorithms", "visualization" ]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
