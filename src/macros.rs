@@ -300,39 +300,39 @@ macro_rules! reaction_alternatives {
 #[macro_export]
 macro_rules! action_sends {
     ($emit1:expr, $emit2:expr $(,)?) => {
-        total_space::Sends([Some(emit1), Some(emit2), None, None, None, None])
+        total_space::Action::Sends([Some($emit1), Some($emit2), None, None, None, None])
     };
     ($emit1:expr, $emit2:expr, $emit3:expr $(,)?) => {
-        total_space::Sends([Some(emit1), Some(emit2), Some(emit3), None, None, None])
+        total_space::Action::Sends([Some($emit1), Some($emit2), Some($emit3), None, None, None])
     };
     ($emit1:expr, $emit2:expr, $emit3:expr, $emit4:expr $(,)?) => {
-        total_space::Sends([
-            Some(emit1),
-            Some(emit2),
-            Some(emit3),
-            Some(emit4),
+        total_space::Action::Sends([
+            Some($emit1),
+            Some($emit2),
+            Some($emit3),
+            Some($emit4),
             None,
             None,
         ])
     };
     ($emit1:expr, $emit2:expr, $emit3:expr, $emit4:expr, $emit5:expr $(,)?) => {
-        total_space::Sends([
-            Some(emit1),
-            Some(emit2),
-            Some(emit3),
-            Some(emit4),
-            Some(emit5),
+        total_space::Action::Sends([
+            Some($emit1),
+            Some($emit2),
+            Some($emit3),
+            Some($emit4),
+            Some($emit5),
             None,
         ])
     };
     ($emit1:expr, $emit2:expr, $emit3:expr, $emit4:expr, $emit5:expr, $emit6:expr $(,)?) => {
-        total_space::Sends([
-            Some(emit1),
-            Some(emit2),
-            Some(emit3),
-            Some(emit4),
-            Some(emit5),
-            Some(emit6),
+        total_space::Action::Sends([
+            Some($emit1),
+            Some($emit2),
+            Some($emit3),
+            Some($emit4),
+            Some($emit5),
+            Some($emit6),
         ])
     };
     ($_:tt) => {

@@ -79,7 +79,8 @@ pub(crate) enum SequenceStep<StateId: IndexLike, MessageId: IndexLike> {
 
     /// A message received by an agent, possibly changing its state.
     Received {
-        agent_index: usize,
+        source_index: usize,
+        target_index: usize,
         is_activity: bool,
         did_change_state: bool,
         message_id: MessageId,
@@ -88,7 +89,8 @@ pub(crate) enum SequenceStep<StateId: IndexLike, MessageId: IndexLike> {
     /// A message was emitted by an agent, possibly changing its state, possibly replacing an
     /// exiting message.
     Emitted {
-        agent_index: usize,
+        source_index: usize,
+        target_index: usize,
         message_id: MessageId,
         replaced: Option<MessageId>,
         is_immediate: bool,
