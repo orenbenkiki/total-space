@@ -150,10 +150,10 @@ fn test_model(arg_matches: &ArgMatches) -> TestModel {
         "S", Instances::Singleton, Some(client_type.clone())
     ));
 
-    let model = TestModel::new(model_size(arg_matches, 1), server_type);
-    init_agent_index!(CLIENT, "C", model);
-    init_agent_index!(SERVER, "S", model);
-    model
+    init_agent_index!(CLIENT, client_type);
+    init_agent_index!(SERVER, server_type);
+
+    TestModel::new(model_size(arg_matches, 1), server_type)
 }
 
 test_case! { conditions, "txt", vec!["test", "conditions"] }

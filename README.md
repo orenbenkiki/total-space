@@ -40,7 +40,8 @@ by the model) and generating all sorts of outputs from it (statistics, lists, an
 
 ## Example
 
-Documentation lies, only the code speaks the truth: See
+You can look at the [API reference](https://docs.rs/total-space/) for details about a specific
+function. That is of no use at all to get started, though. For that, see
 [examples/clients_server.rs](examples/clients_server.rs) for a complete simple model example. See
 [tests/expected/example_clients_server](tests/expected/example_clients_server) for the expected
 results of running various commands. The `svg` files were generated from the `dot` and `uml` files

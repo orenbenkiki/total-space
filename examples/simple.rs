@@ -86,17 +86,59 @@ impl_enum_data! {
     "Working" => "WRK"
 }
 
-// Actual model logic - behavior of the worker agent.
+// Sometimes it is easier to write the code using a struct instead of an enum for the agent's state.
+// This may make
+// In such cases, you could write something like:
+
+#[cfg(struct_instead_of_enum)]
+#[derive(PartialEq, Eq, Hash, Copy, Clone, Debug, IntoStaticStr)]
+enum WorkerStateName {
+    Idle,
+    Working,
+}
+
+#[cfg(struct_instead_of_enum)]
+#[derive(PartialEq, Eq, Hash, Copy, Clone, Debug)]
+struct WorkerState {
+    // The short name of the state.
+    name: WorkerStateName,
+
+    // Additional fields.
+    client: usize,
+}
+
+#[cfg(struct_instead_of_enum)]
 impl AgentState<WorkerState, Payload> for WorkerState {
     // Arbitrary validation for the agent's state. By default this returns `None` meaning the state
     // is valid. Here we do so explicitly for the example's sake. If there is something wrong, the
     // function should return a reason string. This will be reported together with the actual state
     // of the agent, so there's no need to include specific details in the message itself. In theory
     // the validation might depend on the instance, typically it does not.
+    //
+    // When using a `struct` for the state, it typically allows for invalid combinations, so it is
+    // useful to verify they never occur in practice. Using an `enum` allows for ensuring that
+    // invalid states can't be represented in the 1st place. However, using a `struct` allows for
+    // easier access to common fields that occur in many enum variants, and allows for `match`
+    // statements to test such fields regardless of the value of the `name`. The best approach
+    // "depends".
     fn invalid_because(&self, _instance: usize) -> Option<&'static str> {
-        None
+        if self.name == WorkerStateName::Idle && self.client != 0 {
+            Some("non-zero client when in the Idle state")
+        } else {
+            None
+        }
     }
+}
 
+// Implement the boilerplate.
+#[cfg(struct_instead_of_enum)]
+impl_struct_data! {
+    WorkerState = WorkerState { name: Idle, client: 0 },
+    // "from" => "to", ...
+}
+
+// Actual model logic - behavior of the worker agent.
+impl AgentState<WorkerState, Payload> for WorkerState {
     // The maximal number of in-flight messages a worker can generate. By default this is not
     // restricted. In theory the maximal number of in-flight messages might depend on the instance
     // and the state, but typically it is a constant.
@@ -434,8 +476,8 @@ fn example_model(arg_matches: &ArgMatches) -> SimpleModel {
     }
 
     // Initialize the global reference to the worker and client agent type.
-    init_agent_type_data!(WORKER_TYPE, worker_type.clone());
-    init_agent_type_data!(CLIENT_TYPE, client_type.clone());
+    init_agent_type_data!(WORKER_TYPE, worker_type);
+    init_agent_type_data!(CLIENT_TYPE, client_type);
 
     // Estimate the number of configurations, allowing override from the command line. This doesn't
     // have to be exact. It just pre-reserves space for this number of configurations, which make
@@ -446,14 +488,14 @@ fn example_model(arg_matches: &ArgMatches) -> SimpleModel {
         100,         // By default pre-allocate 100 configurations.
     );
 
+    // Initialize the global agent indices variables.
+    init_agent_indices!(WORKERS, worker_type);
+    init_agent_index!(SERVER, server_type);
+    init_agent_indices!(CLIENTS, client_type);
+
     // Create the model, giving it the estimated size, the linked list of agent types, and a vector
     // of configuration validation functions (empty here).
     let mut model = SimpleModel::with_validator(size, client_type, invalid_because);
-
-    // Initialize the global agent indices variables.
-    init_agent_indices!(WORKERS, "W", model);
-    init_agent_index!(SERVER, "S", model);
-    init_agent_indices!(CLIENTS, "C", model);
 
     // Add some interesting conditions.
     model.add_condition(

@@ -769,38 +769,6 @@ impl<
         self.agent_labels.len()
     }
 
-    /// Return the agent type for agents of some name.
-    pub fn agent_type(&self, name: &'static str) -> &<Self as MetaModel>::AgentTypeRc {
-        self.agent_types
-            .iter()
-            .find(|agent_type| agent_type.name() == name)
-            .unwrap_or_else(
-                || panic!("looking for an unknown agent type {}", name), // MAYBE TESTED
-            )
-    }
-
-    /// Return the index of the agent with the specified type name.
-    ///
-    /// If more than one agent of this type exist, also specify its index within its type.
-    pub fn agent_instance_index(&self, name: &'static str, instance: Option<usize>) -> usize {
-        let agent_type = self.agent_type(name);
-        if let Some(lookup_instance) = instance {
-            // BEGIN NOT TESTED
-            assert!(lookup_instance < agent_type.instances_count(),
-                    "out of bounds instance {} specified when locating an agent of type {} which has {} instances",
-                    lookup_instance, name, agent_type.instances_count());
-            self.first_indices[agent_type.first_index()] + lookup_instance
-            // END NOT TESTED
-        } else {
-            assert!(
-                agent_type.is_singleton(),
-                "no instance specified when locating a singleton agent of type {}",
-                name
-            );
-            self.first_indices[agent_type.first_index()]
-        }
-    }
-
     /// Return the index of the agent with the specified label.
     pub fn agent_label_index(&self, agent_label: &str) -> Option<usize> {
         self.agent_labels
