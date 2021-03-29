@@ -76,14 +76,17 @@ That said, to understand the code, the following will help.
 
   * *Unordered* - may be delivered in any order.
 
-  * *Ordered* - may be delivered only after delivering all previously sent messages from the same
-    *Source* to the same *Target*.
+  * *Ordered* - may be delivered only after delivering all previously sent *Ordered* messages from
+    the same *Source* to the same *Target*. That is, *Unordered* messages can be delivered in any
+    order relative to *Ordered* messages.
 
 * A *Message* may *Replace* (overwrite) an existing *Message* from the same *Source* to the same
   *Target*. For example, this can be used to model writing to a "mailbox" memory address, where
-  writing a new message may overwrite the previous one before it has been delivered.
+  writing a new message may overwrite the previous one before it has been read by the target agent.
 
-* An *Agent* can also trigger an *Activity* regardless of *Messages*.
+* An *Agent* can also trigger an *Activity* regardless of *Messages*. This models things like
+  external interrupts or the *Agent* performing some some internal computation such as completing a
+  task.
 
 * An *Activity* carries a *Payload*, as if it was a *Message* from the agent to itself.
 
@@ -97,55 +100,83 @@ That said, to understand the code, the following will help.
 
 * A *Reaction* may be:
 
+  * *Unexpected* - the model does not expect this *Payload* to be delivered to this *Agent* while
+    it is at this *State*. This indicates that the model is either under-specified (some scenario is
+    possible, but was not planned for) or that the model has a bug (some scenario is possible in the
+    model, but should not be). By default, if this happens, the framework will emit the shortest
+    path of *Transitions* from the initial *Configuration* to the *Unexpected* case, which makes it
+    easy to debug such cases.
+
   * *Ignore* - the *Payload* is discarded and no other changes are made to the system.
 
   * *Defer* - the *Agent* indicates the *Message* should only be delivered only after it changes its
     *State*. Only *Messages* can be *Deferred*. An *Agent* needs to explicitly identify its *State*
     as "deferring" to allow it to *Defer* while in that *State*. This is used to highlight such
-    *States* in diagrams.
+    *States* in diagrams. *Deferring* is roughly equivalent to queueing the *Message* for later
+    processing.
 
   * One or more *Actions*. If more than one *Action* is given, these are possible alternatives,
     where each one leads to a different possible flow.
 
 * An *Action* may:
 
-  * Change the *State* or the *Agent*. This is the only way to modify the *State* of an *Agent*.
+  * Change the *State* of the *Agent*. This is the only way to modify the *State* of an *Agent*.
     Note that *Containers* may not directly change the state of their *Parts*. Instead, they need to
     send an appropriate (typically *Immediate*) *Message* to them that will cause them to change
     their *State*.
 
   * Emit zero or more *Messages* to other *Agent(s)*. The total number of *Messages* sent by each
-    *Agent* may be bounded by some limit which may be different for each *Instance*.
+    *Agent* may be bounded by some limit, which may be different for each *Instance* (for example,
+    encountering an *Unexpected* reaction).
 
 * A system *Configuration* is the collection of all the *States* of all the *Agents*, all the
   in-flight *Messages*, and optionally an indication that some *Invalid* condition occurred.
 
 * An *Invalid* condition may occur due to a specific invalid *Agent* *State*, *Message* or
   *Activity* *Payload*, or as a result of some combinations of these in some *Configuration*.
+  Similarly to the *Unexpected* case, by default, if an *Invalid* condition is seen, the framework
+  will emit the shortest path of *Transitions* from the initial *Configuration* to the *Invalid*
+  one, which makes it easy to debug such cases.
 
-* An *Action* results in a *Transition* between *Configurations*.
+* An *Action* results in a *Transition* between different *Configurations*. Note that an *Ignore*
+  *Reaction* consumes the *Message* so its target *Configuration* would have one less in-flight
+  *Message*. An *Ignore* *Reaction* to an *Activity* can have the same source and target
+  *Configuration*, and is simply ignored; that is, there are no self-edges in the *Transitions*
+  graph.
 
 * The code computes the total space (graph) of *Configurations* and the *Transitions* that connect
-  them.
+  them. The framework allows computing *Paths* on this graph, starting at the initial
+  *Configuration* and then looking for the shortest minimal number of *Transitions* leading to a
+  *Configuration* that satisfies some *Condition*. Multiple *Conditions* may be specified to define
+  a complex *Path*.
 
 ## Validation
 
 The code allows applying a validation function to each *State* and overall *Configuration*. Thus,
-simply computing the total *Configurations* space can ensure arbitrary validation conditions.
+simply computing the total *Configurations* space can ensure arbitrary validation conditions,
+and the framework makes it easy to debug *Invalid* conditions by providing the shortest *Path*
+that leads to them.
 
 The *Reaction* logic in each agent will typically `match` some combinations of its *State* and the
-*Payload*, which will include a catch-all `Reaction::Unexpected` clause. Thus computing the model
+*Payload*, which will include a catch-all clause returning *Unexpected*. Thus computing the model
 verifies that no unexpected message is received while in a state that does not expect to see it.
+Again the framework makes it easy to debug *Unexpected* scenarios by providing the shortest *Path*
+leading to them.
 
 The code also verifies the number of sent in-flight *Messages* from each *Agent* does not exceed the
 specified threshold. This ensures that no *Agent* is sending an unbounded number of *Messages*.
 
 In addition, the code allows verifying that there is a path from every *Configurations* back to the
 initial *Configuration*, which ensures there are no deadlock *Configurations* or a cycle of livelock
-*Configurations*.
+*Configurations*. If there are such deadlock/livelock *Configurations*, the framework will provide
+the shortest path from the initial *Configuration* to the deadlock/livelock. Debugging these cases
+is harder and typically requires looking at the *Configurations* that are reachable from the
+deadlock/livelock by consulting the complete list of *Transitions*. Possibly the framework should be
+enhanced to dump just the relevant *Transitions* reachable from the deadlock/livelock
+*Configurations* in such a case to allow debugging in a large model.
 
 Finally, the code allows for generating *Transition* paths leading to *Configurations* that satisfy
-arbitrary conditions, which can be used to ensure that any *Configuration* of interest is actually
+arbitrary *Conditions*, which can be used to ensure that any *Configuration* of interest is actually
 reachable from the initial *Configuration*.
 
 Another way to ensure the model is covered is to collect coverage information for the model (see
@@ -156,17 +187,19 @@ the model or that a simpler model may suffice.
 
 ## Output
 
-The code allows simply listing all *Configurations* and *Transitions*. This has limited usefulness,
-mainly for debugging.
+The code allows simply listing all *Agents*, *Configurations* and *Transitions*. This has limited
+usefulness, mainly for debugging.
 
 In addition, the code can generate two types of diagrams:
 
-* A GraphViz diagram of all the *States* of some *Agent* and the *Actions* that moved the *Agent*
-  between these *States*. This is used to visualize the behavior of each *Agent* in isolation.
+* A GraphViz diagram of all the *States* of some *Agent* *Instance* and the *Actions* that moved
+  this *Agent* between these *States*. This is used to visualize the behavior of each *Agent* in
+  isolation. This graph can be *Condensed* (ignore internal *State* details and *Agent* *Instance*
+  indices), which makes for very usable diagrams visualizing the *Agent* logic.
 
-* A UML sequence diagram of all the *Transitions* between *Configurations* along the shortest path
-  between *Configurations* that satisfy arbitrary conditions. This is used to visualize complete
-  system scenarios.
+* A UML sequence diagram of all the *Transitions* between *Configurations* along the shortest *Path*
+  between *Configurations* that satisfy arbitrary *Conditions*. This is used to visualize complete
+  system scenarios as opposed of just a single *Agent's* logic.
 
 ## License
 
