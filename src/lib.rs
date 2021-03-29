@@ -9,6 +9,9 @@
 // see <http://www.gnu.org/licenses/>.
 
 //! Explore the total space of states of communicating finite state machines.
+//!
+//! This is just the API reference documentation; see the
+//! [README](https://github.com/orenbenkiki/total-space) for an overview and links to example code.
 
 #![feature(trait_alias)]
 

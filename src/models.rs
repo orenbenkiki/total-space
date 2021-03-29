@@ -31,7 +31,7 @@ thread_local! {
 
 /// A transition from a given configuration.
 #[derive(Copy, Clone, Debug)]
-pub struct Outgoing<MessageId: IndexLike, ConfigurationId: IndexLike> {
+pub(crate) struct Outgoing<MessageId: IndexLike, ConfigurationId: IndexLike> {
     /// The identifier of the target configuration.
     to_configuration_id: ConfigurationId,
 
@@ -42,7 +42,7 @@ pub struct Outgoing<MessageId: IndexLike, ConfigurationId: IndexLike> {
 
 /// A transition to a given configuration.
 #[derive(Copy, Clone, Debug)]
-pub struct Incoming<MessageId: IndexLike, ConfigurationId: IndexLike> {
+pub(crate) struct Incoming<MessageId: IndexLike, ConfigurationId: IndexLike> {
     /// The identifier of the source configuration.
     from_configuration_id: ConfigurationId,
 
@@ -850,7 +850,7 @@ impl<
     > Model<StateId, MessageId, InvalidId, ConfigurationId, Payload, MAX_AGENTS, MAX_MESSAGES>
 {
     /// Compute all the configurations of the model.
-    pub fn compute(&mut self) {
+    pub(crate) fn compute(&mut self) {
         assert!(self.configurations.len() == 1);
 
         if self.ensure_init_is_reachable {
@@ -2090,7 +2090,7 @@ impl<
         const MAX_MESSAGES: usize,
     > Model<StateId, MessageId, InvalidId, ConfigurationId, Payload, MAX_AGENTS, MAX_MESSAGES>
 {
-    pub fn assert_init_is_reachable(&mut self) {
+    pub(crate) fn assert_init_is_reachable(&mut self) {
         assert!(self.reachable_configurations_count == 0);
         assert!(self.reachable_configurations_mask.is_empty());
 
