@@ -74,11 +74,15 @@ autonumber stop
 autonumber resume
 deactivate A0
 note over A0 : Completed
-control " " as T3 order 10102
-A0 -> T3 : Result
-activate T3 #Silver
+A0 -> A3 : Result
+deactivate A3
+autonumber stop
+[<[#White]-- A0
+autonumber resume
 activate A0 #CadetBlue
+activate A3 #CadetBlue
 rnote over A0 : IDL
+/ rnote over A3 : RUN
 T2 -> A2 : Result
 deactivate T2
 deactivate A2
@@ -87,14 +91,6 @@ autonumber stop
 autonumber resume
 activate A2 #CadetBlue
 rnote over A2 : RUN
-T3 -> A3 : Result
-deactivate T3
-deactivate A3
-autonumber stop
-[<[#White]-- A0
-autonumber resume
-activate A3 #CadetBlue
-rnote over A3 : RUN
 autonumber stop
 [<[#White]-- A0
 autonumber resume

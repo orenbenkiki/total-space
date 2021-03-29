@@ -3217,60 +3217,71 @@ impl<
     }
 
     fn patch_sequence_steps(&self, sequence_steps: &mut [<Self as ModelTypes>::SequenceStep]) {
-        /*
-        eprintln!(
-            "sequence_steps {}",
-            format!("{:?}", sequence_steps)
-                .replace("}, ", "},\n")
-                .replace("NoStep, ", "")
-                .replace("[", "[\n")
-                .replace("]", "\n]")
-        );
-        */
+        let trace = false;
+        if trace {
+            // BEGIN NOT TESTED
+            eprintln!(
+                "sequence_steps {}",
+                format!("{:?}", sequence_steps)
+                    .replace("}, ", "},\n")
+                    .replace("NoStep, ", "")
+                    .replace("[", "[\n")
+                    .replace("]", "\n]")
+            );
+            // END NOT TESTED
+        }
         self.move_immediates_up(sequence_steps);
-        /*
-        eprintln!(
-            "move_immediates_up {}",
-            format!("{:?}", sequence_steps)
-                .replace("}, ", "},\n")
-                .replace("NoStep, ", "")
-                .replace("[", "[\n")
-                .replace("]", "\n]")
-        );
-        */
+        if trace {
+            // BEGIN NOT TESTED
+            eprintln!(
+                "move_immediates_up {}",
+                format!("{:?}", sequence_steps)
+                    .replace("}, ", "},\n")
+                    .replace("NoStep, ", "")
+                    .replace("[", "[\n")
+                    .replace("]", "\n]")
+            );
+            // END NOT TESTED
+        }
         self.merge_message_steps(sequence_steps);
-        /*
-        eprintln!(
-            "merge_message_steps {}",
-            format!("{:?}", sequence_steps)
-                .replace("}, ", "},\n")
-                .replace("NoStep, ", "")
-                .replace("[", "[\n")
-                .replace("]", "\n]")
-        );
-        */
+        if trace {
+            // BEGIN NOT TESTED
+            eprintln!(
+                "merge_message_steps {}",
+                format!("{:?}", sequence_steps)
+                    .replace("}, ", "},\n")
+                    .replace("NoStep, ", "")
+                    .replace("[", "[\n")
+                    .replace("]", "\n]")
+            );
+            // END NOT TESTED
+        }
         self.merge_state_steps(sequence_steps);
-        /*
-        eprintln!(
-            "merge_state_steps {}",
-            format!("{:?}", sequence_steps)
-                .replace("}, ", "},\n")
-                .replace("NoStep, ", "")
-                .replace("[", "[\n")
-                .replace("]", "\n]")
-        );
-        */
+        if trace {
+            // BEGIN NOT TESTED
+            eprintln!(
+                "merge_state_steps {}",
+                format!("{:?}", sequence_steps)
+                    .replace("}, ", "},\n")
+                    .replace("NoStep, ", "")
+                    .replace("[", "[\n")
+                    .replace("]", "\n]")
+            );
+            // END NOT TESTED
+        }
         self.move_passed_down(sequence_steps);
-        /*
-        eprintln!(
-            "move_passed_down {}",
-            format!("{:?}", sequence_steps)
-                .replace("}, ", "},\n")
-                .replace("NoStep, ", "")
-                .replace("[", "[\n")
-                .replace("]", "\n]")
-        );
-        */
+        if trace {
+            // BEGIN NOT TESTED
+            eprintln!(
+                "move_passed_down {}",
+                format!("{:?}", sequence_steps)
+                    .replace("}, ", "},\n")
+                    .replace("NoStep, ", "")
+                    .replace("[", "[\n")
+                    .replace("]", "\n]")
+            );
+            // END NOT TESTED
+        }
     }
 
     fn move_immediates_up(&self, sequence_steps: &mut [<Self as ModelTypes>::SequenceStep]) {
@@ -3375,17 +3386,22 @@ impl<
                 is_deferring: first_is_deferring,
             } = sequence_steps[first_index]
             {
+                let mut touched_agent_indices: [bool; MAX_AGENTS] = [false; MAX_AGENTS];
+                touched_agent_indices[first_agent_index] = true;
                 for second_index in (first_index + 1)..sequence_steps.len() {
                     match sequence_steps[second_index] {
                         SequenceStep::NoStep => {
                             continue;
                         }
 
+                        // BEGIN MAYBE TESTED
                         SequenceStep::Emitted {
                             source_index: second_source_index,
+                            target_index: second_target_index,
                             ..
                         } => {
                             if second_source_index == first_agent_index {
+                                touched_agent_indices[second_target_index] = true;
                                 continue;
                             } else {
                                 break;
@@ -3394,15 +3410,17 @@ impl<
 
                         SequenceStep::Passed {
                             source_index: second_source_index,
+                            target_index: second_target_index,
                             ..
                         } => {
                             if second_source_index == first_agent_index {
+                                touched_agent_indices[second_target_index] = true;
                                 continue;
                             } else {
                                 break;
                             }
                         }
-
+                        // END MAYBE TESTED
                         SequenceStep::Received {
                             target_index: second_target_index,
                             ..
@@ -3410,6 +3428,7 @@ impl<
                             if second_target_index == first_agent_index {
                                 break;
                             } else {
+                                touched_agent_indices[second_target_index] = true;
                                 continue;
                             }
                         }
@@ -3418,7 +3437,7 @@ impl<
                             agent_index: second_agent_index,
                             state_id: second_state_id,
                             is_deferring: second_is_deferring,
-                        } if first_agent_index != second_agent_index => {
+                        } if !touched_agent_indices[second_agent_index] => {
                             sequence_steps[first_index] = SequenceStep::NewStates {
                                 first_agent_index,
                                 first_state_id,
@@ -3431,8 +3450,16 @@ impl<
                             break;
                         }
 
+                        SequenceStep::NewState {
+                            agent_index: second_agent_index,
+                            ..
+                        } => {
+                            touched_agent_indices[second_agent_index] = true;
+                            continue;
+                        }
+
                         _ => {
-                            break;
+                            break; // NOT TESTED
                         }
                     }
                 }
@@ -3454,21 +3481,23 @@ impl<
                             continue;
                         }
 
+                        // BEGIN NOT TESTED
                         SequenceStep::NewState {
                             agent_index: second_agent_index,
                             ..
-                        } if second_agent_index != first_target_index
-                            && second_agent_index != second_agent_index =>
+                        } if second_agent_index != first_source_index
+                            && second_agent_index != first_target_index =>
                         {
                             sequence_steps.swap(first_index, second_index);
                             break;
                         }
-
+                        // END NOT TESTED
                         SequenceStep::NewStates {
                             first_agent_index,
                             second_agent_index,
                             ..
                         } if first_agent_index != first_source_index
+                            // BEGIN NOT TESTED
                             && first_agent_index != first_target_index
                             && second_agent_index != first_source_index
                             && second_agent_index != first_target_index =>
@@ -3476,7 +3505,7 @@ impl<
                             sequence_steps.swap(first_index, second_index);
                             break;
                         }
-
+                        // END NOT TESTED
                         _ => {
                             break;
                         }
@@ -3642,8 +3671,10 @@ impl<
             .insert(first_message_id, timeline_index);
 
         if empty_timeline_index.is_some() {
+            // BEGIN NOT TESTED
             sequence_state.timelines[timeline_index] = Some(first_message_id);
             return timeline_index;
+            // END NOT TESTED
         }
         sequence_state.timelines.push(Some(first_message_id));
 
@@ -3929,9 +3960,7 @@ impl<
                 }
 
                 if second_is_deferring {
-                    // BEGIN NOT TESTED
                     writeln!(stdout, "activate A{} #MediumPurple", second_agent_index).unwrap();
-                    // END NOT TESTED
                 } else {
                     writeln!(stdout, "activate A{} #CadetBlue", second_agent_index).unwrap();
                 }

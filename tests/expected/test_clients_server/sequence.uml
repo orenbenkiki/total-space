@@ -70,11 +70,15 @@ autonumber stop
 autonumber resume
 deactivate A2
 note over A2 : Completed
-control " " as T3 order 10298
-A2 -> T3 : RSP
-activate T3 #Silver
+A2 -> A1 : RSP
+deactivate A1
+autonumber stop
+[<[#White]-- A0
+autonumber resume
 activate A2 #CadetBlue
+activate A1 #CadetBlue
 rnote over A2 : LST
+/ rnote over A1 : IDL
 T2 -> A0 : RSP
 deactivate T2
 deactivate A0
@@ -83,14 +87,6 @@ autonumber stop
 autonumber resume
 activate A0 #CadetBlue
 rnote over A0 : IDL
-T3 -> A1 : RSP
-deactivate T3
-deactivate A1
-autonumber stop
-[<[#White]-- A0
-autonumber resume
-activate A1 #CadetBlue
-rnote over A1 : IDL
 autonumber stop
 [<[#White]-- A0
 autonumber resume
