@@ -42,10 +42,10 @@ by the model) and generating all sorts of outputs from it (statistics, lists, an
 
 You can look at the [API reference](https://docs.rs/total-space/) for details about a specific
 function. That is of no use at all to get started, though. For that, see
-[examples/clients_server.rs](examples/clients_server.rs) for a complete simple model example. See
-[tests/expected/example_clients_server](tests/expected/example_clients_server) for the expected
-results of running various commands. The `svg` files were generated from the `dot` and `uml` files
-using [GraphViz](https://www.graphviz.org/) and [PlantUML](https://plantuml.com/starting).
+[examples/simple.rs](examples/simple.rs) for a complete simple model example. See
+[tests/expected/example_simple](tests/expected/example_simple) for the expected results of running
+various commands. The `svg` files were generated from the `dot` and `uml` files using
+[GraphViz](https://www.graphviz.org/) and [PlantUML](https://plantuml.com/starting).
 
 That said, to understand the code, the following will help.
 
