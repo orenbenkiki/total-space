@@ -1,4 +1,4 @@
-# total-space [![Build Status](https://api.travis-ci.org/orenbenkiki/total-space.svg?branch=master)](https://travis-ci.org/orenbenkiki/total-space) [![codecov](https://codecov.io/gh/orenbenkiki/total-space/branch/master/graph/badge.svg)](https://codecov.io/gh/orenbenkiki/total-space) [![Docs](https://docs.rs/total-space/badge.svg)](https://docs.rs/crate/total-space)
+# total-space [![Build Status](https://api.travis-ci.com/orenbenkiki/total-space.svg?branch=master)](https://travis-ci.com/orenbenkiki/total-space) [![codecov](https://codecov.io/gh/orenbenkiki/total-space/branch/master/graph/badge.svg)](https://codecov.io/gh/orenbenkiki/total-space) [![Docs](https://docs.rs/total-space/badge.svg)](https://docs.rs/crate/total-space)
 
 Investigate the total state space of communicating finite state machines. Specifically, given a
 model of a system comprising of multiple agents, where each agent is a non-deterministic state
@@ -24,14 +24,13 @@ To use this, you need to create your own main program:
 use total_space;
 
 fn main() {
-    let arg_ = total_space::add_clap(
+    let arg_matches = total_space::add_clap(
         clap::App::new("...")
         ... add your own command line arguments to control the model ...
-    );
-    let arg_matches = &app.get_matches();
+    ).get_matches();
     let mut model = ... Use your command line arguments to create the model ...;
     let mut output = BufWriter::new(stdout());
-    model.do_clap(arg_matches, &mut output);
+    model.do_clap(&arg_matches, &mut output);
 }
 ```
 
