@@ -21,6 +21,7 @@ rust:
 before_script:
 - which sccache || cargo install sccache
 - export RUSTC_WRAPPER=`which sccache`
+- rustup component add rustfmt --toolchain nightly
 - which cargo-make || cargo install cargo-make
 - curl -s https://raw.githubusercontent.com/orenbenkiki/scmf/master/install_kcov.sh | /bin/sh
 
