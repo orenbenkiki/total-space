@@ -1,4 +1,9 @@
-# total-space [![Build Status](https://api.travis-ci.com/orenbenkiki/total-space.svg?branch=master)](https://travis-ci.com/orenbenkiki/total-space) [![codecov](https://codecov.io/gh/orenbenkiki/total-space/branch/master/graph/badge.svg)](https://codecov.io/gh/orenbenkiki/total-space) [![Docs](https://docs.rs/total-space/badge.svg)](https://docs.rs/crate/total-space)
+# total-space
+[![license](https://img.shields.io/crates/l/total-space.svg)](https://github.com/orenbenkiki/total-space/blob/master/LICENSE.txt)
+[![crates.io](https://img.shields.io/crates/v/total-space.svg)](https://crates.io/crates/total-space)
+[![Build Status](https://api.travis-ci.com/orenbenkiki/total-space.svg?branch=master)](https://travis-ci.com/orenbenkiki/total-space)
+[![codecov](https://codecov.io/gh/orenbenkiki/total-space/branch/master/graph/badge.svg)](https://codecov.io/gh/orenbenkiki/total-space)
+[![Docs](https://docs.rs/total-space/badge.svg)](https://docs.rs/crate/total-space)
 
 Investigate the total state space of communicating finite state machines. Specifically, given a
 model of a system comprising of multiple agents, where each agent is a non-deterministic state

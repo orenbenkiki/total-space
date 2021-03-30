@@ -33,3 +33,6 @@ script:
 - export RUSTC_WRAPPER=`which sccache`
 - cargo make ci
 - sccache --stop-server
+
+after_success: |
+    bash <(curl -s https://codecov.io/bash) && echo "Uploaded code coverage"
