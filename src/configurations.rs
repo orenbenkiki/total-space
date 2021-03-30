@@ -11,6 +11,8 @@ pub enum Invalid<MessageId: IndexLike> {
     Message(MessageId, &'static str),
 }
 
+impl<MessageId: IndexLike> KeyLike for Invalid<MessageId> {}
+
 // END MAYBE TESTED
 
 impl<MessageId: IndexLike> Default for Invalid<MessageId> {
@@ -49,6 +51,16 @@ pub struct Configuration<
 }
 
 // END MAYBE TESTED
+
+impl<
+        StateId: IndexLike,
+        MessageId: IndexLike,
+        InvalidId: IndexLike,
+        const MAX_AGENTS: usize,
+        const MAX_MESSAGES: usize,
+    > KeyLike for Configuration<StateId, MessageId, InvalidId, MAX_AGENTS, MAX_MESSAGES>
+{
+}
 
 impl<
         StateId: IndexLike,

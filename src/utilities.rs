@@ -11,15 +11,11 @@ pub trait Name {
     fn name(&self) -> String;
 }
 
-/// A trait for data that has a short name (via `AsRef<&'static str>`) and a full display name (via
-/// `Display`).
-pub trait Named = Display + Name;
-
 /// A trait for anything we use as a key in a HashMap.
-pub trait KeyLike = Eq + Hash + Copy + Debug + Sized;
+pub trait KeyLike: Eq + Hash + Copy + Debug + Sized {}
 
 /// A trait for data we pass around in the model.
-pub trait DataLike = KeyLike + Named + Default;
+pub trait DataLike: KeyLike + Display + Name + Default {}
 
 /// A trait for anything we use as a zero-based index.
 pub trait IndexLike: KeyLike + PartialOrd + Ord {

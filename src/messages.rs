@@ -31,6 +31,8 @@ impl IndexLike for MessageIndex {
 
 // BEGIN MAYBE TESTED
 
+impl KeyLike for MessageIndex {}
+
 impl Display for MessageIndex {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> FormatterResult {
         write!(formatter, "{}", self.to_usize())
@@ -69,6 +71,8 @@ pub struct Message<Payload: DataLike> {
     /// The replaced message, if any.
     pub replaced: Option<Payload>,
 }
+
+impl<Payload: DataLike> KeyLike for Message<Payload> {}
 
 impl<Payload: DataLike> Default for Message<Payload> {
     fn default() -> Self {

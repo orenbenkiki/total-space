@@ -15,6 +15,8 @@
 #[macro_export]
 macro_rules! impl_struct_data {
     ($name:ident = $value:expr $(, $from:literal => $to:literal)* $(,)?) => {
+        impl KeyLike for $name {}
+        impl DataLike for $name {}
         impl_name_by_member! { $name }
         impl_default_by_value! { $name = $value }
         impl_display_by_patched_debug! { $name $(, $from => $to)* }
@@ -48,6 +50,8 @@ macro_rules! impl_name_by_member {
 #[macro_export]
 macro_rules! impl_enum_data {
     ($name:ident = $value:expr $(, $from:literal => $to:literal)* $(,)?) => {
+        impl KeyLike for $name {}
+        impl DataLike for $name {}
         impl_default_by_value! { $name = $value }
         impl_name_for_into_static_str! { $name $(, $from => $to)* }
         impl_display_by_patched_debug! { $name, "name=" => "" $(, $from => $to)* }

@@ -13,8 +13,6 @@
 //! This is just the API reference documentation; see the
 //! [README](https://github.com/orenbenkiki/total-space) for an overview and links to example code.
 
-#![feature(trait_alias)]
-
 mod agents;
 mod claps;
 mod configurations;

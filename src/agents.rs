@@ -1120,6 +1120,8 @@ macro_rules! index_type {
         #[derive(PartialEq, Eq, PartialOrd, Ord, Hash, Copy, Clone, Debug)]
         pub struct $name($type);
 
+        impl KeyLike for $name {}
+
         impl total_space::IndexLike for $name {
             fn from_usize(value: usize) -> Self {
                 $name($type::from_usize(value).unwrap())
