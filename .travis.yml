@@ -24,6 +24,7 @@ matrix:
   - rust: nightly
 
 before_script:
+- rustup toolchain install --allow-downgrade `rustup default | sed 's/-.*//'` -c rustfmt
 - which sccache || cargo install sccache
 - export RUSTC_WRAPPER=`which sccache`
 - which cargo-make || cargo install cargo-make
