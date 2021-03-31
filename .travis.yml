@@ -23,8 +23,7 @@ matrix:
   allow_failures:
   - rust: nightly
 
-before_script:
-- rustup toolchain install --allow-downgrade `rustup default | sed 's/-.*//'` -c rustfmt
+before_script: |
 - which sccache || cargo install sccache
 - export RUSTC_WRAPPER=`which sccache`
 - which cargo-make || cargo install cargo-make
@@ -32,6 +31,7 @@ before_script:
 
 script:
 - export RUSTC_WRAPPER=`which sccache`
+- rustup component add rustfmt || export SCMF_DISABLE_FORMAT=1 SCMF_DISABLE_CHECK_FORMAT=1
 - cargo make ci
 - sccache --stop-server
 
