@@ -6,9 +6,14 @@ use crate::utilities::*;
 /// An indicator that something is invalid.
 #[derive(PartialEq, Eq, Hash, Copy, Clone, Debug)]
 pub enum Invalid<MessageId: IndexLike> {
-    Configuration(&'static str),
+    /// An agent failed its internal validation check.
     Agent(usize, &'static str),
+
+    /// A message failed its validation check (in the context of some configuration).
     Message(MessageId, &'static str),
+
+    /// A configuration failed the global invalidation check.
+    Configuration(&'static str),
 }
 
 impl<MessageId: IndexLike> KeyLike for Invalid<MessageId> {}

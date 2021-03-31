@@ -8,6 +8,7 @@ use std::hash::Hasher;
 
 /// A trait for data having a short name.
 pub trait Name {
+    /// The short name of the object.
     fn name(&self) -> String;
 }
 

@@ -407,6 +407,14 @@ type SimpleModel = Model<
     14, // MAX_MESSAGES - the maximal number of messages in-flight.
 >;
 
+// Validate the model (in addition to independent validation of each agent).
+struct SimpleValidator;
+impl ModelValidator<SimpleModel> for SimpleValidator {
+    // Functions to validate a message or the whole configuration. In this simple model we have
+    // none, so we could have just omitted defining `SimpleValidator` in the 1st place by using
+    // `Model::new` instead of `Model::with_validator` below.
+}
+
 // Create a model based on the command-line arguments.
 fn example_model(arg_matches: &ArgMatches) -> SimpleModel {
     let workers_arg = arg_matches.value_of("Workers").unwrap();
@@ -493,9 +501,10 @@ fn example_model(arg_matches: &ArgMatches) -> SimpleModel {
     init_agent_index!(SERVER, server_type);
     init_agent_indices!(CLIENTS, client_type);
 
-    // Create the model, giving it the estimated size, the linked list of agent types, and a vector
-    // of configuration validation functions (empty here).
-    let mut model = SimpleModel::with_validator(size, client_type, invalid_because);
+    // Create the model, giving it the estimated size and the linked list of agent types. If there
+    // are no validation functions, the simpler `Model::new` skips the 3rd argument. It is included
+    // here for the example's sake.
+    let mut model = SimpleModel::with_validator(size, client_type, Rc::new(SimpleValidator));
 
     // Add some interesting conditions.
     model.add_condition(
@@ -516,16 +525,6 @@ fn example_model(arg_matches: &ArgMatches) -> SimpleModel {
 
     // Return the result.
     model
-}
-
-// It is possible to register validation function(s) for the whole configuration. We provide an
-// empty such function here for the example's state; if the model doesn't have such validation(s)
-// then just use `Model::new` instead of `Model::with_validator`.
-fn invalid_because(
-    _model: &SimpleModel,
-    _configuration: &<SimpleModel as MetaModel>::Configuration,
-) -> Option<&'static str> {
-    None
 }
 
 // A condition on the overall configuration - in this case, that all workers are busy. This

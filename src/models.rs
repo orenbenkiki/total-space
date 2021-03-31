@@ -192,6 +192,9 @@ pub struct Model<
     const MAX_AGENTS: usize,
     const MAX_MESSAGES: usize,
 > {
+    /// Optional validation for the model.
+    validator: Option<Rc<dyn ModelValidator<Self>>>,
+
     /// The type of each agent.
     agent_types: Vec<<Self as MetaModel>::AgentTypeRc>,
 
@@ -200,9 +203,6 @@ pub struct Model<
 
     /// The first index of the same type of each agent.
     first_indices: Vec<usize>,
-
-    /// Validation functions for the configuration.
-    validator: Option<<Self as MetaModel>::Validator>,
 
     /// Memoization of the configurations.
     configurations: Memoize<<Self as MetaModel>::Configuration, ConfigurationId>,
@@ -324,11 +324,34 @@ pub trait MetaModel {
     /// The type of a hash table entry for the configurations (should be cache-friendly).
     type ConfigurationHashEntry;
 
-    /// The type of a configuration validation function.
-    type Validator;
-
     /// A condition on model configurations.
     type Condition;
+}
+
+/// Validate parts of the model.
+///
+/// We are forced to wrap this in a separate object so that the application will be able to
+/// implement the trait for it. It would have been nicer to implement the trait directly on the
+/// model itself, but that isn't possible because it is defined in the total-space crate which is
+/// different from the application crate.
+pub trait ModelValidator<Model: MetaModel> {
+    /// Return a reason that a configuration is invalid (unless it is valid).
+    fn configuration_invalid_because(
+        &self,
+        _model: &Model,
+        _configuration: &Model::Configuration,
+    ) -> Option<&'static str> {
+        None
+    }
+
+    /// Return a reason that a message is invalid (unless it is valid).
+    fn message_invalid_because(
+        &self,
+        _model: &Model,
+        _message: &Model::Message,
+    ) -> Option<&'static str> {
+        None
+    }
 }
 
 impl<
@@ -361,10 +384,6 @@ impl<
         Configuration<StateId, MessageId, InvalidId, MAX_AGENTS, MAX_MESSAGES>,
         ConfigurationId,
     );
-    type Validator = fn(
-        &Self,
-        &Configuration<StateId, MessageId, InvalidId, MAX_AGENTS, MAX_MESSAGES>,
-    ) -> Option<&'static str>;
     type Condition =
         fn(&Self, &Configuration<StateId, MessageId, InvalidId, MAX_AGENTS, MAX_MESSAGES>) -> bool;
 }
@@ -440,16 +459,19 @@ impl<
         const MAX_MESSAGES: usize,
     > Model<StateId, MessageId, InvalidId, ConfigurationId, Payload, MAX_AGENTS, MAX_MESSAGES>
 {
-    /// Create a new model, without computing anything yet, with a validation function.
+    /// Create a new model with validation.
+    ///
+    /// This allows querying the model for the `agent_index` of all the agents to use the results as
+    /// a target for messages.
     pub fn with_validator(
         size: usize,
         last_agent_type: Rc<dyn AgentType<StateId, Payload>>,
-        validator: <Self as MetaModel>::Validator,
+        validator: Rc<dyn ModelValidator<Self>>,
     ) -> Self {
         Self::create(size, last_agent_type, Some(validator))
     }
 
-    /// Create a new model, without a validation function.
+    /// Create a new model.
     ///
     /// This allows querying the model for the `agent_index` of all the agents to use the results as
     /// a target for messages.
@@ -460,7 +482,7 @@ impl<
     fn create(
         size: usize,
         last_agent_type: Rc<dyn AgentType<StateId, Payload>>,
-        validator: Option<<Self as MetaModel>::Validator>,
+        validator: Option<Rc<dyn ModelValidator<Self>>>,
     ) -> Self {
         assert!(
             MAX_MESSAGES < MessageIndex::invalid().to_usize(),
@@ -481,10 +503,10 @@ impl<
         );
 
         let mut model = Self {
+            validator,
             agent_types,
             agent_labels,
             first_indices,
-            validator,
             configurations: Memoize::with_capacity(usize::max_value(), size),
             transitions_count: 0,
             messages: Memoize::new(MessageId::invalid().to_usize()),
@@ -1493,6 +1515,8 @@ impl<
         context: &mut <Self as ModelTypes>::Context,
         message: <Self as MetaModel>::Message,
     ) {
+        assert!(!context.to_configuration.invalid_id.is_valid());
+
         for to_message_id in context
             .to_configuration
             .message_ids
@@ -1505,11 +1529,10 @@ impl<
                 && to_message.payload == message.payload
             {
                 // BEGIN NOT TESTED
-                let message_label = self.display_message(&message);
-                self.error(
-                    context,
-                    &format!("sending a duplicate message {}", message_label),
-                );
+                let invalid =
+                    <Self as MetaModel>::Invalid::Message(*to_message_id, "duplicate message");
+                context.to_configuration.invalid_id = self.store_invalid(invalid).id;
+                return;
                 // END NOT TESTED
             }
         }
@@ -1579,29 +1602,37 @@ impl<
                     context.to_configuration.message_counts[context.agent_index].to_usize();
                 if in_flight_messages > max_in_flight_messages {
                     // BEGIN NOT TESTED
-                    let configuration_label = self.display_configuration(&context.to_configuration);
-                    self.error(
-                        context,
-                        &format!(
-                            "the agent {} is sending too more messages {} than allowed {}\n\
-                             in the reached configuration:{}",
-                            self.agent_labels[context.agent_index],
-                            in_flight_messages,
-                            max_in_flight_messages,
-                            configuration_label
-                        ),
+                    let invalid = <Self as MetaModel>::Invalid::Agent(
+                        context.agent_index,
+                        "sends too many messages",
                     );
+                    context.to_configuration.invalid_id = self.store_invalid(invalid).id;
                     // END NOT TESTED
                 }
             }
         }
 
-        if let Some(validator) = self.validator {
+        if let Some(validator) = &self.validator {
             // BEGIN NOT TESTED
-            if let Some(reason) = validator(self, &context.to_configuration) {
+            for message_id in context
+                .to_configuration
+                .message_ids
+                .iter()
+                .take_while(|message_id| message_id.is_valid())
+            {
+                let message = self.messages.get(*message_id);
+                if let Some(reason) = validator.message_invalid_because(self, &message) {
+                    let invalid = <Self as MetaModel>::Invalid::Message(*message_id, reason);
+                    context.to_configuration.invalid_id = self.store_invalid(invalid).id;
+                    return;
+                }
+            }
+
+            if let Some(reason) =
+                validator.configuration_invalid_because(self, &context.to_configuration)
+            {
                 let invalid = <Self as MetaModel>::Invalid::Configuration(reason);
                 context.to_configuration.invalid_id = self.store_invalid(invalid).id;
-                return;
             }
             // END NOT TESTED
         }
