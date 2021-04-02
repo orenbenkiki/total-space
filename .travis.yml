@@ -31,10 +31,8 @@ before_script:
 
 script:
 - export RUSTC_WRAPPER=`which sccache`
-- rustup component add rustfmt || export SCMF_DISABLE_FORMAT=1 SCMF_DISABLE_CHECK_FORMAT=1
-- echo $SCMF_DISABLE_FORMAT
-- echo $SCMF_DISABLE_CHECK_FORMAT
-- cargo make ci --verbose
+- rustup component add rustfmt || export SCMF_DISABLE_FORMAT=1 SCMF_DISABLE_CHECK_FORMAT=1 SCMF_DISABLE_RUSTFMT=1
+- cargo make ci
 - sccache --stop-server
 
 after_success:
