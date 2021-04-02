@@ -38,5 +38,5 @@ script:
 - sccache --stop-server
 
 after_success:
-- echo $RUST_VERSION
+- echo $TRAVIS_RUST_VERSION
 - bash <(curl -s https://codecov.io/bash) && echo "Uploaded code coverage"
