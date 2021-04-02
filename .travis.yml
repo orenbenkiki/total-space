@@ -23,7 +23,7 @@ matrix:
   allow_failures:
   - rust: nightly
 
-before_script: |
+before_script:
 - which sccache || cargo install sccache
 - export RUSTC_WRAPPER=`which sccache`
 - which cargo-make || cargo install cargo-make
