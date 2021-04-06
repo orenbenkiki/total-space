@@ -31,8 +31,7 @@ before_script:
 
 script:
 - export RUSTC_WRAPPER=`which sccache`
-- rustup component add rustfmt || export SCMF_DISABLE_FORMAT=1 SCMF_DISABLE_CHECK_FORMAT=1 SCMF_DISABLE_RUSTFMT=1
-- cargo make ci
+- if [ "$TRAVIS_RUST_VERSION" = "stable" ]; then cargo make ci; else cargo make --skip-tasks 'format|rustfmt' ci; fi
 - sccache --stop-server
 
 after_success:
