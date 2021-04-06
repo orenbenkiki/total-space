@@ -1127,9 +1127,9 @@ macro_rules! index_type {
                 $name($type::from_usize(value).unwrap())
             }
 
-            fn to_usize(&self) -> usize {
+            fn to_usize(self) -> usize {
                 let $name(value) = self;
-                $type::to_usize(value).unwrap()
+                $type::to_usize(&value).unwrap()
             }
 
             fn invalid() -> Self {

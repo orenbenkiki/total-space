@@ -24,7 +24,7 @@ pub trait IndexLike: KeyLike + PartialOrd + Ord {
     fn from_usize(value: usize) -> Self;
 
     /// Convert the index to a `usize`.
-    fn to_usize(&self) -> usize;
+    fn to_usize(self) -> usize;
 
     /// The invalid (maximal) value.
     fn invalid() -> Self;

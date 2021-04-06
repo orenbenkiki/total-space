@@ -17,9 +17,9 @@ impl IndexLike for MessageIndex {
         MessageIndex(u8::from_usize(value).unwrap())
     }
 
-    fn to_usize(&self) -> usize {
+    fn to_usize(self) -> usize {
         let MessageIndex(value) = self;
-        u8::to_usize(value).unwrap()
+        u8::to_usize(&value).unwrap()
     }
 
     // BEGIN MAYBE TESTED
