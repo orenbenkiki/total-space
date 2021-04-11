@@ -24,7 +24,6 @@ mod memoize;
 mod messages;
 mod models;
 mod reactions;
-mod transitions;
 mod utilities;
 
 pub use crate::agents::*;

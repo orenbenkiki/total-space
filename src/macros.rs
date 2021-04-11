@@ -471,18 +471,6 @@ macro_rules! action_change_and_sends {
     };
 }
 
-/// A macro for static assertion on the size of the transitions vector entry.
-///
-/// Usage is `assert_transitions_entry_size!(ModelType, size)` to statically assert that the
-/// size of a transitions vector entry is as expected, to ensure this size is cache-friendly.
-#[macro_export]
-macro_rules! assert_transitions_entry_size {
-    ($model:ident, $size:literal) => {
-        const _: usize = <$model as MetaModel>::TRANSITIONS_ENTRY_SIZE - $size;
-        const _: usize = $size - <$model as MetaModel>::TRANSITIONS_ENTRY_SIZE;
-    };
-}
-
 /// A macro for static assertion on the size of the configuration hash entry.
 ///
 /// Usage is `assert_configuration_hash_entry_size!(ModelType, size)` to statically assert that the
@@ -490,8 +478,9 @@ macro_rules! assert_transitions_entry_size {
 #[macro_export]
 macro_rules! assert_configuration_hash_entry_size {
     ($model:ident, $size:literal) => {
-        const _: usize = <$model as MetaModel>::CONFIGURATION_ENTRY_SIZE - $size;
-        const _: usize = $size - <$model as MetaModel>::CONFIGURATION_ENTRY_SIZE;
+        const _: usize = 0
+            - (std::mem::size_of::<<$model as MetaModel>::ConfigurationHashEntry>() != $size)
+                as usize;
     };
 }
 

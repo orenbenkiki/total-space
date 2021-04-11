@@ -126,7 +126,6 @@ type TestModel = Model<
     Payload,
     6,  // MAX_AGENTS
     14, // MAX_MESSAGES
-    38, // MAX_TRANSITIONS
 >;
 
 fn test_model(arg_matches: &ArgMatches) -> TestModel {

@@ -171,18 +171,8 @@ impl<
         Payload: DataLike,
         const MAX_AGENTS: usize,
         const MAX_MESSAGES: usize,
-        const MAX_TRANSITIONS: usize,
     > ClapModel
-    for Model<
-        StateId,
-        MessageId,
-        InvalidId,
-        ConfigurationId,
-        Payload,
-        MAX_AGENTS,
-        MAX_MESSAGES,
-        MAX_TRANSITIONS,
-    >
+    for Model<StateId, MessageId, InvalidId, ConfigurationId, Payload, MAX_AGENTS, MAX_MESSAGES>
 {
     fn do_compute(&mut self, arg_matches: &ArgMatches) {
         let progress_every = arg_matches.value_of("progress").unwrap();

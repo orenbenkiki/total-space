@@ -405,7 +405,6 @@ type SimpleModel = Model<
     Payload,
     6,  // MAX_AGENTS - the maximal number of agents in the model.
     14, // MAX_MESSAGES - the maximal number of messages in-flight.
-    38, // MAX_TRANSITIONS - the maximal number of transitions to/from a configuration.
 >;
 
 // Validate the model (in addition to independent validation of each agent).
@@ -576,17 +575,12 @@ fn has_deferred_task(
     task_messages_count > idle_workers_count
 }
 
-// The largest data structure we keep is the transitions between configurations. It helps efficiency
-// if the size of the entries of this vector are aligned on full cache lines. The theory is that it
-// is better to "waste" a few bytes in each entry to ensure that we never need to hit two cache
-// lines to fetch one - the larger the model, the more painful having to fetch two cache lines
-// instead of one becomes. In this case, we allow up to 38 transitions which brings up to exactly
-// three full cache lines.
-assert_transitions_entry_size!(SimpleModel, 192);
-
-// The second large data structure we keep is a Swiss hash table for the configurations. Using the
-// same reasoning we try to ensure the entries of this vector are also aligned on full cache lines,
-// or in this case, are exactly half of a cache line.
+// The largest data structure we keep is a Swiss hash table for the configurations. It helps
+// efficiency if the size of the entries of this hash table is half of a cache line or a full
+// cache line. The size is a linear combination of the parameters to the Model struct. The
+// theory is that it is better to "waste" a few bytes in the configuration to ensure that we
+// never need to hit two cache lines to fetch one - the larger the model, the more painful
+// having to fetch two cache lines instead of one becomes.
 assert_configuration_hash_entry_size!(SimpleModel, 32);
 
 fn main() {

@@ -217,7 +217,7 @@ impl<State: DataLike, StateId: IndexLike, Payload: DataLike>
             states: RefCell::new(states),
             first_index: prev_agent_type
                 .clone()
-                .map_or(0, |agent_type| agent_type.next_index()) as usize,
+                .map_or(0, |agent_type| agent_type.next_index()),
             prev_agent_type,
             _payload: PhantomData,
         }
@@ -330,7 +330,7 @@ impl<State: DataLike, StateId: IndexLike, Payload: DataLike> PartType<State, Sta
     }
 
     fn part_first_index(&self) -> usize {
-        self.first_index as usize
+        self.first_index
     }
 
     fn parts_count(&self) -> usize {
@@ -880,7 +880,7 @@ impl<
             .agent_type_data
             .states
             .borrow()
-            .get(state_ids[self.agent_type_data.first_index() + instance])
+            .get(state_ids[self.agent_type_data.first_index + instance])
             .reaction(instance, payload, parts);
         self.agent_type_data.translate_reaction(&reaction)
     }
