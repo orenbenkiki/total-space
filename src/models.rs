@@ -4,6 +4,7 @@ use crate::diagrams::*;
 use crate::memoize::*;
 use crate::messages::*;
 use crate::reactions::*;
+use crate::transitions::*;
 use crate::utilities::*;
 
 use clap::ArgMatches;
@@ -27,28 +28,6 @@ thread_local! {
 
     /// The error configuration.
     static ERROR_CONFIGURATION_ID: RefCell<usize> = RefCell::new(usize::max_value());
-}
-
-/// A transition from a given configuration.
-#[derive(Copy, Clone, Debug)]
-pub(crate) struct Outgoing<MessageId: IndexLike, ConfigurationId: IndexLike> {
-    /// The identifier of the target configuration.
-    to_configuration_id: ConfigurationId,
-
-    /// The identifier of the message that was delivered to its target agent to reach the target
-    /// configuration.
-    delivered_message_id: MessageId,
-}
-
-/// A transition to a given configuration.
-#[derive(Copy, Clone, Debug)]
-pub(crate) struct Incoming<MessageId: IndexLike, ConfigurationId: IndexLike> {
-    /// The identifier of the source configuration.
-    from_configuration_id: ConfigurationId,
-
-    /// The identifier of the message that was delivered to its target agent to reach the target
-    /// configuration.
-    delivered_message_id: MessageId,
 }
 
 // END MAYBE TESTED
@@ -146,6 +125,7 @@ pub(crate) struct Context<
     Payload: DataLike,
     const MAX_AGENTS: usize,
     const MAX_MESSAGES: usize,
+    const MAX_TRANSITIONS: usize,
 > {
     /// The index of the message of the source configuration that was delivered to its target agent
     /// to reach the target configuration.
@@ -170,8 +150,8 @@ pub(crate) struct Context<
     /// The identifier of the state of the agent when handling the event.
     agent_from_state_id: StateId,
 
-    /// The incoming transition into the new configuration to be generated.
-    incoming: Incoming<MessageId, ConfigurationId>,
+    /// The identifier of the configuration when delivering the event.
+    from_configuration_id: ConfigurationId,
 
     /// The configuration when delivering the event.
     from_configuration: Configuration<StateId, MessageId, InvalidId, MAX_AGENTS, MAX_MESSAGES>,
@@ -191,6 +171,7 @@ pub struct Model<
     Payload: DataLike,
     const MAX_AGENTS: usize,
     const MAX_MESSAGES: usize,
+    const MAX_TRANSITIONS: usize,
 > {
     /// Optional validation for the model.
     validator: Option<Rc<dyn ModelValidator<Self>>>,
@@ -234,11 +215,8 @@ pub struct Model<
     /// The label (display) of each invalid condition (to speed printing).
     label_of_invalid: Vec<String>,
 
-    /// For each configuration, which configuration is reachable from it.
-    outgoings: Vec<Vec<<Self as ModelTypes>::Outgoing>>,
-
-    /// For each configuration, which configuration can reach it.
-    incomings: Vec<Vec<<Self as ModelTypes>::Incoming>>,
+    /// For each configuration, the transitions to/from it.
+    transitions: Vec<<Self as ModelTypes>::Transitions>,
 
     /// The maximal message string size we have seen so far.
     max_message_string_size: RefCell<usize>,
@@ -300,6 +278,9 @@ pub trait MetaModel {
     /// The maximal number of in-flight messages.
     const MAX_MESSAGES: usize;
 
+    /// The maximal number of transitions to/from a configuration.
+    const MAX_TRANSITIONS: usize;
+
     /// The type of  boxed agent type.
     type AgentTypeRc;
 
@@ -321,8 +302,11 @@ pub trait MetaModel {
     /// The type of the included configurations.
     type Configuration;
 
-    /// The type of a hash table entry for the configurations (should be cache-friendly).
-    type ConfigurationHashEntry;
+    /// The size of an entry in the configurations hash table.
+    const CONFIGURATION_ENTRY_SIZE: usize;
+
+    /// The size of an entry in the transitions vector.
+    const TRANSITIONS_ENTRY_SIZE: usize;
 
     /// A condition on model configurations.
     type Condition;
@@ -362,8 +346,18 @@ impl<
         Payload: DataLike,
         const MAX_AGENTS: usize,
         const MAX_MESSAGES: usize,
+        const MAX_TRANSITIONS: usize,
     > MetaModel
-    for Model<StateId, MessageId, InvalidId, ConfigurationId, Payload, MAX_AGENTS, MAX_MESSAGES>
+    for Model<
+        StateId,
+        MessageId,
+        InvalidId,
+        ConfigurationId,
+        Payload,
+        MAX_AGENTS,
+        MAX_MESSAGES,
+        MAX_TRANSITIONS,
+    >
 {
     type StateId = StateId;
     type MessageId = MessageId;
@@ -372,6 +366,7 @@ impl<
     type Payload = Payload;
     const MAX_AGENTS: usize = MAX_AGENTS;
     const MAX_MESSAGES: usize = MAX_MESSAGES;
+    const MAX_TRANSITIONS: usize = MAX_TRANSITIONS;
 
     type AgentTypeRc = Rc<dyn AgentType<StateId, Payload>>;
     type Message = Message<Payload>;
@@ -380,21 +375,23 @@ impl<
     type Emit = Emit<Payload>;
     type Invalid = Invalid<MessageId>;
     type Configuration = Configuration<StateId, MessageId, InvalidId, MAX_AGENTS, MAX_MESSAGES>;
-    type ConfigurationHashEntry = (
+    const CONFIGURATION_ENTRY_SIZE: usize = std::mem::size_of::<(
         Configuration<StateId, MessageId, InvalidId, MAX_AGENTS, MAX_MESSAGES>,
         ConfigurationId,
-    );
+    )>();
+    const TRANSITIONS_ENTRY_SIZE: usize =
+        std::mem::size_of::<Transitions<MessageId, ConfigurationId, MAX_TRANSITIONS>>();
     type Condition =
         fn(&Self, &Configuration<StateId, MessageId, InvalidId, MAX_AGENTS, MAX_MESSAGES>) -> bool;
 }
 
 /// Allow querying the model's meta-parameters for private types.
 pub(crate) trait ModelTypes: MetaModel {
-    /// The type of the incoming transitions.
-    type Incoming;
+    /// The type of a specific transition for a configuration.
+    type Transition;
 
-    /// The type of the outgoing transitions.
-    type Outgoing;
+    /// The type of the collection of transitions for each configuration.
+    type Transitions;
 
     /// The context for processing event handling by an agent.
     type Context;
@@ -430,13 +427,31 @@ impl<
         Payload: DataLike,
         const MAX_AGENTS: usize,
         const MAX_MESSAGES: usize,
+        const MAX_TRANSITIONS: usize,
     > ModelTypes
-    for Model<StateId, MessageId, InvalidId, ConfigurationId, Payload, MAX_AGENTS, MAX_MESSAGES>
+    for Model<
+        StateId,
+        MessageId,
+        InvalidId,
+        ConfigurationId,
+        Payload,
+        MAX_AGENTS,
+        MAX_MESSAGES,
+        MAX_TRANSITIONS,
+    >
 {
-    type Incoming = Incoming<MessageId, ConfigurationId>;
-    type Outgoing = Outgoing<MessageId, ConfigurationId>;
-    type Context =
-        Context<StateId, MessageId, InvalidId, ConfigurationId, Payload, MAX_AGENTS, MAX_MESSAGES>;
+    type Transition = Transition<MessageId, ConfigurationId>;
+    type Transitions = Transitions<MessageId, ConfigurationId, MAX_TRANSITIONS>;
+    type Context = Context<
+        StateId,
+        MessageId,
+        InvalidId,
+        ConfigurationId,
+        Payload,
+        MAX_AGENTS,
+        MAX_MESSAGES,
+        MAX_TRANSITIONS,
+    >;
     type PathStep = PathStep<Self>;
     type SequenceStep = SequenceStep<StateId, MessageId>;
     type PathTransition = PathTransition<MessageId, ConfigurationId, MAX_MESSAGES>;
@@ -457,7 +472,18 @@ impl<
         Payload: DataLike,
         const MAX_AGENTS: usize,
         const MAX_MESSAGES: usize,
-    > Model<StateId, MessageId, InvalidId, ConfigurationId, Payload, MAX_AGENTS, MAX_MESSAGES>
+        const MAX_TRANSITIONS: usize,
+    >
+    Model<
+        StateId,
+        MessageId,
+        InvalidId,
+        ConfigurationId,
+        Payload,
+        MAX_AGENTS,
+        MAX_MESSAGES,
+        MAX_TRANSITIONS,
+    >
 {
     /// Create a new model with validation.
     ///
@@ -485,10 +511,17 @@ impl<
         validator: Option<Rc<dyn ModelValidator<Self>>>,
     ) -> Self {
         assert!(
-            MAX_MESSAGES < MessageIndex::invalid().to_usize(),
+            MAX_MESSAGES < MessageIndex::max_value() as usize,
             "MAX_MESSAGES {} is too large, must be less than {}",
             MAX_MESSAGES,
-            MessageIndex::invalid() // NOT TESTED
+            MessageIndex::max_value()
+        );
+
+        assert!(
+            MAX_TRANSITIONS < TransitionIndex::max_value() as usize,
+            "MAX_TRANSITIONS {} is too large, must be less than {}",
+            MAX_TRANSITIONS,
+            TransitionIndex::max_value()
         );
 
         let mut agent_types: Vec<<Self as MetaModel>::AgentTypeRc> = vec![];
@@ -517,8 +550,7 @@ impl<
             incr_order_messages: HashMap::with_capacity(MessageId::invalid().to_usize()),
             invalids: Memoize::new(InvalidId::invalid().to_usize()),
             label_of_invalid: vec![],
-            outgoings: vec![],
-            incomings: vec![],
+            transitions: vec![],
             max_message_string_size: RefCell::new(0),
             max_invalid_string_size: RefCell::new(0),
             max_configuration_string_size: RefCell::new(0),
@@ -537,7 +569,7 @@ impl<
 
         let mut initial_configuration = Configuration {
             state_ids: [StateId::invalid(); MAX_AGENTS],
-            message_counts: [MessageIndex::from_usize(0); MAX_AGENTS],
+            message_counts: [0; MAX_AGENTS],
             message_ids: [MessageId::invalid(); MAX_MESSAGES],
             invalid_id: InvalidId::invalid(),
         };
@@ -693,7 +725,18 @@ impl<
         Payload: DataLike,
         const MAX_AGENTS: usize,
         const MAX_MESSAGES: usize,
-    > Model<StateId, MessageId, InvalidId, ConfigurationId, Payload, MAX_AGENTS, MAX_MESSAGES>
+        const MAX_TRANSITIONS: usize,
+    >
+    Model<
+        StateId,
+        MessageId,
+        InvalidId,
+        ConfigurationId,
+        Payload,
+        MAX_AGENTS,
+        MAX_MESSAGES,
+        MAX_TRANSITIONS,
+    >
 {
     fn is_init_condition(_model: &Self, configuration_id: ConfigurationId) -> bool {
         configuration_id.to_usize() == 0
@@ -771,7 +814,18 @@ impl<
         Payload: DataLike,
         const MAX_AGENTS: usize,
         const MAX_MESSAGES: usize,
-    > Model<StateId, MessageId, InvalidId, ConfigurationId, Payload, MAX_AGENTS, MAX_MESSAGES>
+        const MAX_TRANSITIONS: usize,
+    >
+    Model<
+        StateId,
+        MessageId,
+        InvalidId,
+        ConfigurationId,
+        Payload,
+        MAX_AGENTS,
+        MAX_MESSAGES,
+        MAX_TRANSITIONS,
+    >
 {
     /// Add a named condition for defining paths through the configuration space.
     pub fn add_condition(
@@ -837,19 +891,22 @@ impl<
         Payload: DataLike,
         const MAX_AGENTS: usize,
         const MAX_MESSAGES: usize,
-    > Model<StateId, MessageId, InvalidId, ConfigurationId, Payload, MAX_AGENTS, MAX_MESSAGES>
+        const MAX_TRANSITIONS: usize,
+    >
+    Model<
+        StateId,
+        MessageId,
+        InvalidId,
+        ConfigurationId,
+        Payload,
+        MAX_AGENTS,
+        MAX_MESSAGES,
+        MAX_TRANSITIONS,
+    >
 {
     /// Compute all the configurations of the model.
     pub(crate) fn compute(&mut self) {
         assert!(self.configurations.len() == 1);
-
-        if self.ensure_init_is_reachable {
-            assert!(self.incomings.is_empty());
-            self.incomings.reserve(self.outgoings.capacity());
-            while self.incomings.len() < self.outgoings.len() {
-                self.incomings.push(vec![]);
-            }
-        }
 
         assert!(self.pending_configuration_ids.is_empty());
         self.pending_configuration_ids
@@ -880,21 +937,18 @@ impl<
         let stored = self.store_configuration(context.to_configuration);
         let to_configuration_id = stored.id;
 
-        if to_configuration_id == context.incoming.from_configuration_id {
+        if to_configuration_id == context.from_configuration_id {
             return;
         }
 
+        self.transitions[context.from_configuration_id.to_usize()]
+            .add_outgoing(to_configuration_id, context.delivered_message_id);
+
         if self.ensure_init_is_reachable {
-            self.incomings[to_configuration_id.to_usize()].push(context.incoming);
+            self.transitions[to_configuration_id.to_usize()]
+                .add_incoming(context.from_configuration_id, context.delivered_message_id);
         }
 
-        let from_configuration_id = context.incoming.from_configuration_id;
-        let outgoing = Outgoing {
-            to_configuration_id,
-            delivered_message_id: context.incoming.delivered_message_id,
-        };
-
-        self.outgoings[from_configuration_id.to_usize()].push(outgoing);
         self.transitions_count += 1;
 
         if stored.is_new {
@@ -939,7 +993,7 @@ impl<
             self.message_event(
                 configuration_id,
                 configuration,
-                MessageIndex::from_usize(immediate_message_index),
+                immediate_message_index as MessageIndex,
                 immediate_message_id,
             );
         } else {
@@ -955,7 +1009,7 @@ impl<
                     self.message_event(
                         configuration_id,
                         configuration,
-                        MessageIndex::from_usize(message_index),
+                        message_index as MessageIndex,
                         *message_id,
                     )
                 })
@@ -1019,7 +1073,7 @@ impl<
         self.message_event(
             from_configuration_id,
             from_configuration,
-            MessageIndex::invalid(),
+            MessageIndex::max_value(),
             delivered_message_id,
         );
     }
@@ -1034,7 +1088,7 @@ impl<
         let (source_index, target_index, payload, is_immediate) = {
             let message = self.messages.get(delivered_message_id);
             if let MessageOrder::Ordered(order) = message.order {
-                if order.to_usize() > 0 {
+                if order > 0 {
                     return;
                 }
             }
@@ -1052,17 +1106,12 @@ impl<
         let reaction =
             target_type.reaction(target_instance, &from_configuration.state_ids, &payload);
 
-        let incoming = Incoming {
-            from_configuration_id,
-            delivered_message_id,
-        };
-
         let mut to_configuration = from_configuration;
-        if delivered_message_index.is_valid() {
+        if delivered_message_index != MessageIndex::max_value() {
             self.remove_message(
                 &mut to_configuration,
                 source_index,
-                delivered_message_index.to_usize(),
+                delivered_message_index as usize,
             );
         }
 
@@ -1074,7 +1123,7 @@ impl<
             agent_type: target_type,
             agent_instance: target_instance,
             agent_from_state_id: target_from_state_id,
-            incoming,
+            from_configuration_id,
             from_configuration,
             to_configuration,
         };
@@ -1280,7 +1329,7 @@ impl<
                 let replaced = self.replace_message(
                     &mut context,
                     callback,
-                    MessageOrder::Ordered(MessageIndex::from_usize(0)),
+                    MessageOrder::Ordered(0),
                     &payload,
                     target_index,
                 );
@@ -1319,7 +1368,7 @@ impl<
         };
 
         let message = Message {
-            order: MessageOrder::Ordered(MessageIndex::from_usize(order)),
+            order: MessageOrder::Ordered(order as MessageIndex),
             source_index,
             target_index,
             payload,
@@ -1335,7 +1384,7 @@ impl<
             {
                 Entry::Occupied(_) => break,
                 Entry::Vacant(entry) => {
-                    next_message.order = MessageOrder::Ordered(MessageIndex::from_usize(order));
+                    next_message.order = MessageOrder::Ordered(order as MessageIndex);
                     let stored = self.messages.store(next_message);
                     let decr_message_id = stored.id;
                     entry.insert(decr_message_id);
@@ -1548,7 +1597,7 @@ impl<
     }
 
     fn defer_message(&mut self, context: <Self as ModelTypes>::Context) {
-        if !context.delivered_message_index.is_valid() {
+        if context.delivered_message_index == MessageIndex::max_value() {
             // BEGIN NOT TESTED
             self.error(
                 &context,
@@ -1599,7 +1648,7 @@ impl<
                 &context.from_configuration.state_ids,
             ) {
                 let in_flight_messages =
-                    context.to_configuration.message_counts[context.agent_index].to_usize();
+                    context.to_configuration.message_counts[context.agent_index] as usize;
                 if in_flight_messages > max_in_flight_messages {
                     // BEGIN NOT TESTED
                     let invalid = <Self as MetaModel>::Invalid::Agent(
@@ -1671,11 +1720,7 @@ impl<
                 eprintln!("computed {} configurations", stored.id.to_usize());
             }
 
-            self.outgoings.push(vec![]);
-
-            if self.ensure_init_is_reachable {
-                self.incomings.push(vec![]);
-            }
+            self.transitions.push(Default::default());
         }
 
         stored
@@ -1692,7 +1737,18 @@ impl<
         Payload: DataLike,
         const MAX_AGENTS: usize,
         const MAX_MESSAGES: usize,
-    > Model<StateId, MessageId, InvalidId, ConfigurationId, Payload, MAX_AGENTS, MAX_MESSAGES>
+        const MAX_TRANSITIONS: usize,
+    >
+    Model<
+        StateId,
+        MessageId,
+        InvalidId,
+        ConfigurationId,
+        Payload,
+        MAX_AGENTS,
+        MAX_MESSAGES,
+        MAX_TRANSITIONS,
+    >
 {
     fn print_progress(&self, progress: usize) -> bool {
         self.print_progress_every == 1
@@ -1760,11 +1816,11 @@ impl<
     }
 
     pub(crate) fn print_transitions(&self, stdout: &mut dyn Write) {
-        self.outgoings
+        self.transitions
             .iter()
             .enumerate()
             .take(self.configurations.len())
-            .for_each(|(from_configuration_id, outgoings)| {
+            .for_each(|(from_configuration_id, transitions)| {
                 if self.print_progress(from_configuration_id) {
                     eprintln!(
                         "printed {} out of {} configurations ({}%)",
@@ -1781,10 +1837,11 @@ impl<
                 );
                 write!(stdout, "\n\n").unwrap();
 
-                outgoings.iter().for_each(|outgoing| {
-                    let delivered_label = self.display_message_id(outgoing.delivered_message_id);
+                transitions.iter_outgoing().for_each(|outgoing_transition| {
+                    let delivered_label =
+                        self.display_message_id(outgoing_transition.delivered_message_id);
                     write!(stdout, "BY: {}\nTO:", delivered_label).unwrap();
-                    self.print_configuration_id(outgoing.to_configuration_id, stdout);
+                    self.print_configuration_id(outgoing_transition.other_configuration_id, stdout);
                     write!(stdout, "\n\n").unwrap();
                 });
             });
@@ -1829,11 +1886,22 @@ impl<
         Payload: DataLike,
         const MAX_AGENTS: usize,
         const MAX_MESSAGES: usize,
-    > Model<StateId, MessageId, InvalidId, ConfigurationId, Payload, MAX_AGENTS, MAX_MESSAGES>
+        const MAX_TRANSITIONS: usize,
+    >
+    Model<
+        StateId,
+        MessageId,
+        InvalidId,
+        ConfigurationId,
+        Payload,
+        MAX_AGENTS,
+        MAX_MESSAGES,
+        MAX_TRANSITIONS,
+    >
 {
     // BEGIN NOT TESTED
     fn error(&mut self, context: &<Self as ModelTypes>::Context, reason: &str) -> ! {
-        let error_configuration_id = context.incoming.from_configuration_id;
+        let error_configuration_id = context.from_configuration_id;
         eprintln!(
             "ERROR: {}\n\
              when delivering the message: {}\n\
@@ -1890,7 +1958,18 @@ impl<
         Payload: DataLike,
         const MAX_AGENTS: usize,
         const MAX_MESSAGES: usize,
-    > Model<StateId, MessageId, InvalidId, ConfigurationId, Payload, MAX_AGENTS, MAX_MESSAGES>
+        const MAX_TRANSITIONS: usize,
+    >
+    Model<
+        StateId,
+        MessageId,
+        InvalidId,
+        ConfigurationId,
+        Payload,
+        MAX_AGENTS,
+        MAX_MESSAGES,
+        MAX_TRANSITIONS,
+    >
 {
     /// Display a message by its identifier.
     pub fn display_message_id(&self, message_id: MessageId) -> &str {
@@ -2087,7 +2166,18 @@ impl<
         Payload: DataLike,
         const MAX_AGENTS: usize,
         const MAX_MESSAGES: usize,
-    > Model<StateId, MessageId, InvalidId, ConfigurationId, Payload, MAX_AGENTS, MAX_MESSAGES>
+        const MAX_TRANSITIONS: usize,
+    >
+    Model<
+        StateId,
+        MessageId,
+        InvalidId,
+        ConfigurationId,
+        Payload,
+        MAX_AGENTS,
+        MAX_MESSAGES,
+        MAX_TRANSITIONS,
+    >
 {
     pub(crate) fn assert_init_is_reachable(&mut self) {
         assert!(self.reachable_configurations_count == 0);
@@ -2159,9 +2249,9 @@ impl<
             }
         }
 
-        for next_configuration_id in self.incomings[configuration_id.to_usize()]
-            .iter()
-            .map(|incoming| incoming.from_configuration_id)
+        for next_configuration_id in self.transitions[configuration_id.to_usize()]
+            .iter_incoming()
+            .map(|incoming_transition| incoming_transition.other_configuration_id)
         {
             self.pending_configuration_ids
                 .push_back(next_configuration_id);
@@ -2179,7 +2269,18 @@ impl<
         Payload: DataLike,
         const MAX_AGENTS: usize,
         const MAX_MESSAGES: usize,
-    > Model<StateId, MessageId, InvalidId, ConfigurationId, Payload, MAX_AGENTS, MAX_MESSAGES>
+        const MAX_TRANSITIONS: usize,
+    >
+    Model<
+        StateId,
+        MessageId,
+        InvalidId,
+        ConfigurationId,
+        Payload,
+        MAX_AGENTS,
+        MAX_MESSAGES,
+        MAX_TRANSITIONS,
+    >
 {
     fn step_matches_configuration(
         &self,
@@ -2215,8 +2316,10 @@ impl<
         prev_configuration_ids.fill(ConfigurationId::invalid());
 
         while let Some(next_configuration_id) = self.pending_configuration_ids.pop_front() {
-            for outgoing in self.outgoings[next_configuration_id.to_usize()].iter() {
-                let to_configuration_id = outgoing.to_configuration_id;
+            for to_configuration_id in self.transitions[next_configuration_id.to_usize()]
+                .iter_outgoing()
+                .map(|outgoing_transition| outgoing_transition.other_configuration_id)
+            {
                 if prev_configuration_ids[to_configuration_id.to_usize()].is_valid() {
                     continue;
                 }
@@ -2404,26 +2507,23 @@ impl<
         to_name: Option<&str>,
         path: &mut Vec<<Self as ModelTypes>::PathTransition>,
     ) {
-        let from_outgoings = &self.outgoings[from_configuration_id.to_usize()];
-        let outgoing_index = from_outgoings
-            .iter()
-            .position(|outgoing| outgoing.to_configuration_id == to_configuration_id)
-            .unwrap();
-        let outgoing = from_outgoings[outgoing_index];
+        for outgoing_transition in
+            self.transitions[from_configuration_id.to_usize()].iter_outgoing()
+        {
+            if outgoing_transition.other_configuration_id == to_configuration_id {
+                let delivered_message_id = outgoing_transition.delivered_message_id;
+                let agent_index = self.messages.get(delivered_message_id).target_index;
 
-        let agent_index = self
-            .messages
-            .get(outgoing.delivered_message_id)
-            .target_index;
-        let delivered_message_id = outgoing.delivered_message_id;
-
-        path.push(PathTransition {
-            from_configuration_id,
-            delivered_message_id,
-            agent_index,
-            to_configuration_id,
-            to_condition_name: to_name.map(str::to_string),
-        });
+                path.push(PathTransition {
+                    from_configuration_id,
+                    delivered_message_id,
+                    agent_index,
+                    to_configuration_id,
+                    to_condition_name: to_name.map(str::to_string),
+                });
+                return;
+            }
+        }
     }
 }
 
@@ -2437,7 +2537,18 @@ impl<
         Payload: DataLike,
         const MAX_AGENTS: usize,
         const MAX_MESSAGES: usize,
-    > Model<StateId, MessageId, InvalidId, ConfigurationId, Payload, MAX_AGENTS, MAX_MESSAGES>
+        const MAX_TRANSITIONS: usize,
+    >
+    Model<
+        StateId,
+        MessageId,
+        InvalidId,
+        ConfigurationId,
+        Payload,
+        MAX_AGENTS,
+        MAX_MESSAGES,
+        MAX_TRANSITIONS,
+    >
 {
     fn compute_terse(&mut self, condense: &Condense) {
         assert!(self.terse_of_message_id.is_empty());
@@ -2490,7 +2601,7 @@ impl<
                 MessageOrder::Unordered
             } else {
                 match message.order {
-                    MessageOrder::Ordered(_) => MessageOrder::Ordered(MessageIndex::invalid()),
+                    MessageOrder::Ordered(_) => MessageOrder::Ordered(MessageIndex::max_value()),
                     order => order,
                 }
             };
@@ -2528,7 +2639,18 @@ impl<
         Payload: DataLike,
         const MAX_AGENTS: usize,
         const MAX_MESSAGES: usize,
-    > Model<StateId, MessageId, InvalidId, ConfigurationId, Payload, MAX_AGENTS, MAX_MESSAGES>
+        const MAX_TRANSITIONS: usize,
+    >
+    Model<
+        StateId,
+        MessageId,
+        InvalidId,
+        ConfigurationId,
+        Payload,
+        MAX_AGENTS,
+        MAX_MESSAGES,
+        MAX_TRANSITIONS,
+    >
 {
     pub(crate) fn print_states_diagram(
         &mut self,
@@ -3129,7 +3251,18 @@ impl<
         Payload: DataLike,
         const MAX_AGENTS: usize,
         const MAX_MESSAGES: usize,
-    > Model<StateId, MessageId, InvalidId, ConfigurationId, Payload, MAX_AGENTS, MAX_MESSAGES>
+        const MAX_TRANSITIONS: usize,
+    >
+    Model<
+        StateId,
+        MessageId,
+        InvalidId,
+        ConfigurationId,
+        Payload,
+        MAX_AGENTS,
+        MAX_MESSAGES,
+        MAX_TRANSITIONS,
+    >
 {
     pub(crate) fn collect_sequence_steps(
         &mut self,
@@ -3144,12 +3277,7 @@ impl<
             let to_configuration = self.configurations.get(to_configuration_id);
             let did_change_state = to_configuration.state_ids[agent_index]
                 != from_configuration.state_ids[agent_index];
-            let from_outgoings = &self.outgoings[from_configuration_id.to_usize()];
-            let outgoing_index = from_outgoings
-                .iter()
-                .position(|outgoing| outgoing.to_configuration_id == to_configuration_id)
-                .unwrap();
-            let outgoing = from_outgoings[outgoing_index];
+
             let delivered_message = self.messages.get(path_transition.delivered_message_id);
             let is_activity = delivered_message.source_index == usize::max_value();
 
@@ -3169,7 +3297,7 @@ impl<
                     !self.to_message_kept_in_transition(
                         **to_message_id,
                         &from_configuration,
-                        outgoing.delivered_message_id,
+                        path_transition.delivered_message_id,
                     )
                 })
                 .for_each(|to_message_id| {
@@ -4021,11 +4149,11 @@ impl<
         agent_index: usize,
     ) -> <Self as ModelTypes>::AgentStateTransitions {
         let mut state_transitions = <Self as ModelTypes>::AgentStateTransitions::default();
-        self.outgoings
+        self.transitions
             .iter()
             .take(self.configurations.len())
             .enumerate()
-            .for_each(|(from_configuration_id, outgoings)| {
+            .for_each(|(from_configuration_id, transitions)| {
                 if self.print_progress(from_configuration_id) {
                     eprintln!(
                         "collected {} out of {} configurations ({}%)",
@@ -4037,14 +4165,17 @@ impl<
                 let from_configuration = self
                     .configurations
                     .get(ConfigurationId::from_usize(from_configuration_id));
-                outgoings.iter().for_each(|outgoing| {
-                    let to_configuration = self.configurations.get(outgoing.to_configuration_id);
+                transitions.iter_outgoing().for_each(|outgoing_transition| {
+                    let to_configuration = self
+                        .configurations
+                        .get(outgoing_transition.other_configuration_id);
+                    let delivered_message_id = outgoing_transition.delivered_message_id;
                     self.collect_agent_state_transition(
                         condense,
                         agent_index,
                         &from_configuration,
                         &to_configuration,
-                        outgoing.delivered_message_id,
+                        delivered_message_id,
                         &mut state_transitions,
                     );
                 });

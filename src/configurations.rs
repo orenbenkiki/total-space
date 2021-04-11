@@ -78,7 +78,7 @@ impl<
     fn default() -> Self {
         Configuration {
             state_ids: [StateId::invalid(); MAX_AGENTS],
-            message_counts: [MessageIndex::invalid(); MAX_AGENTS],
+            message_counts: [MessageIndex::max_value(); MAX_AGENTS],
             message_ids: [MessageId::invalid(); MAX_MESSAGES],
             invalid_id: InvalidId::invalid(),
         }
@@ -95,10 +95,10 @@ impl<
 {
     /// Remove a message from the configuration.
     pub(crate) fn remove_message(&mut self, source: usize, mut message_index: usize) {
-        debug_assert!(self.message_counts[source].to_usize() > 0);
+        debug_assert!(self.message_counts[source] > 0);
         debug_assert!(self.message_ids[message_index].is_valid());
 
-        self.message_counts[source].decr();
+        self.message_counts[source] -= 1;
 
         loop {
             let next_message_index = message_index + 1;
@@ -118,7 +118,7 @@ impl<
     /// Add a message to the configuration.
     pub(crate) fn add_message(&mut self, source_index: usize, message_id: MessageId) {
         debug_assert!(source_index != usize::max_value());
-        debug_assert!(self.message_counts[source_index] < MessageIndex::invalid());
+        debug_assert!(self.message_counts[source_index] < MessageIndex::max_value());
 
         assert!(
             !self.message_ids[MAX_MESSAGES - 1].is_valid(),
@@ -126,7 +126,7 @@ impl<
             MAX_MESSAGES
         );
 
-        self.message_counts[source_index].incr();
+        self.message_counts[source_index] += 1;
         self.message_ids[MAX_MESSAGES - 1] = message_id;
         self.message_ids.sort();
     }

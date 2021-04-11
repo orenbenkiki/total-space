@@ -1,43 +1,11 @@
 use crate::utilities::*;
 
-use num_traits::FromPrimitive;
-use num_traits::ToPrimitive;
-use std::fmt::Display;
-use std::fmt::Formatter;
-use std::fmt::Result as FormatterResult;
-
 /// The type of the index of a message in the configuration.
 ///
 /// "A total of 256 in-flight messages should be enough for everybody" ;-)
-#[derive(PartialEq, Eq, PartialOrd, Ord, Hash, Copy, Clone, Debug)]
-pub struct MessageIndex(u8);
-
-impl IndexLike for MessageIndex {
-    fn from_usize(value: usize) -> MessageIndex {
-        MessageIndex(u8::from_usize(value).unwrap())
-    }
-
-    fn to_usize(self) -> usize {
-        let MessageIndex(value) = self;
-        u8::to_usize(&value).unwrap()
-    }
-
-    // BEGIN MAYBE TESTED
-    fn invalid() -> MessageIndex {
-        MessageIndex(u8::max_value())
-    }
-    // END MAYBE TESTED
-}
+pub type MessageIndex = u8;
 
 // BEGIN MAYBE TESTED
-
-impl KeyLike for MessageIndex {}
-
-impl Display for MessageIndex {
-    fn fmt(&self, formatter: &mut Formatter<'_>) -> FormatterResult {
-        write!(formatter, "{}", self.to_usize())
-    }
-}
 
 /// Possible way to order a message.
 #[derive(PartialEq, Eq, PartialOrd, Ord, Hash, Copy, Clone, Debug)]
