@@ -1304,19 +1304,17 @@ impl<
         payload: Payload,
         replaced: Option<Payload>,
     ) -> <Self as MetaModel>::Message {
-        let mut order = {
-            to_configuration
-                .message_ids
-                .iter()
-                .take_while(|message_id| message_id.is_valid())
-                .map(|message_id| self.messages.get(*message_id))
-                .filter(|message| {
-                    message.source_index == source_index
-                        && message.target_index == target_index
-                        && matches!(message.order, MessageOrder::Ordered(_))
-                })
-                .fold(0, |count, _message| count + 1)
-        };
+        let mut order = to_configuration
+            .message_ids
+            .iter()
+            .take_while(|message_id| message_id.is_valid())
+            .map(|message_id| self.messages.get(*message_id))
+            .filter(|message| {
+                message.source_index == source_index
+                    && message.target_index == target_index
+                    && matches!(message.order, MessageOrder::Ordered(_))
+            })
+            .count();
 
         let message = Message {
             order: MessageOrder::Ordered(MessageIndex::from_usize(order)),
@@ -1526,6 +1524,7 @@ impl<
             let to_message = self.messages.get(*to_message_id);
             if to_message.source_index == message.source_index
                 && to_message.target_index == message.target_index
+                && to_message.order == message.order
                 && to_message.payload == message.payload
             {
                 // BEGIN NOT TESTED
