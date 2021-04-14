@@ -1986,14 +1986,14 @@ impl<
             Invalid::Agent(agent_index, reason) => {
                 string.push_str("agent ");
                 string.push_str(&*self.agent_labels[*agent_index]);
-                string.push_str(" because ");
+                string.push_str(" is invalid because ");
                 string.push_str(reason);
             }
 
             Invalid::Message(message_id, reason) => {
                 string.push_str("message ");
                 string.push_str(&self.display_message_id(*message_id));
-                string.push_str(" because ");
+                string.push_str(" is invalid because ");
                 string.push_str(reason);
             }
         }
