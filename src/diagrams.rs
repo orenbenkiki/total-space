@@ -71,8 +71,21 @@ pub(crate) struct SequenceState<
     pub(crate) has_reactivation_message: bool,
 }
 
-/// A single step in a sequence diagram.
+/// A state change for an agent.
 #[derive(Copy, Clone, Debug)]
+pub(crate) struct ChangeState<StateId> {
+    /// The index of the agent that changes state.
+    pub(crate) agent_index: usize,
+
+    /// The new state identifier of the agent.
+    pub(crate) state_id: StateId,
+
+    /// Whether this new state is deferring.
+    pub(crate) is_deferring: bool,
+}
+
+/// A single step in a sequence diagram.
+#[derive(Clone, Debug)]
 pub(crate) enum SequenceStep<StateId: IndexLike, MessageId: IndexLike> {
     /// No step (created when merging steps).
     NoStep,
@@ -104,6 +117,7 @@ pub(crate) enum SequenceStep<StateId: IndexLike, MessageId: IndexLike> {
         target_did_change_state: bool,
         message_id: MessageId,
         replaced: Option<MessageId>,
+        is_immediate: bool,
     },
 
     /// Update the state of a single agent, which might be deferring.
@@ -113,13 +127,6 @@ pub(crate) enum SequenceStep<StateId: IndexLike, MessageId: IndexLike> {
         is_deferring: bool,
     },
 
-    /// Update the state of two agents, which might be deferring.
-    NewStates {
-        first_agent_index: usize,
-        first_state_id: StateId,
-        first_is_deferring: bool,
-        second_agent_index: usize,
-        second_state_id: StateId,
-        second_is_deferring: bool,
-    },
+    /// Update the state of several agents at once.
+    NewStates(Vec<ChangeState<StateId>>),
 }
