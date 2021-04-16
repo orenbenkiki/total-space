@@ -3531,7 +3531,7 @@ impl<
             return true;
         }
 
-        return false;
+        false
     }
 
     fn swap_order(sequence_step: &<Self as ModelTypes>::SequenceStep) -> usize {
@@ -3619,11 +3619,14 @@ impl<
                 },
             ) => {
                 second_source_index != first_source_index
+                    // BEGIN NOT TESTED
                     && second_source_index != first_target_index
                     && second_target_index != first_source_index
                     && second_target_index != first_target_index
+                // END NOT TESTED
             }
 
+            // BEGIN NOT TESTED
             (
                 SequenceStep::Passed {
                     source_index: first_source_index,
@@ -3638,7 +3641,7 @@ impl<
                 second_source_index != first_source_index
                     && second_source_index != first_target_index
             }
-
+            // END NOT TESTED
             (
                 SequenceStep::Passed {
                     source_index: first_source_index,
@@ -3744,13 +3747,14 @@ impl<
                             continue;
                         }
 
+                        // BEGIN NOT TESTED
                         SequenceStep::Passed {
                             source_index: second_source_index,
                             ..
                         } if second_source_index != first_target_index => {
                             continue;
                         }
-
+                        // END NOT TESTED
                         SequenceStep::NewState {
                             agent_index: state_agent_index,
                             ..
@@ -3974,11 +3978,13 @@ impl<
                 .copied()
                 .find(|timeline_index| sequence_state.timelines[*timeline_index].is_none())
         } else {
+            // BEGIN NOT TESTED
             sequence_state.agents_timelines[message.source_index]
                 .left
                 .iter()
                 .copied()
                 .find(|timeline_index| sequence_state.timelines[*timeline_index].is_none())
+            // END NOT TESTED
         };
 
         let timeline_index = empty_timeline_index.unwrap_or_else(|| sequence_state.timelines.len());
@@ -4006,6 +4012,7 @@ impl<
                     .right
                     .len()
         } else {
+            // BEGIN NOT TESTED
             sequence_state.agents_timelines[message.source_index]
                 .left
                 .push(timeline_index);
@@ -4013,6 +4020,7 @@ impl<
                 - sequence_state.agents_timelines[message.source_index]
                     .left
                     .len()
+            // END NOT TESTED
         };
 
         writeln!(
@@ -4220,7 +4228,7 @@ impl<
                 let arrow = match message.order {
                     MessageOrder::Immediate => "-[#Crimson]>",
                     MessageOrder::Unordered => "->",
-                    MessageOrder::Ordered(_) => "-[#Blue]>", // NOT TESTED
+                    MessageOrder::Ordered(_) => "-[#Blue]>",
                 };
                 writeln!(
                     stdout,

@@ -21,41 +21,41 @@ autonumber stop
 autonumber resume
 deactivate A0
 note over A0 : Need
-control " " as T0 order 10101
-A0 -[#Blue]> T0 : Request(1)
-activate T0 #Silver
+A0 -[#Blue]> A1 : Request(1)
+deactivate A1
+autonumber stop
+[<[#White]-- A0
+autonumber resume
 activate A0 #CadetBlue
+activate A1 #MediumPurple
 rnote over A0 : Wait(1)
+/ rnote over A1 : Work(1)
 autonumber stop
 [<[#White]-- A0
 autonumber resume
 deactivate A0
 note over A0 : Need
-control " " as T1 order 10102
-A0 -[#Blue]> T1 : Request(2)
-activate T1 #Silver
+control " " as T0 order 10101
+A0 -[#Blue]> T0 : Request(2)
+activate T0 #Silver
 activate A0 #CadetBlue
 rnote over A0 : Wait(3)
-T0 -[#Blue]> A1 : Request(1)
-deactivate T0
-deactivate A1
-autonumber stop
-[<[#White]-- A0
-autonumber resume
-activate A1 #MediumPurple
-rnote over A1 : Work(1)
 autonumber stop
 [<[#White]-- A0
 autonumber resume
 deactivate A1
 note over A1 : Completed
-control " " as T2 order 10199
-A1 -[#Blue]> T2 : Response(1)
-activate T2 #Silver
+A1 -[#Blue]> A0 : Response(1)
+deactivate A0
+autonumber stop
+[<[#White]-- A0
+autonumber resume
 activate A1 #CadetBlue
+activate A0 #CadetBlue
 rnote over A1 : Listen
-T1 -[#Blue]> A1 : Request(2)
-deactivate T1
+/ rnote over A0 : Wait(2)
+T0 -[#Blue]> A1 : Request(2)
+deactivate T0
 deactivate A1
 autonumber stop
 [<[#White]-- A0
@@ -67,27 +67,15 @@ autonumber stop
 autonumber resume
 deactivate A1
 note over A1 : Completed
-control " " as T3 order 10198
-A1 -[#Blue]> T3 : Response(2)
-activate T3 #Silver
+A1 -[#Blue]> A0 : Response(2)
+deactivate A0
+autonumber stop
+[<[#White]-- A0
+autonumber resume
+activate A0 #CadetBlue
 activate A1 #CadetBlue
-rnote over A1 : Listen
-T2 -[#Blue]> A0 : Response(1)
-deactivate T2
-deactivate A0
-autonumber stop
-[<[#White]-- A0
-autonumber resume
-activate A0 #CadetBlue
-rnote over A0 : Wait(2)
-T3 -[#Blue]> A0 : Response(2)
-deactivate T3
-deactivate A0
-autonumber stop
-[<[#White]-- A0
-autonumber resume
-activate A0 #CadetBlue
 rnote over A0 : Idle
+/ rnote over A1 : Listen
 autonumber stop
 [<[#White]-- A0
 autonumber resume

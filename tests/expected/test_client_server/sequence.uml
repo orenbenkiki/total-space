@@ -21,12 +21,9 @@ autonumber stop
 autonumber resume
 deactivate A0
 note over A0 : Need
-A0 -[#Crimson]> A1 : PNG
 A0 -> A1 : REQ
 deactivate A1
-autonumber stop
-[<[#White]-- A0
-autonumber resume
+A0 -[#Crimson]> A1 : PNG
 activate A0 #CadetBlue
 activate A1 #MediumPurple
 rnote over A0 : WAT
@@ -56,13 +53,10 @@ autonumber stop
 autonumber resume
 deactivate A0
 note over A0 : Need
-A0 -[#Crimson]> A1 : &#8658; PNG
-deactivate T0
 A0 -> A1 : REQ
 deactivate A1
-autonumber stop
-[<[#White]-- A0
-autonumber resume
+A0 -[#Crimson]> A1 : &#8658; PNG
+deactivate T0
 activate A0 #CadetBlue
 activate A1 #MediumPurple
 rnote over A0 : WAT
