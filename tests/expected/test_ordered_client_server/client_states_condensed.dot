@@ -1,42 +1,50 @@
 digraph {
 color=white;
+concentrate=true;
 graph [ fontname="sans-serif" ];
 node [ fontname="sans-serif" ];
 edge [ fontname="sans-serif" ];
-A_0_false [ label="Idle", shape=ellipse ];
-A_1_false [ label="Wait", shape=ellipse ];
+subgraph cluster_0_false {
+A_0_false [ label="Idle", shape=ellipse, style=filled, color=PaleTurquoise ];
 subgraph cluster_0 {
 T_0_18446744073709551615 [ shape=point, height=0.015, width=0.015 ];
-A_0_false -> T_0_18446744073709551615 [ arrowhead=none, direction=forward ];
-T_0_18446744073709551615 -> A_1_false;
-D_0_18446744073709551615_0 [ label="Activity &#8594;\nNeed", shape=plain ];
-D_0_18446744073709551615_0 -> T_0_18446744073709551615 [ color=Black, style=dashed ];
-S_0_18446744073709551615_1 [ label="Request\n&#8594; Server", shape=plain ];
-T_0_18446744073709551615 -> S_0_18446744073709551615_1 [ color=Black, style=dashed ];
-S_0_18446744073709551615_1 -> A_1_false [ style=invis ];
+D_0_18446744073709551615_0 [ label="Activity &#8594;\nNeed", shape=box, style=filled, color=SandyBrown ];
+A_0_false -> D_0_18446744073709551615_0 [ style=invis ];
 }
+}
+subgraph cluster_1_false {
+A_1_false [ label="Wait", shape=ellipse, style=filled, color=PaleTurquoise ];
 subgraph cluster_1 {
 T_1_18446744073709551615 [ shape=point, height=0.015, width=0.015 ];
-A_1_false -> T_1_18446744073709551615 [ arrowhead=none, direction=forward ];
-T_1_18446744073709551615 -> A_0_false;
-D_1_18446744073709551615_3 [ label="Server &#8594;\nResponse", shape=plain ];
-D_1_18446744073709551615_3 -> T_1_18446744073709551615 [ color=Black, style=dashed ];
+D_1_18446744073709551615_3 [ label="Server &#8594;\nResponse", shape=box, style=filled, color=Bisque ];
+A_1_false -> D_1_18446744073709551615_3 [ style=invis ];
 }
 subgraph cluster_2 {
 T_2_18446744073709551615 [ shape=point, height=0.015, width=0.015 ];
-A_1_false -> T_2_18446744073709551615 [ arrowhead=none, direction=forward ];
-T_2_18446744073709551615 -> A_1_false;
-D_2_18446744073709551615_0 [ label="Activity &#8594;\nNeed", shape=plain ];
-D_2_18446744073709551615_0 -> T_2_18446744073709551615 [ color=Black, style=dashed ];
-S_2_18446744073709551615_1 [ label="Request\n&#8594; Server", shape=plain ];
-T_2_18446744073709551615 -> S_2_18446744073709551615_1 [ color=Black, style=dashed ];
-S_2_18446744073709551615_1 -> A_1_false [ style=invis ];
+D_2_18446744073709551615_0 [ label="Activity &#8594;\nNeed", shape=box, style=filled, color=SandyBrown ];
+A_1_false -> D_2_18446744073709551615_0 [ style=invis ];
 }
 subgraph cluster_3 {
 T_3_18446744073709551615 [ shape=point, height=0.015, width=0.015 ];
-A_1_false -> T_3_18446744073709551615 [ arrowhead=none, direction=forward ];
-T_3_18446744073709551615 -> A_1_false;
-D_3_18446744073709551615_3 [ label="Server &#8594;\nResponse", shape=plain ];
-D_3_18446744073709551615_3 -> T_3_18446744073709551615 [ color=Black, style=dashed ];
+D_3_18446744073709551615_3 [ label="Server &#8594;\nResponse", shape=box, style=filled, color=Bisque ];
+A_1_false -> D_3_18446744073709551615_3 [ style=invis ];
 }
+}
+A_0_false -> T_0_18446744073709551615 [ arrowhead=none, direction=forward ];
+T_0_18446744073709551615 -> A_1_false [ constraint=true ];
+D_0_18446744073709551615_0 -> T_0_18446744073709551615 [ style=dashed ];
+S_0_18446744073709551615_1 [ label="Request\n&#8594; Server", shape=box, style=filled, color=Bisque ];
+T_0_18446744073709551615 -> S_0_18446744073709551615_1 [ style=dashed ];
+S_0_18446744073709551615_1 -> A_1_false [ style=invis ];
+A_1_false -> T_1_18446744073709551615 [ arrowhead=none, direction=forward ];
+T_1_18446744073709551615 -> A_0_false [ constraint=false ];
+D_1_18446744073709551615_3 -> T_1_18446744073709551615 [ style=dashed ];
+A_1_false -> T_2_18446744073709551615 [ arrowhead=none, direction=forward ];
+T_2_18446744073709551615 -> A_1_false [ constraint=false ];
+D_2_18446744073709551615_0 -> T_2_18446744073709551615 [ style=dashed ];
+S_2_18446744073709551615_1 [ label="Request\n&#8594; Server", shape=box, style=filled, color=Bisque ];
+T_2_18446744073709551615 -> S_2_18446744073709551615_1 [ style=dashed ];
+A_1_false -> T_3_18446744073709551615 [ arrowhead=none, direction=forward ];
+T_3_18446744073709551615 -> A_1_false [ constraint=false ];
+D_3_18446744073709551615_3 -> T_3_18446744073709551615 [ style=dashed ];
 }

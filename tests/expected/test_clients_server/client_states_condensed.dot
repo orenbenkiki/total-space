@@ -1,25 +1,32 @@
 digraph {
 color=white;
+concentrate=true;
 graph [ fontname="sans-serif" ];
 node [ fontname="sans-serif" ];
 edge [ fontname="sans-serif" ];
-A_0_false [ label="IDL", shape=ellipse ];
-A_1_false [ label="WAT", shape=ellipse ];
+subgraph cluster_0_false {
+A_0_false [ label="IDL", shape=ellipse, style=filled, color=PaleTurquoise ];
 subgraph cluster_0 {
 T_0_18446744073709551615 [ shape=point, height=0.015, width=0.015 ];
-A_0_false -> T_0_18446744073709551615 [ arrowhead=none, direction=forward ];
-T_0_18446744073709551615 -> A_1_false;
-D_0_18446744073709551615_0 [ label="Activity &#8594;\nNeed", shape=plain ];
-D_0_18446744073709551615_0 -> T_0_18446744073709551615 [ color=Black, style=dashed ];
-S_0_18446744073709551615_1 [ label="REQ\n&#8594; SRV", shape=plain ];
-T_0_18446744073709551615 -> S_0_18446744073709551615_1 [ color=Black, style=dashed ];
-S_0_18446744073709551615_1 -> A_1_false [ style=invis ];
+D_0_18446744073709551615_0 [ label="Activity &#8594;\nNeed", shape=box, style=filled, color=SandyBrown ];
+A_0_false -> D_0_18446744073709551615_0 [ style=invis ];
 }
+}
+subgraph cluster_1_false {
+A_1_false [ label="WAT", shape=ellipse, style=filled, color=PaleTurquoise ];
 subgraph cluster_1 {
 T_1_18446744073709551615 [ shape=point, height=0.015, width=0.015 ];
-A_1_false -> T_1_18446744073709551615 [ arrowhead=none, direction=forward ];
-T_1_18446744073709551615 -> A_0_false;
-D_1_18446744073709551615_3 [ label="SRV &#8594;\nRSP", shape=plain ];
-D_1_18446744073709551615_3 -> T_1_18446744073709551615 [ color=Black, style=dashed ];
+D_1_18446744073709551615_3 [ label="SRV &#8594;\nRSP", shape=box, style=filled, color=PaleGreen ];
+A_1_false -> D_1_18446744073709551615_3 [ style=invis ];
 }
+}
+A_0_false -> T_0_18446744073709551615 [ arrowhead=none, direction=forward ];
+T_0_18446744073709551615 -> A_1_false [ constraint=true ];
+D_0_18446744073709551615_0 -> T_0_18446744073709551615 [ style=dashed ];
+S_0_18446744073709551615_1 [ label="REQ\n&#8594; SRV", shape=box, style=filled, color=PaleGreen ];
+T_0_18446744073709551615 -> S_0_18446744073709551615_1 [ style=dashed ];
+S_0_18446744073709551615_1 -> A_1_false [ style=invis ];
+A_1_false -> T_1_18446744073709551615 [ arrowhead=none, direction=forward ];
+T_1_18446744073709551615 -> A_0_false [ constraint=false ];
+D_1_18446744073709551615_3 -> T_1_18446744073709551615 [ style=dashed ];
 }

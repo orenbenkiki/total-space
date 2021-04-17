@@ -132,6 +132,9 @@ pub(crate) struct AgentStateTransitionContext<StateId: IndexLike> {
 
     /// Whether the agent end state was deferring.
     to_is_deferring: bool,
+
+    /// Whether the target state is "after" the source state.
+    is_constraint: bool,
 }
 
 // BEGIN MAYBE TESTED
@@ -2519,6 +2522,21 @@ impl<
 
 // States diagram:
 
+// What to print.
+//
+// It is "most annoying" that when GraphViz sees an edge it creates the connected nodes there and
+// then, even if they are explictly created inside a cluster later on. To combat this we need to
+// first create all the nodes in their clusters and only then generate all the edges. This is rather
+// inconvenient and this code is pretty fast so we just run the same code twice, once printing only
+// the structure and once printing only the edges. YUCK.
+#[derive(PartialEq, Eq, Clone, Copy, Debug)]
+enum PrintFilter {
+    // Only print the structure of the diagram.
+    Structure,
+    // Only print the edges.
+    Edges,
+}
+
 impl<
         StateId: IndexLike,
         MessageId: IndexLike,
@@ -2535,15 +2553,12 @@ impl<
         agent_index: usize,
         stdout: &mut dyn Write,
     ) {
-        let mut emitted_states = vec![false; self.agent_types[agent_index].states_count()];
-
         writeln!(stdout, "digraph {{").unwrap();
         writeln!(stdout, "color=white;").unwrap();
+        writeln!(stdout, "concentrate=true;").unwrap();
         writeln!(stdout, "graph [ fontname=\"sans-serif\" ];").unwrap();
         writeln!(stdout, "node [ fontname=\"sans-serif\" ];").unwrap();
         writeln!(stdout, "edge [ fontname=\"sans-serif\" ];").unwrap();
-
-        let mut state_transition_index: usize = 0;
 
         self.compute_terse(condense);
 
@@ -2552,227 +2567,289 @@ impl<
             state_transitions.keys().collect();
         contexts.sort();
 
+        let mut emitted_states = vec![false; self.agent_types[agent_index].states_count()];
+        let mut is_first = true;
+
+        let mut state_transition_index: usize = 0;
         for context in contexts.iter() {
-            let related_state_transitions = &state_transitions[context];
-
-            let mut sent_keys: Vec<&Vec<MessageId>> = related_state_transitions.keys().collect();
-            sent_keys.sort();
-
-            let mut sent_by_delivered = <Self as ModelTypes>::AgentStateSentByDelivered::new();
-
-            for sent_message_ids_key in sent_keys.iter() {
-                let sent_message_ids: &Vec<MessageId> = sent_message_ids_key;
-
-                let delivered_message_ids: &Vec<MessageId> =
-                    &related_state_transitions.get(sent_message_ids).unwrap();
-
-                if !sent_by_delivered.contains_key(delivered_message_ids) {
-                    sent_by_delivered.insert(delivered_message_ids.to_vec(), vec![]);
-                }
-
-                sent_by_delivered
-                    .get_mut(delivered_message_ids)
-                    .unwrap()
-                    .push(sent_message_ids.to_vec());
-            }
-
-            let mut delivered_keys: Vec<&Vec<MessageId>> = sent_by_delivered.keys().collect();
-            delivered_keys.sort();
-
-            let mut intersecting_delivered_message_ids: Vec<Vec<MessageId>> = vec![];
-            let mut distinct_delivered_message_ids: Vec<Vec<MessageId>> = vec![];
-            for delivered_message_ids_key in delivered_keys.iter() {
-                let delivered_message_ids: &Vec<MessageId> = delivered_message_ids_key;
-                let delivered_sent_message_ids =
-                    sent_by_delivered.get(delivered_message_ids).unwrap();
-
-                assert!(!delivered_sent_message_ids.is_empty());
-                if delivered_sent_message_ids.len() == 1 {
-                    intersecting_delivered_message_ids.push(delivered_message_ids.to_vec());
-                    continue;
-                }
-
-                if intersecting_delivered_message_ids
-                    .iter()
-                    .any(|message_ids| message_ids == delivered_message_ids)
-                {
-                    continue;
-                }
-
-                let mut is_intersecting: bool = false;
-                for other_delivered_message_ids_key in delivered_keys.iter() {
-                    let other_delivered_message_ids: &Vec<MessageId> =
-                        other_delivered_message_ids_key;
-                    if delivered_message_ids == other_delivered_message_ids {
-                        continue;
-                    }
-                    // BEGIN NOT TESTED
-                    for delivered_message_id in delivered_message_ids {
-                        if other_delivered_message_ids
-                            .iter()
-                            .any(|message_id| message_id == delivered_message_id)
-                        {
-                            is_intersecting = true;
-                            break;
-                        }
-                    }
-                    if is_intersecting {
-                        intersecting_delivered_message_ids
-                            .push(other_delivered_message_ids.to_vec());
-                        break;
-                    }
-                    // END NOT TESTED
-                }
-
-                if is_intersecting {
-                    // BEGIN NOT TESTED
-                    intersecting_delivered_message_ids.push(delivered_message_ids.to_vec());
-                    // END NOT TESTED
-                } else {
-                    distinct_delivered_message_ids.push(delivered_message_ids.to_vec());
-                }
-            }
-
-            for delivered_message_ids_key in intersecting_delivered_message_ids.iter() {
-                let delivered_message_ids: &Vec<MessageId> = delivered_message_ids_key;
-                let mut delivered_sent_keys = sent_by_delivered[delivered_message_ids].clone();
-                delivered_sent_keys.sort();
-
-                for sent_message_ids_key in delivered_sent_keys.iter() {
-                    let sent_message_ids: &Vec<MessageId> = sent_message_ids_key;
-                    self.print_agent_transition_cluster(
-                        condense,
-                        &mut emitted_states,
-                        agent_index,
-                        context,
-                        delivered_message_ids,
-                        state_transition_index,
-                        false,
-                        stdout,
-                    );
-
-                    self.print_agent_transition_sent_edges(
-                        condense,
-                        &sent_message_ids,
-                        context.to_state_id,
-                        context.to_is_deferring,
-                        state_transition_index,
-                        None,
-                        stdout,
-                    );
-
+            if !emitted_states[context.from_state_id.to_usize()] {
+                if !is_first {
                     writeln!(stdout, "}}").unwrap();
-                    state_transition_index += 1;
                 }
-            }
+                is_first = false;
+                writeln!(
+                    stdout,
+                    "subgraph cluster_{}_{} {{",
+                    context.from_state_id.to_usize(),
+                    context.from_is_deferring
+                )
+                .unwrap();
 
-            for delivered_message_ids_key in distinct_delivered_message_ids.iter() {
-                let mut delivered_sent_keys: Vec<&Vec<MessageId>> =
-                    related_state_transitions.keys().collect();
-                let delivered_message_ids: &Vec<MessageId> = delivered_message_ids_key;
-                delivered_sent_keys.sort();
-
-                self.print_agent_transition_cluster(
+                self.print_agent_state_node(
                     condense,
-                    &mut emitted_states,
                     agent_index,
-                    context,
-                    delivered_message_ids,
-                    state_transition_index,
-                    true,
+                    context.from_state_id,
+                    context.from_is_deferring,
                     stdout,
                 );
 
-                for (alternative_index, sent_message_ids_key) in
-                    delivered_sent_keys.iter().enumerate()
-                {
-                    let sent_message_ids: &Vec<MessageId> = sent_message_ids_key;
+                emitted_states[context.from_state_id.to_usize()] = true;
+            }
+            self.print_context_states_diagram(
+                condense,
+                context,
+                &state_transitions,
+                &mut state_transition_index,
+                PrintFilter::Structure,
+                stdout,
+            );
+        }
 
+        if !is_first {
+            writeln!(stdout, "}}").unwrap();
+        }
+
+        state_transition_index = 0;
+        for context in contexts.iter() {
+            self.print_context_states_diagram(
+                condense,
+                context,
+                &state_transitions,
+                &mut state_transition_index,
+                PrintFilter::Edges,
+                stdout,
+            );
+        }
+
+        writeln!(stdout, "}}").unwrap();
+    }
+
+    fn print_context_states_diagram(
+        &mut self,
+        condense: &Condense,
+        context: &<Self as ModelTypes>::AgentStateTransitionContext,
+        state_transitions: &<Self as ModelTypes>::AgentStateTransitions,
+        state_transition_index: &mut usize,
+        print_filter: PrintFilter,
+        stdout: &mut dyn Write,
+    ) {
+        let related_state_transitions = &state_transitions[context];
+
+        let mut sent_keys: Vec<&Vec<MessageId>> = related_state_transitions.keys().collect();
+        sent_keys.sort();
+
+        let mut sent_by_delivered = <Self as ModelTypes>::AgentStateSentByDelivered::new();
+
+        for sent_message_ids_key in sent_keys.iter() {
+            let sent_message_ids: &Vec<MessageId> = sent_message_ids_key;
+
+            let delivered_message_ids: &Vec<MessageId> =
+                &related_state_transitions.get(sent_message_ids).unwrap();
+
+            if !sent_by_delivered.contains_key(delivered_message_ids) {
+                sent_by_delivered.insert(delivered_message_ids.to_vec(), vec![]);
+            }
+
+            sent_by_delivered
+                .get_mut(delivered_message_ids)
+                .unwrap()
+                .push(sent_message_ids.to_vec());
+        }
+
+        let mut delivered_keys: Vec<&Vec<MessageId>> = sent_by_delivered.keys().collect();
+        delivered_keys.sort();
+
+        let mut intersecting_delivered_message_ids: Vec<Vec<MessageId>> = vec![];
+        let mut distinct_delivered_message_ids: Vec<Vec<MessageId>> = vec![];
+        for delivered_message_ids_key in delivered_keys.iter() {
+            let delivered_message_ids: &Vec<MessageId> = delivered_message_ids_key;
+            let delivered_sent_message_ids = sent_by_delivered.get(delivered_message_ids).unwrap();
+
+            assert!(!delivered_sent_message_ids.is_empty());
+            if delivered_sent_message_ids.len() == 1 {
+                intersecting_delivered_message_ids.push(delivered_message_ids.to_vec());
+                continue;
+            }
+
+            if intersecting_delivered_message_ids
+                .iter()
+                .any(|message_ids| message_ids == delivered_message_ids)
+            {
+                continue;
+            }
+
+            let mut is_intersecting: bool = false;
+            for other_delivered_message_ids_key in delivered_keys.iter() {
+                let other_delivered_message_ids: &Vec<MessageId> = other_delivered_message_ids_key;
+                if delivered_message_ids == other_delivered_message_ids {
+                    continue;
+                }
+                // BEGIN NOT TESTED
+                for delivered_message_id in delivered_message_ids {
+                    if other_delivered_message_ids
+                        .iter()
+                        .any(|message_id| message_id == delivered_message_id)
+                    {
+                        is_intersecting = true;
+                        break;
+                    }
+                }
+                if is_intersecting {
+                    intersecting_delivered_message_ids.push(other_delivered_message_ids.to_vec());
+                    break;
+                }
+                // END NOT TESTED
+            }
+
+            if is_intersecting {
+                // BEGIN NOT TESTED
+                intersecting_delivered_message_ids.push(delivered_message_ids.to_vec());
+                // END NOT TESTED
+            } else {
+                distinct_delivered_message_ids.push(delivered_message_ids.to_vec());
+            }
+        }
+
+        for delivered_message_ids_key in intersecting_delivered_message_ids.iter() {
+            let delivered_message_ids: &Vec<MessageId> = delivered_message_ids_key;
+            let mut delivered_sent_keys = sent_by_delivered[delivered_message_ids].clone();
+            delivered_sent_keys.sort();
+
+            for sent_message_ids_key in delivered_sent_keys.iter() {
+                let sent_message_ids: &Vec<MessageId> = sent_message_ids_key;
+                self.print_agent_transition_cluster(
+                    condense,
+                    context,
+                    delivered_message_ids,
+                    *state_transition_index,
+                    false,
+                    stdout,
+                    print_filter,
+                );
+
+                if print_filter == PrintFilter::Edges {
                     self.print_agent_transition_sent_edges(
                         condense,
+                        context.from_state_id,
+                        context.from_is_deferring,
                         &sent_message_ids,
+                        *state_transition_index,
                         context.to_state_id,
                         context.to_is_deferring,
-                        state_transition_index,
+                        context.is_constraint,
+                        None,
+                        stdout,
+                    );
+                }
+
+                if print_filter == PrintFilter::Structure {
+                    writeln!(stdout, "}}").unwrap();
+                }
+                *state_transition_index += 1;
+            }
+        }
+
+        for delivered_message_ids_key in distinct_delivered_message_ids.iter() {
+            let mut delivered_sent_keys: Vec<&Vec<MessageId>> =
+                related_state_transitions.keys().collect();
+            let delivered_message_ids: &Vec<MessageId> = delivered_message_ids_key;
+            delivered_sent_keys.sort();
+
+            self.print_agent_transition_cluster(
+                condense,
+                context,
+                delivered_message_ids,
+                *state_transition_index,
+                true,
+                stdout,
+                print_filter,
+            );
+
+            for (alternative_index, sent_message_ids_key) in delivered_sent_keys.iter().enumerate()
+            {
+                let sent_message_ids: &Vec<MessageId> = sent_message_ids_key;
+
+                if print_filter == PrintFilter::Edges {
+                    self.print_agent_transition_sent_edges(
+                        condense,
+                        context.from_state_id,
+                        context.from_is_deferring,
+                        &sent_message_ids,
+                        *state_transition_index,
+                        context.to_state_id,
+                        context.to_is_deferring,
+                        context.is_constraint,
                         Some(alternative_index),
                         stdout,
                     );
                 }
-
-                writeln!(stdout, "}}").unwrap();
-                state_transition_index += 1;
             }
-        }
 
-        writeln!(stdout, "}}").unwrap();
+            if print_filter == PrintFilter::Structure {
+                writeln!(stdout, "}}").unwrap();
+            }
+            *state_transition_index += 1;
+        }
     }
 
     #[allow(clippy::too_many_arguments)]
     fn print_agent_transition_cluster(
         &self,
         condense: &Condense,
-        emitted_states: &mut [bool],
-        agent_index: usize,
         context: &<Self as ModelTypes>::AgentStateTransitionContext,
         delivered_message_ids: &[MessageId],
         state_transition_index: usize,
         has_alternatives: bool,
         stdout: &mut dyn Write,
+        print_filter: PrintFilter,
     ) {
-        if !emitted_states[context.from_state_id.to_usize()] {
-            self.print_agent_state_node(
-                condense,
-                agent_index,
-                context.from_state_id,
-                context.from_is_deferring,
-                stdout,
-            );
-            emitted_states[context.from_state_id.to_usize()] = true;
+        match print_filter {
+            PrintFilter::Structure => {
+                writeln!(stdout, "subgraph cluster_{} {{", state_transition_index).unwrap();
+                Self::print_state_transition_node(state_transition_index, has_alternatives, stdout);
+            }
+
+            PrintFilter::Edges => {
+                Self::print_state_transition_edge(
+                    context.from_state_id,
+                    context.from_is_deferring,
+                    state_transition_index,
+                    stdout,
+                );
+
+                Self::print_transition_state_edge(
+                    state_transition_index,
+                    context.to_state_id,
+                    context.to_is_deferring,
+                    context.is_constraint,
+                    stdout,
+                );
+            }
         }
-
-        if !emitted_states[context.to_state_id.to_usize()] {
-            self.print_agent_state_node(
-                condense,
-                agent_index,
-                context.to_state_id,
-                context.to_is_deferring,
-                stdout,
-            );
-            emitted_states[context.to_state_id.to_usize()] = true;
-        }
-
-        writeln!(stdout, "subgraph cluster_{} {{", state_transition_index).unwrap();
-        Self::print_state_transition_node(state_transition_index, has_alternatives, stdout);
-
-        Self::print_state_transition_edge(
-            context.from_state_id,
-            context.from_is_deferring,
-            state_transition_index,
-            stdout,
-        );
-
-        Self::print_transition_state_edge(
-            state_transition_index,
-            context.to_state_id,
-            context.to_is_deferring,
-            stdout,
-        );
 
         for delivered_message_id in delivered_message_ids.iter() {
-            self.print_message_node(
-                condense,
-                state_transition_index,
-                None,
-                Some(*delivered_message_id),
-                "D",
-                stdout,
-            );
-            self.print_message_transition_edge(
-                condense,
-                *delivered_message_id,
-                state_transition_index,
-                stdout,
-            );
+            match print_filter {
+                PrintFilter::Structure => {
+                    self.print_message_node(
+                        condense,
+                        context.from_state_id,
+                        context.from_is_deferring,
+                        state_transition_index,
+                        None,
+                        Some(*delivered_message_id),
+                        "D",
+                        stdout,
+                    );
+                }
+
+                PrintFilter::Edges => {
+                    self.print_message_transition_edge(
+                        *delivered_message_id,
+                        state_transition_index,
+                        stdout,
+                    );
+                }
+            }
         }
     }
 
@@ -2780,10 +2857,13 @@ impl<
     fn print_agent_transition_sent_edges(
         &self,
         condense: &Condense,
+        from_state_id: StateId,
+        from_is_deferring: bool,
         sent_message_ids: &[MessageId],
+        state_transition_index: usize,
         to_state_id: StateId,
         to_is_deferring: bool,
-        state_transition_index: usize,
+        is_constraint: bool,
         mut alternative_index: Option<usize>,
         stdout: &mut dyn Write,
     ) {
@@ -2799,14 +2879,17 @@ impl<
 
         if alternative_index.is_some() && sent_message_ids.is_empty() {
             // BEGIN NOT TESTED
-            self.print_message_node(condense, state_transition_index, None, None, "S", stdout);
-            self.print_transition_message_edge(
+            self.print_message_node(
                 condense,
+                from_state_id,
+                from_is_deferring,
                 state_transition_index,
                 None,
                 None,
+                "S",
                 stdout,
             );
+            self.print_transition_message_edge(state_transition_index, None, None, stdout);
             // END NOT TESTED
         }
 
@@ -2817,6 +2900,8 @@ impl<
         for sent_message_id in sent_message_ids.iter() {
             self.print_message_node(
                 condense,
+                from_state_id,
+                from_is_deferring,
                 state_transition_index,
                 alternative_index,
                 Some(*sent_message_id),
@@ -2824,22 +2909,24 @@ impl<
                 stdout,
             );
             self.print_transition_message_edge(
-                condense,
                 state_transition_index,
                 alternative_index,
                 Some(*sent_message_id),
                 stdout,
             );
-            writeln!(
-                stdout,
-                "S_{}_{}_{} -> A_{}_{} [ style=invis ];",
-                state_transition_index,
-                alternative_index.unwrap_or(usize::max_value()),
-                sent_message_id.to_usize(),
-                to_state_id.to_usize(),
-                to_is_deferring,
-            )
-            .unwrap();
+
+            if is_constraint {
+                writeln!(
+                    stdout,
+                    "S_{}_{}_{} -> A_{}_{} [ style=invis ];",
+                    state_transition_index,
+                    alternative_index.unwrap_or(usize::max_value()),
+                    sent_message_id.to_usize(),
+                    to_state_id.to_usize(),
+                    to_is_deferring,
+                )
+                .unwrap();
+            }
         }
     }
 
@@ -2852,6 +2939,11 @@ impl<
         stdout: &mut dyn Write,
     ) {
         let shape = if is_deferring { "octagon" } else { "ellipse" };
+        let color = if is_deferring {
+            "Plum"
+        } else {
+            "PaleTurquoise"
+        };
         let state = if condense.names_only {
             self.agent_types[agent_index].display_terse(state_id)
         } else {
@@ -2862,11 +2954,12 @@ impl<
 
         writeln!(
             stdout,
-            "A_{}_{} [ label=\"{}\", shape={} ];",
+            "A_{}_{} [ label=\"{}\", shape={}, style=filled, color={} ];",
             state_id.to_usize(),
             is_deferring,
             state,
-            shape
+            shape,
+            color
         )
         .unwrap();
     }
@@ -2896,9 +2989,12 @@ impl<
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn print_message_node(
         &self,
         condense: &Condense,
+        from_state_id: StateId,
+        from_is_deferring: bool,
         state_transition_index: usize,
         alternative_index: Option<usize>,
         message_id: Option<MessageId>,
@@ -2915,11 +3011,25 @@ impl<
                 alternative_index.unwrap_or(usize::max_value()),
             )
             .unwrap();
+
+            if prefix == "D" {
+                writeln!(
+                    stdout,
+                    "A_{}_{} -> {}_{}_{} [ style=invis ];",
+                    from_state_id.to_usize(),
+                    from_is_deferring,
+                    prefix,
+                    state_transition_index,
+                    alternative_index.unwrap_or(usize::max_value()),
+                )
+                .unwrap();
+            }
+
             return;
             // END NOT TESTED
         }
 
-        let mut message_id = message_id.unwrap();
+        let message_id = message_id.unwrap();
         write!(
             stdout,
             "{}_{}_{}_{} [ label=\"",
@@ -2930,10 +3040,19 @@ impl<
         )
         .unwrap();
 
-        message_id = self.message_of_terse_id[message_id.to_usize()];
-        let message = self.messages.get(message_id);
+        let message = self
+            .messages
+            .get(self.message_of_terse_id[message_id.to_usize()]);
+
+        let mut color = match message.order {
+            MessageOrder::Unordered => "PaleGreen",
+            MessageOrder::Ordered(_) => "Bisque",
+            MessageOrder::Immediate => "LightSalmon",
+        };
+
         if prefix == "D" {
             let source = if message.source_index == usize::max_value() {
+                color = "SandyBrown";
                 "Activity".to_string()
             } else if condense.merge_instances {
                 self.agent_types[message.source_index].name()
@@ -2968,7 +3087,21 @@ impl<
             write!(stdout, "\\n{} {}", RIGHT_ARROW, target).unwrap();
         }
 
-        writeln!(stdout, "\", shape=plain ];").unwrap();
+        writeln!(stdout, "\", shape=box, style=filled, color={} ];", color).unwrap();
+
+        if prefix == "D" {
+            writeln!(
+                stdout,
+                "A_{}_{} -> {}_{}_{}_{} [ style=invis ];",
+                from_state_id.to_usize(),
+                from_is_deferring,
+                prefix,
+                state_transition_index,
+                alternative_index.unwrap_or(usize::max_value()),
+                message_id.to_usize()
+            )
+            .unwrap();
+        }
     }
 
     fn print_state_transition_edge(
@@ -2992,51 +3125,35 @@ impl<
         from_state_transition_index: usize,
         to_state_id: StateId,
         to_is_deferring: bool,
+        is_constraint: bool,
         stdout: &mut dyn Write,
     ) {
         writeln!(
             stdout,
-            "T_{}_{} -> A_{}_{};",
+            "T_{}_{} -> A_{}_{} [ constraint={} ];",
             from_state_transition_index,
             usize::max_value(),
             to_state_id.to_usize(),
             to_is_deferring,
+            is_constraint,
         )
         .unwrap();
     }
 
     fn print_message_transition_edge(
         &self,
-        condense: &Condense,
         from_message_id: MessageId,
         to_state_transition_index: usize,
         stdout: &mut dyn Write,
     ) {
-        let show_message_id = if from_message_id.is_valid() {
-            self.message_of_terse_id[from_message_id.to_usize()]
-        } else {
-            from_message_id // NOT TESTED
-        };
-
-        let color = if !condense.final_replaced && show_message_id.is_valid() {
-            match self.messages.get(show_message_id).order {
-                MessageOrder::Ordered(_) => "Blue",
-                MessageOrder::Unordered => "Black",
-                MessageOrder::Immediate => "Crimson",
-            }
-        } else {
-            "Black"
-        };
-
         writeln!(
             stdout,
-            "D_{}_{}_{} -> T_{}_{} [ color={}, style=dashed ];",
+            "D_{}_{}_{} -> T_{}_{} [ style=dashed ];",
             to_state_transition_index,
             usize::max_value(),
             from_message_id.to_usize(),
             to_state_transition_index,
-            usize::max_value(),
-            color
+            usize::max_value()
         )
         .unwrap();
     }
@@ -3066,7 +3183,6 @@ impl<
 
     fn print_transition_message_edge(
         &self,
-        condense: &Condense,
         from_state_transition_index: usize,
         from_alternative_index: Option<usize>,
         to_message_id: Option<MessageId>,
@@ -3088,31 +3204,14 @@ impl<
         }
 
         let to_message_id = to_message_id.unwrap();
-        let show_message_id = if to_message_id.is_valid() {
-            self.message_of_terse_id[to_message_id.to_usize()]
-        } else {
-            to_message_id // NOT TESTED
-        };
-
-        let color = if !condense.final_replaced && show_message_id.is_valid() {
-            match self.messages.get(show_message_id).order {
-                MessageOrder::Ordered(_) => "Blue",
-                MessageOrder::Unordered => "Black",
-                MessageOrder::Immediate => "Crimson",
-            }
-        } else {
-            "Black"
-        };
-
         writeln!(
             stdout,
-            "T_{}_{} -> S_{}_{}_{} [ color={}, style=dashed ];",
+            "T_{}_{} -> S_{}_{}_{} [ style=dashed ];",
             from_state_transition_index,
             from_alternative_index.unwrap_or(usize::max_value()),
             from_state_transition_index,
             from_alternative_index.unwrap_or(usize::max_value()),
             to_message_id.to_usize(),
-            color
         )
         .unwrap();
     }
@@ -4372,19 +4471,22 @@ impl<
         let agent_type = &self.agent_types[agent_index];
         let agent_instance = self.agent_instance(agent_index);
 
-        let mut context = AgentStateTransitionContext {
-            from_state_id: from_configuration.state_ids[agent_index],
+        let mut from_state_id = from_configuration.state_ids[agent_index];
+        let mut to_state_id = to_configuration.state_ids[agent_index];
+        if condense.names_only {
+            from_state_id = agent_type.terse_id(from_state_id);
+            to_state_id = agent_type.terse_id(to_state_id);
+        }
+
+        let context = AgentStateTransitionContext {
+            from_state_id,
             from_is_deferring: agent_type
                 .state_is_deferring(agent_instance, &from_configuration.state_ids),
-            to_state_id: to_configuration.state_ids[agent_index],
+            to_state_id,
             to_is_deferring: agent_type
                 .state_is_deferring(agent_instance, &to_configuration.state_ids),
+            is_constraint: agent_type.is_state_before(from_state_id, to_state_id),
         };
-
-        if condense.names_only {
-            context.from_state_id = agent_type.terse_id(context.from_state_id);
-            context.to_state_id = agent_type.terse_id(context.to_state_id);
-        }
 
         let mut sent_message_ids: Vec<MessageId> = vec![];
 

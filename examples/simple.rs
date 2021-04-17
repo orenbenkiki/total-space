@@ -60,7 +60,7 @@ enum Payload {
 }
 
 // The state of a worker.
-#[derive(PartialEq, Eq, Hash, Copy, Clone, Debug, IntoStaticStr)]
+#[derive(PartialEq, Eq, PartialOrd, Ord, Hash, Copy, Clone, Debug, IntoStaticStr)]
 enum WorkerState {
     // The worker is not doing anything.
     Idle,
@@ -91,14 +91,14 @@ impl_enum_data! {
 // In such cases, you could write something like:
 
 #[cfg(struct_instead_of_enum)]
-#[derive(PartialEq, Eq, Hash, Copy, Clone, Debug, IntoStaticStr)]
+#[derive(PartialEq, Eq, PartialOrd, Ord, Hash, Copy, Clone, Debug, IntoStaticStr)]
 enum WorkerStateName {
     Idle,
     Working,
 }
 
 #[cfg(struct_instead_of_enum)]
-#[derive(PartialEq, Eq, Hash, Copy, Clone, Debug)]
+#[derive(PartialEq, Eq, PartialOrd, Ord, Hash, Copy, Clone, Debug)]
 struct WorkerState {
     // The short name of the state.
     name: WorkerStateName,
@@ -195,7 +195,7 @@ impl AgentState<WorkerState, Payload> for WorkerState {
 
 // The state of a server. We'll make this a container of workers, so it doesn't have an interesting
 // state of its own.
-#[derive(PartialEq, Eq, Hash, Copy, Clone, Debug, IntoStaticStr)]
+#[derive(PartialEq, Eq, PartialOrd, Ord, Hash, Copy, Clone, Debug, IntoStaticStr)]
 enum ServerState {
     // The server is active (the only state).
     Active,
@@ -305,7 +305,7 @@ impl ServerState {
 impl_enum_data! { Payload = Self::Result }
 
 // The state of a client.
-#[derive(PartialEq, Eq, Hash, Copy, Clone, Debug, IntoStaticStr)]
+#[derive(PartialEq, Eq, PartialOrd, Ord, Hash, Copy, Clone, Debug, IntoStaticStr)]
 enum ClientState {
     // The client is running, not bothering the server.
     Running,

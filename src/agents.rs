@@ -85,6 +85,9 @@ pub trait AgentType<StateId: IndexLike, Payload: DataLike>:
 
     /// Compute mapping from full states to terse states (name only).
     fn compute_terse(&self);
+
+    /// Is one state "before" another (for diagrams).
+    fn is_state_before(&self, left_state_id: StateId, right_state_id: StateId) -> bool;
 }
 
 /// Allow access to state of parts.
@@ -104,7 +107,7 @@ pub trait PartType<State: DataLike, StateId: IndexLike> {
 /// The data we need to implement an agent type.
 ///
 /// This should be placed in a `Singleton` to allow the agent states to get services from it.
-pub struct AgentTypeData<State: DataLike, StateId: IndexLike, Payload: DataLike> {
+pub struct AgentTypeData<State: DataLike + PartialOrd, StateId: IndexLike, Payload: DataLike> {
     /// Memoization of the agent states.
     states: RefCell<Memoize<State, StateId>>,
 
@@ -140,8 +143,8 @@ pub struct AgentTypeData<State: DataLike, StateId: IndexLike, Payload: DataLike>
 ///
 /// This should be placed in a `Singleton` to allow the agent states to get services from it.
 pub struct ContainerOf1TypeData<
-    State: DataLike,
-    Part: DataLike,
+    State: DataLike + PartialOrd,
+    Part: DataLike + PartialOrd,
     StateId: IndexLike,
     Payload: DataLike,
     const MAX_PARTS: usize,
@@ -157,9 +160,9 @@ pub struct ContainerOf1TypeData<
 ///
 /// This should be placed in a `Singleton` to allow the agent states to get services from it.
 pub struct ContainerOf2TypeData<
-    State: DataLike,
-    Part1: DataLike,
-    Part2: DataLike,
+    State: DataLike + PartialOrd,
+    Part1: DataLike + PartialOrd,
+    Part2: DataLike + PartialOrd,
     StateId: IndexLike,
     Payload: DataLike,
     const MAX_PARTS: usize,
@@ -176,7 +179,7 @@ pub struct ContainerOf2TypeData<
 
 // END MAYBE TESTED
 
-impl<State: DataLike, StateId: IndexLike, Payload: DataLike>
+impl<State: DataLike + PartialOrd, StateId: IndexLike, Payload: DataLike>
     AgentTypeData<State, StateId, Payload>
 {
     /// Create new agent type data with the specified name and number of instances.
@@ -267,6 +270,11 @@ impl<State: DataLike, StateId: IndexLike, Payload: DataLike>
         name_of_terse.shrink_to_fit();
     }
 
+    /// Is one state "before" another (for diagrams).
+    fn impl_is_state_before(&self, left_state_id: StateId, right_state_id: StateId) -> bool {
+        self.states.borrow().get(left_state_id) < self.states.borrow().get(right_state_id)
+    }
+
     /// Access the actual state by its identifier.
     pub fn get_state(&self, state_id: StateId) -> State {
         self.states.borrow().get(state_id)
@@ -274,8 +282,8 @@ impl<State: DataLike, StateId: IndexLike, Payload: DataLike>
 }
 
 impl<
-        State: DataLike,
-        Part: DataLike,
+        State: DataLike + PartialOrd,
+        Part: DataLike + PartialOrd,
         StateId: IndexLike,
         Payload: DataLike,
         const MAX_PARTS: usize,
@@ -297,9 +305,9 @@ impl<
 
 // BEGIN NOT TESTED
 impl<
-        State: DataLike,
-        Part1: DataLike,
-        Part2: DataLike,
+        State: DataLike + PartialOrd,
+        Part1: DataLike + PartialOrd,
+        Part2: DataLike + PartialOrd,
         StateId: IndexLike,
         Payload: DataLike,
         const MAX_PARTS: usize,
@@ -322,7 +330,7 @@ impl<
 }
 // END NOT TESTED
 
-impl<State: DataLike, StateId: IndexLike, Payload: DataLike> PartType<State, StateId>
+impl<State: DataLike + PartialOrd, StateId: IndexLike, Payload: DataLike> PartType<State, StateId>
     for AgentTypeData<State, StateId, Payload>
 {
     fn part_state_by_id(&self, state_id: StateId) -> State {
@@ -339,7 +347,7 @@ impl<State: DataLike, StateId: IndexLike, Payload: DataLike> PartType<State, Sta
 }
 
 /// A trait for a single agent state.
-pub trait AgentState<State: DataLike, Payload: DataLike> {
+pub trait AgentState<State: DataLike + PartialOrd, Payload: DataLike> {
     /// Return the actions that may be taken by an agent instance with this state when receiving a
     /// payload.
     fn reaction(&self, instance: usize, payload: &Payload) -> Reaction<State, Payload>;
@@ -367,7 +375,12 @@ pub trait AgentState<State: DataLike, Payload: DataLike> {
 }
 
 /// A trait for a container agent state.
-pub trait ContainerOf1State<State: DataLike, Part: DataLike, Payload: DataLike> {
+pub trait ContainerOf1State<
+    State: DataLike + PartialOrd,
+    Part: DataLike + PartialOrd,
+    Payload: DataLike,
+>
+{
     /// Return the actions that may be taken by an agent instance with this state when receiving a
     /// payload.
     fn reaction(
@@ -406,7 +419,13 @@ pub trait ContainerOf1State<State: DataLike, Part: DataLike, Payload: DataLike> 
 // BEGIN NOT TESTED
 
 /// A trait for a container agent state.
-pub trait ContainerOf2State<State: DataLike, Part1: DataLike, Part2: DataLike, Payload: DataLike> {
+pub trait ContainerOf2State<
+    State: DataLike + PartialOrd,
+    Part1: DataLike + PartialOrd,
+    Part2: DataLike + PartialOrd,
+    Payload: DataLike,
+>
+{
     /// Return the actions that may be taken by an agent instance with this state when receiving a
     /// payload.
     fn reaction(
@@ -456,7 +475,7 @@ pub trait ContainerOf2State<State: DataLike, Part1: DataLike, Part2: DataLike, P
 
 // END NOT TESTED
 
-impl<State: DataLike, StateId: IndexLike, Payload: DataLike>
+impl<State: DataLike + PartialOrd, StateId: IndexLike, Payload: DataLike>
     AgentTypeData<State, StateId, Payload>
 {
     fn translate_reaction(
@@ -521,7 +540,7 @@ impl<State: DataLike, StateId: IndexLike, Payload: DataLike>
     }
 }
 
-impl<State: DataLike, StateId: IndexLike, Payload: DataLike> Name
+impl<State: DataLike + PartialOrd, StateId: IndexLike, Payload: DataLike> Name
     for AgentTypeData<State, StateId, Payload>
 {
     fn name(&self) -> String {
@@ -530,8 +549,8 @@ impl<State: DataLike, StateId: IndexLike, Payload: DataLike> Name
 }
 
 impl<
-        State: DataLike,
-        Part: DataLike,
+        State: DataLike + PartialOrd,
+        Part: DataLike + PartialOrd,
         StateId: IndexLike,
         Payload: DataLike,
         const MAX_PARTS: usize,
@@ -544,9 +563,9 @@ impl<
 
 // BEGIN NOT TESTED
 impl<
-        State: DataLike,
-        Part1: DataLike,
-        Part2: DataLike,
+        State: DataLike + PartialOrd,
+        Part1: DataLike + PartialOrd,
+        Part2: DataLike + PartialOrd,
         StateId: IndexLike,
         Payload: DataLike,
         const MAX_PARTS: usize,
@@ -558,8 +577,8 @@ impl<
 }
 // END NOT TESTED
 
-impl<State: DataLike, StateId: IndexLike, Payload: DataLike> AgentInstances<StateId, Payload>
-    for AgentTypeData<State, StateId, Payload>
+impl<State: DataLike + PartialOrd, StateId: IndexLike, Payload: DataLike>
+    AgentInstances<StateId, Payload> for AgentTypeData<State, StateId, Payload>
 {
     fn prev_agent_type(&self) -> Option<Rc<dyn AgentType<StateId, Payload>>> {
         self.prev_agent_type.clone()
@@ -599,8 +618,8 @@ impl<State: DataLike, StateId: IndexLike, Payload: DataLike> AgentInstances<Stat
 }
 
 impl<
-        State: DataLike + ContainerOf1State<State, Part, Payload>,
-        Part: DataLike + AgentState<Part, Payload>,
+        State: DataLike + PartialOrd + ContainerOf1State<State, Part, Payload>,
+        Part: DataLike + PartialOrd + PartialOrd + AgentState<Part, Payload>,
         StateId: IndexLike,
         Payload: DataLike,
         const MAX_PARTS: usize,
@@ -648,9 +667,9 @@ impl<
 
 // BEGIN NOT TESTED
 impl<
-        State: DataLike + ContainerOf2State<State, Part1, Part2, Payload>,
-        Part1: DataLike + AgentState<Part1, Payload>,
-        Part2: DataLike + AgentState<Part2, Payload>,
+        State: DataLike + PartialOrd + ContainerOf2State<State, Part1, Part2, Payload>,
+        Part1: DataLike + PartialOrd + AgentState<Part1, Payload>,
+        Part2: DataLike + PartialOrd + AgentState<Part2, Payload>,
         StateId: IndexLike,
         Payload: DataLike,
         const MAX_PARTS: usize,
@@ -695,8 +714,11 @@ impl<
 }
 // END NOT TESTED
 
-impl<State: DataLike + AgentState<State, Payload>, StateId: IndexLike, Payload: DataLike>
-    AgentType<StateId, Payload> for AgentTypeData<State, StateId, Payload>
+impl<
+        State: DataLike + PartialOrd + AgentState<State, Payload>,
+        StateId: IndexLike,
+        Payload: DataLike,
+    > AgentType<StateId, Payload> for AgentTypeData<State, StateId, Payload>
 {
     fn reaction(
         &self,
@@ -785,11 +807,15 @@ impl<State: DataLike + AgentState<State, Payload>, StateId: IndexLike, Payload: 
     fn compute_terse(&self) {
         self.impl_compute_terse();
     }
+
+    fn is_state_before(&self, left_state_id: StateId, right_state_id: StateId) -> bool {
+        self.impl_is_state_before(left_state_id, right_state_id)
+    }
 }
 
 impl<
-        State: DataLike + ContainerOf1State<State, Part, Payload>,
-        Part: DataLike + AgentState<Part, Payload>,
+        State: DataLike + PartialOrd + ContainerOf1State<State, Part, Payload>,
+        Part: DataLike + PartialOrd + AgentState<Part, Payload>,
         StateId: IndexLike,
         Payload: DataLike,
         const MAX_PARTS: usize,
@@ -818,9 +844,9 @@ impl<
 
 // BEGIN NOT TESTED
 impl<
-        State: DataLike + ContainerOf2State<State, Part1, Part2, Payload>,
-        Part1: DataLike + AgentState<Part1, Payload>,
-        Part2: DataLike + AgentState<Part2, Payload>,
+        State: DataLike + PartialOrd + ContainerOf2State<State, Part1, Part2, Payload>,
+        Part1: DataLike + PartialOrd + AgentState<Part1, Payload>,
+        Part2: DataLike + PartialOrd + AgentState<Part2, Payload>,
         StateId: IndexLike,
         Payload: DataLike,
         const MAX_PARTS: usize,
@@ -852,8 +878,8 @@ impl<
 // END NOT TESTED
 
 impl<
-        State: DataLike + ContainerOf1State<State, Part, Payload>,
-        Part: DataLike + AgentState<Part, Payload>,
+        State: DataLike + PartialOrd + ContainerOf1State<State, Part, Payload>,
+        Part: DataLike + PartialOrd + AgentState<Part, Payload>,
         StateId: IndexLike,
         Payload: DataLike,
         const MAX_PARTS: usize,
@@ -976,13 +1002,20 @@ impl<
     fn compute_terse(&self) {
         self.agent_type_data.impl_compute_terse();
     }
+
+    // BEGIN NOT TESTED
+    fn is_state_before(&self, left_state_id: StateId, right_state_id: StateId) -> bool {
+        self.agent_type_data
+            .impl_is_state_before(left_state_id, right_state_id)
+    }
+    // END NOT TESTED
 }
 
 // BEGIN NOT TESTED
 impl<
-        State: DataLike + ContainerOf2State<State, Part1, Part2, Payload>,
-        Part1: DataLike + AgentState<Part1, Payload>,
-        Part2: DataLike + AgentState<Part2, Payload>,
+        State: DataLike + PartialOrd + ContainerOf2State<State, Part1, Part2, Payload>,
+        Part1: DataLike + PartialOrd + AgentState<Part1, Payload>,
+        Part2: DataLike + PartialOrd + AgentState<Part2, Payload>,
         StateId: IndexLike,
         Payload: DataLike,
         const MAX_PARTS: usize,
@@ -1105,6 +1138,11 @@ impl<
 
     fn compute_terse(&self) {
         self.agent_type_data.impl_compute_terse();
+    }
+
+    fn is_state_before(&self, left_state_id: StateId, right_state_id: StateId) -> bool {
+        self.agent_type_data
+            .impl_is_state_before(left_state_id, right_state_id)
     }
 }
 // END NOT TESTED

@@ -27,7 +27,7 @@ impl_enum_data! { Payload = Self::Request(1) }
 // END MAYBE TESTED
 
 // BEGIN MAYBE TESTED
-#[derive(PartialEq, Eq, Hash, Copy, Clone, Debug, IntoStaticStr)]
+#[derive(PartialEq, Eq, PartialOrd, Ord, Hash, Copy, Clone, Debug, IntoStaticStr)]
 enum ClientState {
     Idle,
     Wait(usize),
@@ -70,7 +70,7 @@ impl AgentState<ClientState, Payload> for ClientState {
 }
 
 // BEGIN MAYBE TESTED
-#[derive(PartialEq, Eq, Hash, Copy, Clone, Debug, IntoStaticStr)]
+#[derive(PartialEq, Eq, PartialOrd, Ord, Hash, Copy, Clone, Debug, IntoStaticStr)]
 enum ServerState {
     Listen,
     Work(usize),
