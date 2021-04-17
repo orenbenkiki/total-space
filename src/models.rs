@@ -2807,6 +2807,16 @@ impl<
             PrintFilter::Structure => {
                 writeln!(stdout, "subgraph cluster_{} {{", state_transition_index).unwrap();
                 Self::print_state_transition_node(state_transition_index, has_alternatives, stdout);
+                if context.to_state_id == context.from_state_id
+                    && context.to_is_deferring == context.from_is_deferring
+                {
+                    Self::print_self_state_node(
+                        state_transition_index,
+                        context.to_state_id,
+                        context.to_is_deferring,
+                        stdout,
+                    );
+                }
             }
 
             PrintFilter::Edges => {
@@ -2817,13 +2827,24 @@ impl<
                     stdout,
                 );
 
-                Self::print_transition_state_edge(
-                    state_transition_index,
-                    context.to_state_id,
-                    context.to_is_deferring,
-                    context.is_constraint,
-                    stdout,
-                );
+                if context.to_state_id == context.from_state_id
+                    && context.to_is_deferring == context.from_is_deferring
+                {
+                    Self::print_self_state_edge(
+                        state_transition_index,
+                        context.to_state_id,
+                        context.to_is_deferring,
+                        stdout,
+                    );
+                } else {
+                    Self::print_transition_state_edge(
+                        state_transition_index,
+                        context.to_state_id,
+                        context.to_is_deferring,
+                        context.is_constraint,
+                        stdout,
+                    );
+                }
             }
         }
 
@@ -3117,6 +3138,54 @@ impl<
             from_is_deferring,
             to_state_transition_index,
             usize::max_value()
+        )
+        .unwrap();
+    }
+
+    fn print_self_state_node(
+        from_state_transition_index: usize,
+        state_id: StateId,
+        is_deferring: bool,
+        stdout: &mut dyn Write,
+    ) {
+        writeln!(
+            stdout,
+            "B_{}_{}_{}_{} [ shape=point, height=0.015, width=0.015, style=filled ];",
+            from_state_transition_index,
+            usize::max_value(),
+            state_id.to_usize(),
+            is_deferring,
+        )
+        .unwrap();
+    }
+
+    fn print_self_state_edge(
+        from_state_transition_index: usize,
+        state_id: StateId,
+        is_deferring: bool,
+        stdout: &mut dyn Write,
+    ) {
+        writeln!(
+            stdout,
+            "B_{}_{}_{}_{} -> A_{}_{} [ constraint=false ];",
+            from_state_transition_index,
+            usize::max_value(),
+            state_id.to_usize(),
+            is_deferring,
+            state_id.to_usize(),
+            is_deferring,
+        )
+        .unwrap();
+
+        writeln!(
+            stdout,
+            "B_{}_{}_{}_{} -> T_{}_{} [ arrowhead=none, direction=forward ];",
+            from_state_transition_index,
+            usize::max_value(),
+            state_id.to_usize(),
+            is_deferring,
+            from_state_transition_index,
+            usize::max_value(),
         )
         .unwrap();
     }

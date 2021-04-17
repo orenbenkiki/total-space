@@ -8,12 +8,14 @@ subgraph cluster_0_true {
 A_0_true [ label="", shape=octagon, style=filled, color=Plum ];
 subgraph cluster_0 {
 T_0_18446744073709551615 [ shape=point, height=0.015, width=0.015 ];
+B_0_18446744073709551615_0_true [ shape=point, height=0.015, width=0.015, style=filled ];
 D_0_18446744073709551615_1 [ label="C &#8594;\nTask", shape=box, style=filled, color=PaleGreen ];
 A_0_true -> D_0_18446744073709551615_1 [ style=invis ];
 }
 }
 A_0_true -> T_0_18446744073709551615 [ arrowhead=none, direction=forward ];
-T_0_18446744073709551615 -> A_0_true [ constraint=false ];
+B_0_18446744073709551615_0_true -> A_0_true [ constraint=false ];
+B_0_18446744073709551615_0_true -> T_0_18446744073709551615 [ arrowhead=none, direction=forward ];
 D_0_18446744073709551615_1 -> T_0_18446744073709551615 [ style=dashed ];
 S_0_18446744073709551615_2 [ label="Task\n&#8594; W", shape=box, style=filled, color=LightSalmon ];
 T_0_18446744073709551615 -> S_0_18446744073709551615_2 [ style=dashed ];

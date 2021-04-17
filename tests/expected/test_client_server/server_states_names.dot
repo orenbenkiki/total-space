@@ -8,6 +8,7 @@ subgraph cluster_0_false {
 A_0_false [ label="LST", shape=ellipse, style=filled, color=PaleTurquoise ];
 subgraph cluster_0 {
 T_0_18446744073709551615 [ shape=point, height=0.015, width=0.015 ];
+B_0_18446744073709551615_0_false [ shape=point, height=0.015, width=0.015, style=filled ];
 D_0_18446744073709551615_2 [ label="C &#8594;\nPNG", shape=box, style=filled, color=LightSalmon ];
 A_0_false -> D_0_18446744073709551615_2 [ style=invis ];
 D_0_18446744073709551615_4 [ label="C &#8594;\nPNG", shape=box, style=filled, color=PaleGreen ];
@@ -32,7 +33,8 @@ A_1_true -> D_2_18446744073709551615_7 [ style=invis ];
 }
 }
 A_0_false -> T_0_18446744073709551615 [ arrowhead=none, direction=forward ];
-T_0_18446744073709551615 -> A_0_false [ constraint=false ];
+B_0_18446744073709551615_0_false -> A_0_false [ constraint=false ];
+B_0_18446744073709551615_0_false -> T_0_18446744073709551615 [ arrowhead=none, direction=forward ];
 D_0_18446744073709551615_2 -> T_0_18446744073709551615 [ style=dashed ];
 D_0_18446744073709551615_4 -> T_0_18446744073709551615 [ style=dashed ];
 D_0_18446744073709551615_5 -> T_0_18446744073709551615 [ style=dashed ];
