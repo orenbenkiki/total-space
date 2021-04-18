@@ -11,6 +11,7 @@ use hashbrown::hash_map::Entry;
 use hashbrown::HashMap;
 use std::cell::RefCell;
 use std::cmp::max;
+use std::cmp::min;
 use std::collections::VecDeque;
 use std::fmt::Debug;
 use std::io::stderr;
@@ -3288,6 +3289,19 @@ impl<
 
 // Sequence diagrams:
 
+// How an agent was impacted by the activity we are looking at next.
+#[derive(PartialEq, Eq, Clone, Copy, Debug)]
+enum AgentImpact {
+    // The agent hasn't seen anything yet.
+    Oblivious,
+
+    // The agent has received a message.
+    Received,
+
+    // The agent has taken some action as a response to the received message.
+    Responded,
+}
+
 impl<
         StateId: IndexLike,
         MessageId: IndexLike,
@@ -3382,37 +3396,43 @@ impl<
         sequence_steps
     }
 
-    fn patch_sequence_steps(&self, sequence_steps: &mut [<Self as ModelTypes>::SequenceStep]) {
-        self.eprint_sequence_steps("sequence_steps", sequence_steps);
+    fn patch_sequence_steps(sequence_steps: &mut [<Self as ModelTypes>::SequenceStep]) {
         let mut did_merge_messages = true;
         while did_merge_messages {
-            self.move_steps_up(sequence_steps);
-            self.eprint_sequence_steps("moved_up", sequence_steps);
-            did_merge_messages = self.merge_message_steps(sequence_steps);
-            self.eprint_sequence_steps("merged_messages", sequence_steps);
+            Self::move_steps_up(sequence_steps);
+            did_merge_messages = Self::merge_message_steps(sequence_steps);
         }
-        self.merge_states(sequence_steps);
-        self.eprint_sequence_steps("merged_states", sequence_steps);
+        Self::merge_states(sequence_steps);
     }
 
+    /*
     fn eprint_sequence_steps(
         &self,
         label: &str,
         sequence_steps: &[<Self as ModelTypes>::SequenceStep],
+        related_steps: Option<&[bool]>,
     ) {
-        if false {
-            // BEGIN NOT TESTED
-            eprintln!("{}:", label);
-            for sequence_step in sequence_steps {
-                self.eprint_sequence_step(sequence_step);
-            }
-            eprintln!("...");
-            // END NOT TESTED
+        eprintln!("{}:", label);
+        for (step_index, sequence_step) in sequence_steps.iter().enumerate() {
+            self.eprint_sequence_step(
+                step_index,
+                sequence_step,
+                related_steps.map(|related_steps| related_steps[step_index]),
+            );
         }
+        eprintln!("...");
     }
 
-    // BEGIN NOT TESTED
-    fn eprint_sequence_step(&self, sequence_step: &<Self as ModelTypes>::SequenceStep) {
+    fn eprint_sequence_step(
+        &self,
+        step_index: usize,
+        sequence_step: &<Self as ModelTypes>::SequenceStep,
+        is_related: Option<bool>,
+    ) {
+        eprint!("{} ", step_index);
+        if let Some(is_related) = is_related {
+            eprint!("{} ", is_related);
+        }
         match sequence_step {
             SequenceStep::NoStep => {
                 eprintln!("- NoStep");
@@ -3493,63 +3513,84 @@ impl<
             }
         }
     }
-    // END NOT TESTED
+    */
 
-    fn move_steps_up(&self, mut sequence_steps: &mut [<Self as ModelTypes>::SequenceStep]) {
-        let mut first_index: usize = 0;
+    fn move_steps_up(mut sequence_steps: &mut [<Self as ModelTypes>::SequenceStep]) {
+        let mut first_step_index: usize = 0;
+        let mut received_step_index: usize = 0;
         let mut main_agent_index =
-            if let SequenceStep::Received { target_index, .. } = sequence_steps[first_index] {
+            if let SequenceStep::Received { target_index, .. } = sequence_steps[first_step_index] {
                 target_index
             } else {
                 unreachable!();
             };
 
-        while let Some((next_index, next_agent_index)) =
-            self.move_remaining_steps_up(first_index, &mut sequence_steps, main_agent_index)
+        while let Some((next_step_index, next_received_step_index, next_agent_index)) =
+            Self::move_remaining_steps_up(
+                first_step_index,
+                received_step_index,
+                &mut sequence_steps,
+                main_agent_index,
+            )
         {
-            first_index = next_index;
+            first_step_index = next_step_index;
+            received_step_index = next_received_step_index;
             main_agent_index = next_agent_index;
         }
     }
 
     fn move_remaining_steps_up(
-        &self,
-        mut first_index: usize,
+        mut first_step_index: usize,
+        received_step_index: usize,
         sequence_steps: &mut [<Self as ModelTypes>::SequenceStep],
         main_agent_index: usize,
-    ) -> Option<(usize, usize)> {
-        let mut related_steps =
-            self.compute_related_steps(first_index, sequence_steps, main_agent_index);
+    ) -> Option<(usize, usize, usize)> {
+        let mut related_steps = Self::compute_related_steps(
+            first_step_index,
+            received_step_index,
+            sequence_steps,
+            main_agent_index,
+        );
 
-        let limit_index = first_index + 1;
-        first_index += 1;
-        while first_index < sequence_steps.len() - 1 {
-            let second_index = first_index + 1;
+        let limit_step_index = first_step_index;
+        first_step_index += 1;
+        while first_step_index < sequence_steps.len() - 1 {
+            let second_step_index = first_step_index + 1;
 
-            if !related_steps[second_index] {
-                first_index = second_index;
+            if !related_steps[second_step_index] {
+                first_step_index = second_step_index;
                 continue;
             }
 
-            if !Self::can_swap(&sequence_steps[first_index], &sequence_steps[second_index]) {
-                first_index = second_index;
+            if !Self::can_swap(
+                first_step_index,
+                second_step_index,
+                &sequence_steps,
+            ) {
+                first_step_index = second_step_index;
                 continue;
             }
 
-            if !self.should_swap(first_index, second_index, &sequence_steps, &related_steps) {
-                first_index = second_index;
+            if !Self::should_swap(
+                first_step_index,
+                second_step_index,
+                &sequence_steps,
+                &related_steps,
+            ) {
+                first_step_index = second_step_index;
                 continue;
             }
 
-            sequence_steps.swap(first_index, second_index);
-            related_steps.swap(first_index, second_index);
-            if first_index > limit_index {
-                first_index -= 1;
+            sequence_steps.swap(first_step_index, second_step_index);
+            related_steps.swap(first_step_index, second_step_index);
+            if first_step_index > limit_step_index {
+                first_step_index -= 1;
             }
         }
 
-        self.find_next_received_step(
-            limit_index,
+        Self::find_next_received_step(
+            min(limit_step_index, received_step_index) + 1,
+            limit_step_index,
             sequence_steps,
             &related_steps,
             main_agent_index,
@@ -3557,28 +3598,36 @@ impl<
     }
 
     fn compute_related_steps(
-        &self,
-        first_index: usize,
+        first_step_index: usize,
+        received_step_index: usize,
         sequence_steps: &mut [<Self as ModelTypes>::SequenceStep],
         main_agent_index: usize,
     ) -> Vec<bool> {
-        let mut collect_emitted_messages = true;
         let mut related_messages: Vec<MessageId> = vec![];
-        let mut affected_agents: [usize; MAX_AGENTS] = [0; MAX_AGENTS];
         let mut next_unrelated_message_id: Option<MessageId> = None;
         let mut related_steps = vec![false; sequence_steps.len()];
+        let mut agent_impacts = [AgentImpact::Oblivious; MAX_AGENTS];
+        if received_step_index < first_step_index {
+            agent_impacts[main_agent_index] = AgentImpact::Received;
+        }
 
-        affected_agents[main_agent_index] = 1;
-        related_steps[first_index] = true;
-        for next_index in (first_index + 1)..sequence_steps.len() {
-            related_steps[next_index] = match &sequence_steps[next_index] {
+        for next_step_index in first_step_index..sequence_steps.len() {
+            related_steps[next_step_index] = match &sequence_steps[next_step_index] {
                 SequenceStep::Emitted {
                     message_id,
                     source_index,
                     ..
-                } if collect_emitted_messages && *source_index == main_agent_index => {
-                    related_messages.push(*message_id);
-                    true
+                } => {
+                    if *source_index == main_agent_index && agent_impacts[main_agent_index] == AgentImpact::Received {
+                        related_messages.push(*message_id);
+                        true
+
+                    } else {
+                        if agent_impacts[*source_index] == AgentImpact::Received {
+                            agent_impacts[*source_index] = AgentImpact::Responded;
+                        }
+                        false
+                    }
                 }
 
                 SequenceStep::Passed {
@@ -3587,19 +3636,27 @@ impl<
                     target_index,
                     ..
                 } => {
-                    if *target_index == main_agent_index {
-                        collect_emitted_messages = false;
-                        affected_agents[main_agent_index] = 0;
-                    }
-
-                    if collect_emitted_messages && *source_index == main_agent_index {
-                        related_messages.push(*message_id);
-                        affected_agents[*target_index] += 1;
+                    if next_step_index == received_step_index {
+                        assert!(*target_index == main_agent_index);
+                        assert!(agent_impacts[main_agent_index] == AgentImpact::Oblivious);
+                        agent_impacts[main_agent_index] = AgentImpact::Received;
                         true
+
+                    } else if *source_index == main_agent_index
+                            && agent_impacts[main_agent_index] == AgentImpact::Received
+                            && agent_impacts[*target_index] == AgentImpact::Oblivious {
+                        agent_impacts[*target_index] = AgentImpact::Received;
+                        true
+
                     } else {
+                        if *target_index == main_agent_index && agent_impacts[main_agent_index] == AgentImpact::Received {
+                            agent_impacts[main_agent_index] = AgentImpact::Responded;
+                        }
+
                         if next_unrelated_message_id.is_none() {
                             next_unrelated_message_id = Some(*message_id);
                         }
+
                         false
                     }
                 }
@@ -3609,19 +3666,26 @@ impl<
                     target_index,
                     ..
                 } => {
-                    if *target_index == main_agent_index {
-                        collect_emitted_messages = false;
-                        affected_agents[main_agent_index] = 0;
-                    }
+                    if next_step_index == received_step_index {
+                        assert!(*target_index == main_agent_index);
+                        assert!(agent_impacts[main_agent_index] == AgentImpact::Oblivious);
+                        agent_impacts[main_agent_index] = AgentImpact::Received;
+                        true
 
-                    if let Some(position) = related_messages
+                    } else if let Some(position) = related_messages
                         .iter()
                         .position(|related_message_id| *related_message_id == *message_id)
                     {
                         related_messages.remove(position);
-                        affected_agents[*target_index] += 1;
+                        if agent_impacts[*target_index] == AgentImpact::Oblivious {
+                            agent_impacts[*target_index] = AgentImpact::Received;
+                        }
                         true
+
                     } else {
+                        if *target_index == main_agent_index && agent_impacts[main_agent_index] == AgentImpact::Received {
+                            agent_impacts[main_agent_index] = AgentImpact::Responded;
+                        }
                         if next_unrelated_message_id.is_none() {
                             next_unrelated_message_id = Some(*message_id);
                         }
@@ -3629,8 +3693,13 @@ impl<
                     }
                 }
 
-                SequenceStep::NewState { agent_index, .. } if affected_agents[*agent_index] > 0 => {
-                    true
+                SequenceStep::NewState { agent_index, .. } => {
+                   if agent_impacts[*agent_index] == AgentImpact::Received {
+                       agent_impacts[*agent_index] = AgentImpact::Responded;
+                       true
+                   } else {
+                       false
+                   }
                 }
 
                 SequenceStep::NewStates(_) => {
@@ -3645,56 +3714,74 @@ impl<
     }
 
     fn find_next_received_step(
-        &self,
-        mut next_index: usize,
+        mut next_step_index: usize,
+        limit_step_index: usize,
         sequence_steps: &mut [<Self as ModelTypes>::SequenceStep],
         related_steps: &[bool],
         main_agent_index: usize,
-    ) -> Option<(usize, usize)> {
-        let mut next_agent_index: Option<usize> = None;
-        let mut next_received_index: Option<usize> = None;
-        while next_agent_index.is_none() || next_received_index.is_none() {
-            if next_received_index.is_none() && !related_steps[next_index] {
-                next_received_index = Some(next_index);
+    ) -> Option<(usize, usize, usize)> {
+        if next_step_index == sequence_steps.len() {
+            return None;
+        }
+
+        let mut found_agent_index: Option<usize> = None;
+        let mut found_step_index: Option<usize> = None;
+        let mut found_received_step_index: Option<usize> = None;
+
+        while found_agent_index.is_none()
+            || found_step_index.is_none()
+            || found_received_step_index.is_none()
+        {
+            if found_step_index.is_none()
+                && next_step_index > limit_step_index
+                && !related_steps[next_step_index]
+            {
+                found_step_index = Some(next_step_index);
             }
-            match sequence_steps[next_index] {
+
+            match sequence_steps[next_step_index] {
                 SequenceStep::Received { target_index, .. }
-                    if next_agent_index.is_none() && target_index != main_agent_index =>
+                    if found_agent_index.is_none() && target_index != main_agent_index =>
                 {
-                    next_agent_index = Some(target_index);
+                    found_received_step_index = Some(next_step_index);
+                    found_agent_index = Some(target_index);
                 }
 
                 SequenceStep::Passed { target_index, .. }
-                    if next_agent_index.is_none() && target_index != main_agent_index =>
+                    if found_agent_index.is_none() && target_index != main_agent_index =>
                 {
-                    next_agent_index = Some(target_index);
+                    found_received_step_index = Some(next_step_index);
+                    found_agent_index = Some(target_index);
                 }
 
                 _ => {
-                    next_index += 1;
-                    if next_index == sequence_steps.len() {
+                    next_step_index += 1;
+                    if next_step_index == sequence_steps.len() {
                         return None;
                     }
                 }
             }
         }
 
-        Some((next_received_index.unwrap(), next_agent_index.unwrap()))
+        Some((
+            found_step_index.unwrap(),
+            found_received_step_index.unwrap(),
+            found_agent_index.unwrap(),
+        ))
     }
 
     fn should_swap(
-        &self,
-        first_index: usize,
-        second_index: usize,
+        first_step_index: usize,
+        second_step_index: usize,
         sequence_steps: &[<Self as ModelTypes>::SequenceStep],
         related_steps: &[bool],
     ) -> bool {
-        if !related_steps[first_index] {
+        if !related_steps[first_step_index] {
             return true;
         }
 
-        if Self::swap_order(&sequence_steps[first_index])
-            > Self::swap_order(&sequence_steps[second_index])
+        if Self::swap_order(&sequence_steps[first_step_index])
+            > Self::swap_order(&sequence_steps[second_step_index])
         {
             return true;
         }
@@ -3716,14 +3803,20 @@ impl<
     }
 
     fn can_swap(
-        first_sequence_step: &<Self as ModelTypes>::SequenceStep,
-        second_sequence_step: &<Self as ModelTypes>::SequenceStep,
+        mut first_step_index: usize,
+        mut second_step_index: usize,
+        sequence_steps: &[<Self as ModelTypes>::SequenceStep],
     ) -> bool {
-        if Self::swap_order(first_sequence_step) > Self::swap_order(second_sequence_step) {
-            return Self::can_swap(second_sequence_step, first_sequence_step);
+        if Self::swap_order(&sequence_steps[first_step_index])
+            > Self::swap_order(&sequence_steps[second_step_index])
+        {
+            swap(&mut first_step_index, &mut second_step_index);
         }
 
-        match (first_sequence_step, second_sequence_step) {
+        match (
+            &sequence_steps[first_step_index],
+            &sequence_steps[second_step_index],
+        ) {
             (
                 SequenceStep::Received {
                     target_index: first_target_index,
@@ -3772,7 +3865,13 @@ impl<
                     agent_index: second_agent_index,
                     ..
                 },
-            ) => second_agent_index != first_target_index,
+            ) => {
+                if second_agent_index != first_target_index {
+                    true
+                } else {
+                    false
+                }
+            }
 
             (
                 SequenceStep::Passed {
@@ -3865,21 +3964,18 @@ impl<
         }
     }
 
-    fn merge_message_steps(
-        &self,
-        sequence_steps: &mut [<Self as ModelTypes>::SequenceStep],
-    ) -> bool {
+    fn merge_message_steps(sequence_steps: &mut [<Self as ModelTypes>::SequenceStep]) -> bool {
         let mut did_merge_messages = false;
-        for first_index in 0..(sequence_steps.len() - 1) {
+        for first_step_index in 0..(sequence_steps.len() - 1) {
             if let SequenceStep::Emitted {
                 source_index: first_source_index,
                 target_index: first_target_index,
                 message_id: first_message_id,
                 replaced,
                 is_immediate,
-            } = sequence_steps[first_index]
+            } = sequence_steps[first_step_index]
             {
-                for second_index in (first_index + 1)..sequence_steps.len() {
+                for second_index in (first_step_index + 1)..sequence_steps.len() {
                     match sequence_steps[second_index] {
                         SequenceStep::NoStep => {
                             continue;
@@ -3895,7 +3991,7 @@ impl<
                                 continue;
                             }
 
-                            sequence_steps[first_index] = SequenceStep::Passed {
+                            sequence_steps[first_step_index] = SequenceStep::Passed {
                                 source_index: first_source_index,
                                 target_index: first_target_index,
                                 target_did_change_state: did_change_state,
@@ -3903,6 +3999,7 @@ impl<
                                 replaced,
                                 is_immediate,
                             };
+
                             sequence_steps[second_index] = SequenceStep::NoStep;
                             did_merge_messages = true;
                             break;
@@ -3923,6 +4020,7 @@ impl<
                             continue;
                         }
                         // END NOT TESTED
+
                         SequenceStep::NewState {
                             agent_index: state_agent_index,
                             ..
@@ -3940,13 +4038,13 @@ impl<
         did_merge_messages
     }
 
-    fn merge_states(&self, sequence_steps: &mut [<Self as ModelTypes>::SequenceStep]) {
-        for first_index in 0..(sequence_steps.len() - 1) {
+    fn merge_states(sequence_steps: &mut [<Self as ModelTypes>::SequenceStep]) {
+        for first_step_index in 0..(sequence_steps.len() - 1) {
             if let SequenceStep::NewState {
                 agent_index,
                 state_id,
                 is_deferring,
-            } = sequence_steps[first_index]
+            } = sequence_steps[first_step_index]
             {
                 let mut merged_states: Vec<ChangeState<StateId>> = vec![ChangeState {
                     agent_index,
@@ -3957,7 +4055,7 @@ impl<
                 let mut allowed_agent_indices = [true; MAX_AGENTS];
                 allowed_agent_indices[agent_index] = false;
 
-                for second_step in sequence_steps.iter_mut().skip(first_index + 1) {
+                for second_step in sequence_steps.iter_mut().skip(first_step_index + 1) {
                     match second_step {
                         SequenceStep::Emitted { source_index, .. } => {
                             allowed_agent_indices[*source_index] = false;
@@ -3999,7 +4097,7 @@ impl<
                 }
 
                 if merged_states.len() > 1 {
-                    sequence_steps[first_index] = SequenceStep::NewStates(merged_states);
+                    sequence_steps[first_step_index] = SequenceStep::NewStates(merged_states);
                 }
             }
         }
@@ -4012,7 +4110,7 @@ impl<
         mut sequence_steps: &mut [<Self as ModelTypes>::SequenceStep],
         stdout: &mut dyn Write,
     ) {
-        self.patch_sequence_steps(&mut sequence_steps);
+        Self::patch_sequence_steps(&mut sequence_steps);
 
         let first_configuration = self.configurations.get(first_configuration_id);
         let last_configuration = self.configurations.get(last_configuration_id);

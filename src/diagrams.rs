@@ -72,7 +72,7 @@ pub(crate) struct SequenceState<
 }
 
 /// A state change for an agent.
-#[derive(Copy, Clone, Debug)]
+#[derive(PartialEq, Eq, Copy, Clone, Debug)]
 pub(crate) struct ChangeState<StateId> {
     /// The index of the agent that changes state.
     pub(crate) agent_index: usize,
@@ -85,7 +85,7 @@ pub(crate) struct ChangeState<StateId> {
 }
 
 /// A single step in a sequence diagram.
-#[derive(Clone, Debug)]
+#[derive(PartialEq, Eq, Clone, Debug)]
 pub(crate) enum SequenceStep<StateId: IndexLike, MessageId: IndexLike> {
     /// No step (created when merging steps).
     NoStep,
