@@ -41,11 +41,12 @@ autonumber stop
 autonumber resume
 deactivate A3
 note over A3 : Need
-control " " as T0 order 220399
-A3 -> T0 : Task(client=1)
-activate T0 #Silver
+A3 -> A1 : Task(client=1)
 activate A3 #CadetBlue
 rnote over A3 : BLK
+control " " as T0 order 110199
+A1 -[#Crimson]> T0 : Task(client=1)
+activate T0 #Silver
 autonumber stop
 [<[#White]-- A0
 autonumber resume
@@ -60,9 +61,8 @@ activate A0 #CadetBlue
 activate A2 #CadetBlue
 rnote over A0 : IDL
 / rnote over A2 : RUN
-T0 -> A1 : Task(client=1)
+T0 -[#Crimson]> A0 : Task(client=1)
 deactivate T0
-A1 -[#Crimson]> A0 : Task(client=1)
 deactivate A0
 autonumber stop
 [<[#White]-- A0
@@ -79,10 +79,10 @@ deactivate A3
 autonumber stop
 [<[#White]-- A0
 autonumber resume
-activate A0 #CadetBlue
 activate A3 #CadetBlue
-rnote over A0 : IDL
-/ rnote over A3 : RUN
+activate A0 #CadetBlue
+rnote over A3 : RUN
+/ rnote over A0 : IDL
 autonumber stop
 [<[#White]-- A0
 autonumber resume

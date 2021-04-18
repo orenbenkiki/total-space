@@ -43,10 +43,10 @@ deactivate A2
 autonumber stop
 [<[#White]-- A0
 autonumber resume
-activate A0 #CadetBlue
 activate A2 #CadetBlue
-rnote over A0 : IDL
-/ rnote over A2 : RUN
+activate A0 #CadetBlue
+rnote over A2 : RUN
+/ rnote over A0 : IDL
 autonumber stop
 [<[#White]-- A0
 autonumber resume

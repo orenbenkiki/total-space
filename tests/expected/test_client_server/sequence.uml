@@ -38,10 +38,10 @@ deactivate A0
 autonumber stop
 [<[#White]-- A0
 autonumber resume
-activate A1 #CadetBlue
 activate A0 #CadetBlue
-rnote over A1 : LST
-/ rnote over A0 : IDL
+activate A1 #CadetBlue
+rnote over A0 : IDL
+/ rnote over A1 : LST
 note over A0 : Worry
 control " " as T0 order 10101
 A0 -> T0 : PNG
@@ -71,10 +71,10 @@ deactivate A0
 autonumber stop
 [<[#White]-- A0
 autonumber resume
-activate A1 #CadetBlue
 activate A0 #CadetBlue
-rnote over A1 : LST
-/ rnote over A0 : IDL
+activate A1 #CadetBlue
+rnote over A0 : IDL
+/ rnote over A1 : LST
 autonumber stop
 [<[#White]-- A0
 autonumber resume

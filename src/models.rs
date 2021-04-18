@@ -3562,11 +3562,7 @@ impl<
                 continue;
             }
 
-            if !Self::can_swap(
-                first_step_index,
-                second_step_index,
-                &sequence_steps,
-            ) {
+            if !Self::can_swap(first_step_index, second_step_index, &sequence_steps) {
                 first_step_index = second_step_index;
                 continue;
             }
@@ -3618,13 +3614,16 @@ impl<
                     source_index,
                     ..
                 } => {
-                    if *source_index == main_agent_index && agent_impacts[main_agent_index] == AgentImpact::Received {
+                    if *source_index == main_agent_index
+                        && agent_impacts[main_agent_index] == AgentImpact::Received
+                    {
                         related_messages.push(*message_id);
                         true
-
                     } else {
                         if agent_impacts[*source_index] == AgentImpact::Received {
+                            // BEGIN NOT TESTED
                             agent_impacts[*source_index] = AgentImpact::Responded;
+                            // END NOT TESTED
                         }
                         false
                     }
@@ -3641,15 +3640,16 @@ impl<
                         assert!(agent_impacts[main_agent_index] == AgentImpact::Oblivious);
                         agent_impacts[main_agent_index] = AgentImpact::Received;
                         true
-
                     } else if *source_index == main_agent_index
-                            && agent_impacts[main_agent_index] == AgentImpact::Received
-                            && agent_impacts[*target_index] == AgentImpact::Oblivious {
+                        && agent_impacts[main_agent_index] == AgentImpact::Received
+                        && agent_impacts[*target_index] == AgentImpact::Oblivious
+                    {
                         agent_impacts[*target_index] = AgentImpact::Received;
                         true
-
                     } else {
-                        if *target_index == main_agent_index && agent_impacts[main_agent_index] == AgentImpact::Received {
+                        if *target_index == main_agent_index
+                            && agent_impacts[main_agent_index] == AgentImpact::Received
+                        {
                             agent_impacts[main_agent_index] = AgentImpact::Responded;
                         }
 
@@ -3671,7 +3671,6 @@ impl<
                         assert!(agent_impacts[main_agent_index] == AgentImpact::Oblivious);
                         agent_impacts[main_agent_index] = AgentImpact::Received;
                         true
-
                     } else if let Some(position) = related_messages
                         .iter()
                         .position(|related_message_id| *related_message_id == *message_id)
@@ -3681,9 +3680,10 @@ impl<
                             agent_impacts[*target_index] = AgentImpact::Received;
                         }
                         true
-
                     } else {
-                        if *target_index == main_agent_index && agent_impacts[main_agent_index] == AgentImpact::Received {
+                        if *target_index == main_agent_index
+                            && agent_impacts[main_agent_index] == AgentImpact::Received
+                        {
                             agent_impacts[main_agent_index] = AgentImpact::Responded;
                         }
                         if next_unrelated_message_id.is_none() {
@@ -3694,12 +3694,12 @@ impl<
                 }
 
                 SequenceStep::NewState { agent_index, .. } => {
-                   if agent_impacts[*agent_index] == AgentImpact::Received {
-                       agent_impacts[*agent_index] = AgentImpact::Responded;
-                       true
-                   } else {
-                       false
-                   }
+                    if agent_impacts[*agent_index] == AgentImpact::Received {
+                        agent_impacts[*agent_index] = AgentImpact::Responded;
+                        true
+                    } else {
+                        false
+                    }
                 }
 
                 SequenceStep::NewStates(_) => {
@@ -3721,7 +3721,7 @@ impl<
         main_agent_index: usize,
     ) -> Option<(usize, usize, usize)> {
         if next_step_index == sequence_steps.len() {
-            return None;
+            return None; // NOT TESTED
         }
 
         let mut found_agent_index: Option<usize> = None;
@@ -3840,7 +3840,7 @@ impl<
                 },
             ) => {
                 second_source_index != first_target_index
-                    && second_target_index != first_target_index
+                    && second_target_index != first_target_index // NOT TESTED
             }
 
             (
@@ -3865,35 +3865,29 @@ impl<
                     agent_index: second_agent_index,
                     ..
                 },
-            ) => {
-                if second_agent_index != first_target_index {
-                    true
-                } else {
-                    false
-                }
-            }
+            ) => second_agent_index != first_target_index,
 
+            // BEGIN NOT TESTED
             (
                 SequenceStep::Passed {
                     source_index: first_source_index,
                     target_index: first_target_index,
                     ..
                 },
+                // END NOT TESTED
                 SequenceStep::Passed {
+                    // BEGIN NOT TESTED
                     source_index: second_source_index,
                     target_index: second_target_index,
                     ..
                 },
             ) => {
                 second_source_index != first_source_index
-                    // BEGIN NOT TESTED
                     && second_source_index != first_target_index
                     && second_target_index != first_source_index
                     && second_target_index != first_target_index
-                // END NOT TESTED
             }
 
-            // BEGIN NOT TESTED
             (
                 SequenceStep::Passed {
                     source_index: first_source_index,
@@ -4020,7 +4014,6 @@ impl<
                             continue;
                         }
                         // END NOT TESTED
-
                         SequenceStep::NewState {
                             agent_index: state_agent_index,
                             ..
