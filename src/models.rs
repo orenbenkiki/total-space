@@ -4185,14 +4185,18 @@ impl<
             self.agents_count()
         ];
 
+        let (left_agent, right_agent) =
+            self.print_sequence_participants(&first_configuration, stdout);
+
         let mut sequence_state = SequenceState {
             timelines: vec![],
             message_timelines: HashMap::new(),
+            right_agent,
+            left_agent,
             agents_timelines,
             has_reactivation_message: false,
         };
 
-        self.print_sequence_participants(&first_configuration, stdout);
         self.print_first_timelines(&mut sequence_state, &first_configuration, stdout);
         self.print_sequence_first_notes(&sequence_state, &first_configuration, stdout);
 
@@ -4212,6 +4216,7 @@ impl<
         }
 
         self.print_sequence_final(&mut sequence_state, stdout);
+        self.separate_groups(&mut sequence_state, stdout);
 
         writeln!(stdout, "@enduml").unwrap();
     }
@@ -4220,7 +4225,7 @@ impl<
         &self,
         first_configuration: &<Self as MetaModel>::Configuration,
         stdout: &mut dyn Write,
-    ) {
+    ) -> (Vec<usize>, Vec<usize>) {
         let mut agents_data: Vec<(usize, Option<&'static str>, Rc<String>, usize)> = (0..self
             .agents_count())
             .map(|agent_index| {
@@ -4237,8 +4242,17 @@ impl<
 
         agents_data.sort();
 
+        let mut left_agent = vec![0; self.agents_count()];
+        let mut right_agent = vec![usize::max_value(); self.agents_count()];
+
+        let mut group_left_agent: usize = 0;
         let mut current_group: Option<&'static str> = None;
         for (agent_order, agent_group, agent_label, agent_index) in agents_data {
+            if current_group.is_none() || current_group != agent_group {
+                group_left_agent = agent_index;
+            }
+            left_agent[agent_index] = group_left_agent;
+
             if current_group != agent_group {
                 // BEGIN NOT TESTED
                 if current_group.is_some() {
@@ -4257,6 +4271,17 @@ impl<
             )
             .unwrap();
         }
+
+        let mut group_right_agent: usize = self.agents_count() - 1;
+        let mut current_group: Option<&'static str> = None;
+        for (agent_order, agent_group, agent_label, agent_index) in agents_data.rev() {
+            if current_group.is_none() || current_group != agent_group {
+                group_right_agent = agent_index;
+            }
+            right_agent[agent_index] = group_right_agent;
+            current_group = agent_group;
+        }
+
         if current_group.is_some() {
             writeln!(stdout, "end box").unwrap(); // NOT TESTED
         }
@@ -4316,14 +4341,14 @@ impl<
         let message = self.messages.get(message_id);
         let is_rightwards_message = self.is_rightwards_message(&message);
         let empty_timeline_index = if is_rightwards_message {
-            sequence_state.agents_timelines[message.source_index]
+            sequence_state.agents_timelines[sequence_state.right_agent[message.source_index]]
                 .right
                 .iter()
                 .copied()
                 .find(|timeline_index| sequence_state.timelines[*timeline_index].is_none())
         } else {
             // BEGIN NOT TESTED
-            sequence_state.agents_timelines[message.source_index]
+            sequence_state.agents_timelines[sequence_state.left_agent[message.source_index]]
                 .left
                 .iter()
                 .copied()
@@ -4348,20 +4373,20 @@ impl<
 
         let message = self.messages.get(message_id);
         let timeline_order = if is_rightwards_message {
-            sequence_state.agents_timelines[message.source_index]
+            sequence_state.agents_timelines[sequence_state.right_agent[message.source_index]]
                 .right
                 .push(timeline_index);
             self.agent_scaled_order(message.source_index)
-                + sequence_state.agents_timelines[message.source_index]
+                + sequence_state.agents_timelines[sequence_state.right_agent[message.source_index]]
                     .right
                     .len()
         } else {
             // BEGIN NOT TESTED
-            sequence_state.agents_timelines[message.source_index]
+            sequence_state.agents_timelines[sequence_state.left_agent[message.source_index]]
                 .left
                 .push(timeline_index);
             self.agent_scaled_order(message.source_index)
-                - sequence_state.agents_timelines[message.source_index]
+                - sequence_state.agents_timelines[sequence_state.left_agent[message.source_index]]
                     .left
                     .len()
             // END NOT TESTED
