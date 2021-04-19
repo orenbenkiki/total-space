@@ -55,7 +55,7 @@
 <!-- D_0_18446744073709551615_1 -->
 <g id="node3" class="node">
 <title>D_0_18446744073709551615_1</title>
-<polygon fill="Bisque" stroke="Bisque" points="174.5,-336.16 91.5,-336.16 91.5,-298.16 174.5,-298.16 174.5,-336.16"/>
+<polygon fill="Gold" stroke="Gold" points="174.5,-336.16 91.5,-336.16 91.5,-298.16 174.5,-298.16 174.5,-336.16"/>
 <text text-anchor="middle" x="133" y="-320.96" font-family="sans-serif" font-size="14.00">Client →</text>
 <text text-anchor="middle" x="133" y="-305.96" font-family="sans-serif" font-size="14.00">Request(1)</text>
 </g>
@@ -73,7 +73,7 @@
 <!-- D_1_18446744073709551615_2 -->
 <g id="node5" class="node">
 <title>D_1_18446744073709551615_2</title>
-<polygon fill="Bisque" stroke="Bisque" points="296.5,-336.16 213.5,-336.16 213.5,-298.16 296.5,-298.16 296.5,-336.16"/>
+<polygon fill="Gold" stroke="Gold" points="296.5,-336.16 213.5,-336.16 213.5,-298.16 296.5,-298.16 296.5,-336.16"/>
 <text text-anchor="middle" x="255" y="-320.96" font-family="sans-serif" font-size="14.00">Client →</text>
 <text text-anchor="middle" x="255" y="-305.96" font-family="sans-serif" font-size="14.00">Request(2)</text>
 </g>
@@ -142,7 +142,7 @@
 <!-- S_2_18446744073709551615_4 -->
 <g id="node12" class="node">
 <title>S_2_18446744073709551615_4</title>
-<polygon fill="Bisque" stroke="Bisque" points="97,-38 3,-38 3,0 97,0 97,-38"/>
+<polygon fill="Gold" stroke="Gold" points="97,-38 3,-38 3,0 97,0 97,-38"/>
 <text text-anchor="middle" x="50" y="-22.8" font-family="sans-serif" font-size="14.00">Response(1)</text>
 <text text-anchor="middle" x="50" y="-7.8" font-family="sans-serif" font-size="14.00">→ Client</text>
 </g>
@@ -185,7 +185,7 @@
 <!-- S_3_18446744073709551615_5 -->
 <g id="node13" class="node">
 <title>S_3_18446744073709551615_5</title>
-<polygon fill="Bisque" stroke="Bisque" points="234,-38 140,-38 140,0 234,0 234,-38"/>
+<polygon fill="Gold" stroke="Gold" points="234,-38 140,-38 140,0 234,0 234,-38"/>
 <text text-anchor="middle" x="187" y="-22.8" font-family="sans-serif" font-size="14.00">Response(2)</text>
 <text text-anchor="middle" x="187" y="-7.8" font-family="sans-serif" font-size="14.00">→ Client</text>
 </g>

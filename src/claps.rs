@@ -58,6 +58,10 @@ pub fn add_clap<'a, 'b>(app: App<'a, 'b>) -> App<'a, 'b> {
             )
     )
     .subcommand(
+        SubCommand::with_name("legend")
+            .about("print an HTML document with a legend of the diagram colors (does not compute the model)"),
+    )
+    .subcommand(
         SubCommand::with_name("agents")
             .about("list the agents of the model (does not compute the model)"),
     )
@@ -215,6 +219,7 @@ pub trait ClapModel {
     /// Dispatch a single clap subcommand (after processing the output redirection flag).
     fn dispatch_clap_command(&mut self, arg_matches: &ArgMatches, stdout: &mut dyn Write) {
         if !self.do_clap_agents(arg_matches, stdout)
+            && !self.do_clap_legend(arg_matches, stdout)
             && !self.do_clap_conditions(arg_matches, stdout)
             && !self.do_clap_compute(arg_matches, stdout)
             && !self.do_clap_configurations(arg_matches, stdout)
@@ -232,6 +237,11 @@ pub trait ClapModel {
 
     /// Compute the model.
     fn do_compute(&mut self, arg_matches: &ArgMatches);
+
+    /// Execute the `legend` clap subcommand, if requested to.
+    ///
+    /// This doesn't compute the model.
+    fn do_clap_legend(&mut self, arg_matches: &ArgMatches, stdout: &mut dyn Write) -> bool;
 
     /// Execute the `agents` clap subcommand, if requested to.
     ///
@@ -287,6 +297,16 @@ impl<
 
         if self.ensure_init_is_reachable {
             self.assert_init_is_reachable();
+        }
+    }
+
+    fn do_clap_legend(&mut self, arg_matches: &ArgMatches, stdout: &mut dyn Write) -> bool {
+        match arg_matches.subcommand_matches("legend") {
+            Some(_) => {
+                self.print_legend(stdout);
+                true
+            }
+            None => false,
         }
     }
 

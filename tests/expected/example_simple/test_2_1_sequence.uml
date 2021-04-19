@@ -2,7 +2,7 @@
 autonumber " <b>#</b> "
 skinparam shadowing false
 skinparam sequence {
-ArrowColor Black
+ArrowThickness 3
 ActorBorderColor Black
 LifeLineBorderColor Black
 LifeLineBackgroundColor Black
@@ -11,13 +11,15 @@ ParticipantBorderColor Black
 skinparam ControlBorderColor White
 skinparam ControlBackgroundColor White
 participant "W(0)" as A0 order 10100
-activate A0 #CadetBlue
 participant "S" as A1 order 110200
-activate A1 #MediumPurple
+box "clients" #WhiteSmoke
 participant "C(0)" as A2 order 210300
-activate A2 #CadetBlue
 participant "C(1)" as A3 order 220400
-activate A3 #CadetBlue
+end box
+activate A0 #PaleTurquoise
+activate A1 #Plum
+activate A2 #PaleTurquoise
+activate A3 #PaleTurquoise
 rnote over A0 : IDL
 / rnote over A2 : RUN
 / rnote over A3 : RUN
@@ -25,62 +27,58 @@ autonumber stop
 [<[#White]-- A0
 autonumber resume
 deactivate A2
-note over A2 : Need
-A2 -> A1 : Task(client=0)
-activate A2 #CadetBlue
+hnote over A2 #SandyBrown: Need
+A2 -[#PaleGreen]> A1 : Task(client=0)
+activate A2 #PaleTurquoise
 rnote over A2 : BLK
-A1 -[#Crimson]> A0 : Task(client=0)
+A1 -[#LightSalmon]> A0 : Task(client=0)
 deactivate A0
 autonumber stop
 [<[#White]-- A0
 autonumber resume
-activate A0 #CadetBlue
+activate A0 #PaleTurquoise
 rnote over A0 : WRK(C=0)
 autonumber stop
 [<[#White]-- A0
 autonumber resume
 deactivate A3
-note over A3 : Need
-A3 -> A1 : Task(client=1)
-activate A3 #CadetBlue
+hnote over A3 #SandyBrown: Need
+A3 -[#PaleGreen]> A1 : Task(client=1)
+activate A3 #PaleTurquoise
 rnote over A3 : BLK
-control " " as T0 order 110199
-A1 -[#Crimson]> T0 : Task(client=1)
-activate T0 #Silver
 autonumber stop
 [<[#White]-- A0
 autonumber resume
 deactivate A0
-note over A0 : Completed
-A0 -> A2 : Result
+hnote over A0 #SandyBrown: Completed
+A0 -[#PaleGreen]> A2 : Result
 deactivate A2
 autonumber stop
 [<[#White]-- A0
 autonumber resume
-activate A0 #CadetBlue
-activate A2 #CadetBlue
+activate A0 #PaleTurquoise
+activate A2 #PaleTurquoise
 rnote over A0 : IDL
 / rnote over A2 : RUN
-T0 -[#Crimson]> A0 : Task(client=1)
-deactivate T0
+A1 -[#LightSalmon]> A0 : Task(client=1)
 deactivate A0
 autonumber stop
 [<[#White]-- A0
 autonumber resume
-activate A0 #CadetBlue
+activate A0 #PaleTurquoise
 rnote over A0 : WRK(C=1)
 autonumber stop
 [<[#White]-- A0
 autonumber resume
 deactivate A0
-note over A0 : Completed
-A0 -> A3 : Result
+hnote over A0 #SandyBrown: Completed
+A0 -[#PaleGreen]> A3 : Result
 deactivate A3
 autonumber stop
 [<[#White]-- A0
 autonumber resume
-activate A3 #CadetBlue
-activate A0 #CadetBlue
+activate A3 #PaleTurquoise
+activate A0 #PaleTurquoise
 rnote over A3 : RUN
 / rnote over A0 : IDL
 autonumber stop

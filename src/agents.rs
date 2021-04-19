@@ -15,6 +15,25 @@ pub enum Instances {
     Count(usize),
 }
 
+/// How to display an agent instance in sequence diagrams.
+#[derive(Clone, Copy, Debug)]
+pub struct InstanceAppearance {
+    /// The relative order of the instance.
+    pub order: usize,
+
+    /// The optional group to put the instance in.
+    pub group: Option<&'static str>,
+}
+
+impl Default for InstanceAppearance {
+    fn default() -> Self {
+        Self {
+            order: 0,
+            group: None,
+        }
+    }
+}
+
 /// A trait partially describing some agent instances of the same type.
 pub trait AgentInstances<StateId: IndexLike, Payload: DataLike>: Name {
     /// Return the previous agent type in the chain, if any.
@@ -34,8 +53,8 @@ pub trait AgentInstances<StateId: IndexLike, Payload: DataLike>: Name {
     /// The number of agents of this type that will be used in the system.
     fn instances_count(&self) -> usize;
 
-    /// The order of the agent (for sequence diagrams).
-    fn instance_order(&self, instance: usize) -> usize;
+    /// Control the appearance of each instance in a sequence diagram.
+    fn instance_appearance(&self, instance: usize) -> InstanceAppearance;
 
     /// Display the state.
     ///
@@ -130,7 +149,7 @@ pub struct AgentTypeData<State: DataLike + PartialOrd, StateId: IndexLike, Paylo
     name_of_terse: RefCell<Vec<String>>,
 
     /// The order of each instance (for sequence diagrams).
-    order_of_instances: Vec<usize>,
+    appearance_of_instances: Vec<InstanceAppearance>,
 
     /// The previous agent type in the chain.
     prev_agent_type: Option<Rc<dyn AgentType<StateId, Payload>>>,
@@ -208,11 +227,11 @@ impl<State: DataLike + PartialOrd, StateId: IndexLike, Payload: DataLike>
             .borrow_mut()
             .push(Rc::new(format!("{}", default_state)));
 
-        let order_of_instances = vec![0; count];
+        let appearance_of_instances = vec![InstanceAppearance::default(); count];
 
         Self {
             name,
-            order_of_instances,
+            appearance_of_instances,
             is_singleton,
             label_of_state,
             terse_of_state: RefCell::new(vec![]),
@@ -228,15 +247,15 @@ impl<State: DataLike + PartialOrd, StateId: IndexLike, Payload: DataLike>
 
     // BEGIN NOT TESTED
 
-    /// Set the horizontal order of an instance of the agent in a sequence diagram.
-    pub fn set_order(&mut self, instance: usize, order: usize) {
+    /// Set the appearance of an instance of the agent in a sequence diagram.
+    pub fn set_appearance(&mut self, instance: usize, appearance: InstanceAppearance) {
         assert!(
             instance < self.instances_count(),
             "instance: {} count: {}",
             instance,
             self.instances_count()
         );
-        self.order_of_instances[instance] = order;
+        self.appearance_of_instances[instance] = appearance;
     }
 
     // END NOT TESTED
@@ -597,11 +616,11 @@ impl<State: DataLike + PartialOrd, StateId: IndexLike, Payload: DataLike>
     }
 
     fn instances_count(&self) -> usize {
-        self.order_of_instances.len()
+        self.appearance_of_instances.len()
     }
 
-    fn instance_order(&self, instance: usize) -> usize {
-        self.order_of_instances[instance]
+    fn instance_appearance(&self, instance: usize) -> InstanceAppearance {
+        self.appearance_of_instances[instance]
     }
 
     fn display_state(&self, state_id: StateId) -> Rc<String> {
@@ -646,8 +665,8 @@ impl<
         self.agent_type_data.instances_count()
     }
 
-    fn instance_order(&self, instance: usize) -> usize {
-        self.agent_type_data.instance_order(instance)
+    fn instance_appearance(&self, instance: usize) -> InstanceAppearance {
+        self.agent_type_data.instance_appearance(instance)
     }
 
     fn display_state(&self, state_id: StateId) -> Rc<String> {
@@ -696,8 +715,8 @@ impl<
         self.agent_type_data.instances_count()
     }
 
-    fn instance_order(&self, instance: usize) -> usize {
-        self.agent_type_data.instance_order(instance)
+    fn instance_appearance(&self, instance: usize) -> InstanceAppearance {
+        self.agent_type_data.instance_appearance(instance)
     }
 
     fn display_state(&self, state_id: StateId) -> Rc<String> {
@@ -834,9 +853,9 @@ impl<
 
     // BEGIN NOT TESTED
 
-    /// Set the horizontal order of an instance of the agent in a sequence diagram.
-    pub fn set_order(&mut self, instance: usize, order: usize) {
-        self.agent_type_data.set_order(instance, order);
+    /// Set the appearance of an instance of the agent in a sequence diagram.
+    pub fn set_appearance(&mut self, instance: usize, appearance: InstanceAppearance) {
+        self.agent_type_data.set_appearance(instance, appearance);
     }
 
     // END NOT TESTED
@@ -870,9 +889,9 @@ impl<
         (parts1, parts2)
     }
 
-    /// Set the horizontal order of an instance of the agent in a sequence diagram.
-    pub fn set_order(&mut self, instance: usize, order: usize) {
-        self.agent_type_data.set_order(instance, order);
+    /// Set the appearance of an instance of the agent in a sequence diagram.
+    pub fn set_appearance(&mut self, instance: usize, appearance: InstanceAppearance) {
+        self.agent_type_data.set_appearance(instance, appearance);
     }
 }
 // END NOT TESTED

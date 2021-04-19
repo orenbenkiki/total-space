@@ -206,6 +206,8 @@ In addition, the code can generate two types of diagrams:
   between *Configurations* that satisfy arbitrary *Conditions*. This is used to visualize complete
   system scenarios as opposed of just a single *Agent's* logic.
 
+Both types of diagrams use the same colors [legend](legend.html).
+
 ## License
 
 `total-space` is distributed under the GNU General Public License (Version 3.0). See the

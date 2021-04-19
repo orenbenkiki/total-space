@@ -1,0 +1,18 @@
+0MSG: matches any configuration with no in-flight messages
+1MSG: matches any configuration with a single in-flight message
+2MSG: matches any configuration with 2 in-flight messages
+3MSG: matches any configuration with 3 in-flight messages
+4MSG: matches any configuration with 4 in-flight messages
+5MSG: matches any configuration with 5 in-flight messages
+6MSG: matches any configuration with 6 in-flight messages
+7MSG: matches any configuration with 7 in-flight messages
+8MSG: matches any configuration with 8 in-flight messages
+9MSG: matches any configuration with 9 in-flight messages
+ALL_CLIENTS_ARE_BLOCKED: All the clients are in the blocked blocked
+ALL_WORKERS_ARE_BUSY: All the workers are in the busy state
+DEFERRED_TASK: There exists a task request message that is deferred by the server
+IMMEDIATE_REPLACEMENT: matches a configuration with a message replaced by an immediate message
+INIT: matches the initial configuration
+ORDERED_REPLACEMENT: matches a configuration with a message replaced by an ordered message
+UNORDERED_REPLACEMENT: matches a configuration with a message replaced by an unordered message
+VALID: matches any valid configuration (is typically negated)

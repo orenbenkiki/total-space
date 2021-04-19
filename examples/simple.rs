@@ -464,7 +464,13 @@ fn example_model(arg_matches: &ArgMatches) -> SimpleModel {
     // added to the linked list above. It is possible to override this for a singleton agent,
     // immediately after it is created. This isn't necessary in this simple case, but for the
     // example's sake:
-    Rc::get_mut(&mut server_type).unwrap().set_order(0, 10);
+    Rc::get_mut(&mut server_type).unwrap().set_appearance(
+        0,
+        InstanceAppearance {
+            order: 10,
+            ..Default::default()
+        },
+    );
 
     // Create an agent data type for the client(s).
     let mut client_type = Rc::new(AgentTypeData::<ClientState, StateId, Payload>::new(
@@ -473,12 +479,16 @@ fn example_model(arg_matches: &ArgMatches) -> SimpleModel {
         Some(server_type.clone()),       // Create a linked list of all the agent types.
     ));
 
-    // Example of overriding the order of multiple agent instances (not really needed in this
-    // simple example).
+    // Example of overriding the order of multiple agent instances (not really needed in this simple
+    // example). Here we also create a group (a box around) for all the instances.
     for client in 0..clients_count {
-        Rc::get_mut(&mut client_type)
-            .unwrap()
-            .set_order(client, 20 + client);
+        Rc::get_mut(&mut client_type).unwrap().set_appearance(
+            client,
+            InstanceAppearance {
+                order: 20 + client,
+                group: Some("clients"),
+            },
+        );
     }
 
     // Initialize the global reference to the worker and client agent type.

@@ -2,7 +2,7 @@
 autonumber " <b>#</b> "
 skinparam shadowing false
 skinparam sequence {
-ArrowColor Black
+ArrowThickness 3
 ActorBorderColor Black
 LifeLineBorderColor Black
 LifeLineBackgroundColor Black
@@ -11,69 +11,69 @@ ParticipantBorderColor Black
 skinparam ControlBorderColor White
 skinparam ControlBackgroundColor White
 participant "Client" as A0 order 10100
-activate A0 #CadetBlue
 participant "Server" as A1 order 10200
-activate A1 #CadetBlue
+activate A0 #PaleTurquoise
+activate A1 #PaleTurquoise
 rnote over A0 : Idle
 / rnote over A1 : Listen
 autonumber stop
 [<[#White]-- A0
 autonumber resume
 deactivate A0
-note over A0 : Need
-A0 -[#Blue]> A1 : Request(1)
+hnote over A0 #SandyBrown: Need
+A0 -[#Gold]> A1 : Request(1)
 deactivate A1
 autonumber stop
 [<[#White]-- A0
 autonumber resume
-activate A0 #CadetBlue
-activate A1 #MediumPurple
+activate A0 #PaleTurquoise
+activate A1 #Plum
 rnote over A0 : Wait(1)
 / rnote over A1 : Work(1)
 autonumber stop
 [<[#White]-- A0
 autonumber resume
 deactivate A0
-note over A0 : Need
+hnote over A0 #SandyBrown: Need
 control " " as T0 order 10101
-A0 -[#Blue]> T0 : Request(2)
-activate T0 #Silver
-activate A0 #CadetBlue
+A0 -[#Gold]> T0 : Request(2)
+activate T0 #LightGray
+activate A0 #PaleTurquoise
 rnote over A0 : Wait(3)
 autonumber stop
 [<[#White]-- A0
 autonumber resume
 deactivate A1
-note over A1 : Completed
-A1 -[#Blue]> A0 : Response(1)
+hnote over A1 #SandyBrown: Completed
+A1 -[#Gold]> A0 : Response(1)
 deactivate A0
 autonumber stop
 [<[#White]-- A0
 autonumber resume
-activate A1 #CadetBlue
-activate A0 #CadetBlue
+activate A1 #PaleTurquoise
+activate A0 #PaleTurquoise
 rnote over A1 : Listen
 / rnote over A0 : Wait(2)
-T0 -[#Blue]> A1 : Request(2)
+T0 -[#Gold]> A1 : Request(2)
 deactivate T0
 deactivate A1
 autonumber stop
 [<[#White]-- A0
 autonumber resume
-activate A1 #MediumPurple
+activate A1 #Plum
 rnote over A1 : Work(2)
 autonumber stop
 [<[#White]-- A0
 autonumber resume
 deactivate A1
-note over A1 : Completed
-A1 -[#Blue]> A0 : Response(2)
+hnote over A1 #SandyBrown: Completed
+A1 -[#Gold]> A0 : Response(2)
 deactivate A0
 autonumber stop
 [<[#White]-- A0
 autonumber resume
-activate A0 #CadetBlue
-activate A1 #CadetBlue
+activate A0 #PaleTurquoise
+activate A1 #PaleTurquoise
 rnote over A0 : Idle
 / rnote over A1 : Listen
 autonumber stop

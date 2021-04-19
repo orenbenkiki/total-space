@@ -35,6 +35,21 @@ fn check_example(example: &str, test_name: &str, suffix: &str, flags: &[&str]) {
 }
 
 #[test]
+fn test_conditions() {
+    check_example("simple", test_name!(), "txt", &vec!["conditions"]);
+}
+
+#[test]
+fn test_agents() {
+    check_example("simple", test_name!(), "txt", &vec!["agents"]);
+}
+
+#[test]
+fn test_legend() {
+    check_example("simple", test_name!(), "txt", &vec!["legend"]);
+}
+
+#[test]
 fn test_configurations() {
     check_example("simple", test_name!(), "txt", &vec!["configurations"]);
 }

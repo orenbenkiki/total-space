@@ -83,7 +83,7 @@
 <!-- S_0_18446744073709551615_1 -->
 <g id="node15" class="node">
 <title>S_0_18446744073709551615_1</title>
-<polygon fill="Bisque" stroke="Bisque" points="146.5,-502.16 63.5,-502.16 63.5,-464.16 146.5,-464.16 146.5,-502.16"/>
+<polygon fill="Gold" stroke="Gold" points="146.5,-502.16 63.5,-502.16 63.5,-464.16 146.5,-464.16 146.5,-502.16"/>
 <text text-anchor="middle" x="105" y="-486.96" font-family="sans-serif" font-size="14.00">Request(1)</text>
 <text text-anchor="middle" x="105" y="-471.96" font-family="sans-serif" font-size="14.00">→ Server</text>
 </g>
@@ -112,7 +112,7 @@
 <!-- D_1_18446744073709551615_4 -->
 <g id="node6" class="node">
 <title>D_1_18446744073709551615_4</title>
-<polygon fill="Bisque" stroke="Bisque" points="138,-356.16 44,-356.16 44,-318.16 138,-318.16 138,-356.16"/>
+<polygon fill="Gold" stroke="Gold" points="138,-356.16 44,-356.16 44,-318.16 138,-318.16 138,-356.16"/>
 <text text-anchor="middle" x="91" y="-340.96" font-family="sans-serif" font-size="14.00">Server →</text>
 <text text-anchor="middle" x="91" y="-325.96" font-family="sans-serif" font-size="14.00">Response(1)</text>
 </g>
@@ -163,7 +163,7 @@
 <!-- S_2_18446744073709551615_2 -->
 <g id="node16" class="node">
 <title>S_2_18446744073709551615_2</title>
-<polygon fill="Bisque" stroke="Bisque" points="246.5,-245.08 163.5,-245.08 163.5,-207.08 246.5,-207.08 246.5,-245.08"/>
+<polygon fill="Gold" stroke="Gold" points="246.5,-245.08 163.5,-245.08 163.5,-207.08 246.5,-207.08 246.5,-245.08"/>
 <text text-anchor="middle" x="205" y="-229.88" font-family="sans-serif" font-size="14.00">Request(2)</text>
 <text text-anchor="middle" x="205" y="-214.88" font-family="sans-serif" font-size="14.00">→ Server</text>
 </g>
@@ -192,7 +192,7 @@
 <!-- D_3_18446744073709551615_4 -->
 <g id="node11" class="node">
 <title>D_3_18446744073709551615_4</title>
-<polygon fill="Bisque" stroke="Bisque" points="231,-99.08 137,-99.08 137,-61.08 231,-61.08 231,-99.08"/>
+<polygon fill="Gold" stroke="Gold" points="231,-99.08 137,-99.08 137,-61.08 231,-61.08 231,-99.08"/>
 <text text-anchor="middle" x="184" y="-83.88" font-family="sans-serif" font-size="14.00">Server →</text>
 <text text-anchor="middle" x="184" y="-68.88" font-family="sans-serif" font-size="14.00">Response(1)</text>
 </g>
@@ -228,7 +228,7 @@
 <!-- D_4_18446744073709551615_5 -->
 <g id="node14" class="node">
 <title>D_4_18446744073709551615_5</title>
-<polygon fill="Bisque" stroke="Bisque" points="313,-613.24 219,-613.24 219,-575.24 313,-575.24 313,-613.24"/>
+<polygon fill="Gold" stroke="Gold" points="313,-613.24 219,-613.24 219,-575.24 313,-575.24 313,-613.24"/>
 <text text-anchor="middle" x="266" y="-598.04" font-family="sans-serif" font-size="14.00">Server →</text>
 <text text-anchor="middle" x="266" y="-583.04" font-family="sans-serif" font-size="14.00">Response(2)</text>
 </g>

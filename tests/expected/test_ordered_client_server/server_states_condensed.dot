@@ -8,7 +8,7 @@ subgraph cluster_0_false {
 A_0_false [ label="Listen", shape=ellipse, style=filled, color=PaleTurquoise ];
 subgraph cluster_0 {
 T_0_18446744073709551615 [ shape=point, height=0.015, width=0.015 ];
-D_0_18446744073709551615_1 [ label="Client &#8594;\nRequest", shape=box, style=filled, color=Bisque ];
+D_0_18446744073709551615_1 [ label="Client &#8594;\nRequest", shape=box, style=filled, color=Gold ];
 A_0_false -> D_0_18446744073709551615_1 [ style=invis ];
 }
 }
@@ -26,6 +26,6 @@ D_0_18446744073709551615_1 -> T_0_18446744073709551615 [ style=dashed ];
 A_1_true -> T_1_18446744073709551615 [ arrowhead=none, direction=forward ];
 T_1_18446744073709551615 -> A_0_false [ constraint=false ];
 D_1_18446744073709551615_2 -> T_1_18446744073709551615 [ style=dashed ];
-S_1_18446744073709551615_3 [ label="Response\n&#8594; Client", shape=box, style=filled, color=Bisque ];
+S_1_18446744073709551615_3 [ label="Response\n&#8594; Client", shape=box, style=filled, color=Gold ];
 T_1_18446744073709551615 -> S_1_18446744073709551615_3 [ style=dashed ];
 }

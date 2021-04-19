@@ -43,7 +43,7 @@
 <!-- D_0_18446744073709551615_1 -->
 <g id="node3" class="node">
 <title>D_0_18446744073709551615_1</title>
-<polygon fill="Bisque" stroke="Bisque" points="151.5,-336.16 82.5,-336.16 82.5,-298.16 151.5,-298.16 151.5,-336.16"/>
+<polygon fill="Gold" stroke="Gold" points="151.5,-336.16 82.5,-336.16 82.5,-298.16 151.5,-298.16 151.5,-336.16"/>
 <text text-anchor="middle" x="117" y="-320.96" font-family="sans-serif" font-size="14.00">Client →</text>
 <text text-anchor="middle" x="117" y="-305.96" font-family="sans-serif" font-size="14.00">Request</text>
 </g>
@@ -93,7 +93,7 @@
 <!-- S_1_18446744073709551615_3 -->
 <g id="node7" class="node">
 <title>S_1_18446744073709551615_3</title>
-<polygon fill="Bisque" stroke="Bisque" points="93.5,-38 16.5,-38 16.5,0 93.5,0 93.5,-38"/>
+<polygon fill="Gold" stroke="Gold" points="93.5,-38 16.5,-38 16.5,0 93.5,0 93.5,-38"/>
 <text text-anchor="middle" x="55" y="-22.8" font-family="sans-serif" font-size="14.00">Response</text>
 <text text-anchor="middle" x="55" y="-7.8" font-family="sans-serif" font-size="14.00">→ Client</text>
 </g>

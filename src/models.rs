@@ -1731,6 +1731,39 @@ impl<
             });
     }
 
+    pub(crate) fn print_legend(&self, stdout: &mut dyn Write) {
+        writeln!(
+            stdout,
+            "<html>\n\
+             <head>\n\
+             <style>\n\
+             * {{ font-family: sans-serif; }}\n\
+             td {{ text-align: center; }}\n\
+             </style>\n\
+             </head>\n\
+             <body>\n\
+             <table>\n\
+             <tr><td style='background-color: {}'>Non-deferring State</td></tr>\n\
+             <tr><td style='background-color: {}'>Deferring State</td></tr>\n\
+             <tr><td style='background-color: {}'>Unordered Messages</td></tr>\n\
+             <tr><td style='background-color: {}'>Ordered Messages</td></tr>\n\
+             <tr><td style='background-color: {}'>Immediate Messages</td></tr>\n\
+             <tr><td style='background-color: {}'>Activities</td></tr>\n\
+             <tr><td style='background-color: {}'>In-flight Messages</td></tr>\n\
+             </table>\n\
+             </body>\n\
+             </html>",
+            NON_DEFERRING_COLOR,
+            DEFERRING_COLOR,
+            UNORDERED_COLOR,
+            ORDERED_COLOR,
+            IMMEDIATE_COLOR,
+            ACTIVITY_COLOR,
+            IN_FLIGHT_COLOR
+        )
+        .unwrap();
+    }
+
     pub(crate) fn print_stats(&self, stdout: &mut dyn Write) {
         let mut states_count = 0;
         for (agent_index, agent_type) in self.agent_types.iter().enumerate() {
@@ -2542,6 +2575,24 @@ enum PrintFilter {
     Edges,
 }
 
+// Colors to use in the diagrams.
+const UNORDERED_COLOR: &str = "PaleGreen";
+const ORDERED_COLOR: &str = "Gold";
+const IMMEDIATE_COLOR: &str = "LightSalmon";
+const ACTIVITY_COLOR: &str = "SandyBrown";
+const IN_FLIGHT_COLOR: &str = "LightGray";
+const DEFERRING_COLOR: &str = "Plum";
+const GROUP_COLOR: &str = "WhiteSmoke";
+const NON_DEFERRING_COLOR: &str = "PaleTurquoise";
+
+fn order_color(order: MessageOrder) -> &'static str {
+    match order {
+        MessageOrder::Unordered => UNORDERED_COLOR,
+        MessageOrder::Ordered(_) => ORDERED_COLOR,
+        MessageOrder::Immediate => IMMEDIATE_COLOR,
+    }
+}
+
 impl<
         StateId: IndexLike,
         MessageId: IndexLike,
@@ -2966,9 +3017,9 @@ impl<
     ) {
         let shape = if is_deferring { "octagon" } else { "ellipse" };
         let color = if is_deferring {
-            "Plum"
+            DEFERRING_COLOR
         } else {
-            "PaleTurquoise"
+            NON_DEFERRING_COLOR
         };
         let state = if condense.names_only {
             self.agent_types[agent_index].display_terse(state_id)
@@ -3070,15 +3121,11 @@ impl<
             .messages
             .get(self.message_of_terse_id[message_id.to_usize()]);
 
-        let mut color = match message.order {
-            MessageOrder::Unordered => "PaleGreen",
-            MessageOrder::Ordered(_) => "Bisque",
-            MessageOrder::Immediate => "LightSalmon",
-        };
+        let mut color = order_color(message.order);
 
         if prefix == "D" {
             let source = if message.source_index == usize::max_value() {
-                color = "SandyBrown";
+                color = ACTIVITY_COLOR;
                 "Activity".to_string()
             } else if condense.merge_instances {
                 self.agent_types[message.source_index].name()
@@ -3401,10 +3448,12 @@ impl<
     }
 
     fn patch_sequence_steps(sequence_steps: &mut [<Self as ModelTypes>::SequenceStep]) {
-        let mut did_merge_messages = true;
-        while did_merge_messages {
+        Self::merge_message_steps(sequence_steps);
+        loop {
             Self::move_steps_up(sequence_steps);
-            did_merge_messages = Self::merge_message_steps(sequence_steps);
+            if !Self::merge_message_steps(sequence_steps) {
+                break;
+            }
         }
         Self::merge_states(sequence_steps);
     }
@@ -3844,7 +3893,7 @@ impl<
                 },
             ) => {
                 second_source_index != first_target_index
-                    && second_target_index != first_target_index // NOT TESTED
+                    && second_target_index != first_target_index
             }
 
             (
@@ -3921,17 +3970,20 @@ impl<
                 second_agent_index != first_source_index && second_agent_index != first_target_index
             }
 
+            // BEGIN NOT TESTED
             (
                 SequenceStep::Emitted {
                     source_index: first_source_index,
                     ..
                 },
+                // END NOT TESTED
                 SequenceStep::Emitted {
+                    // BEGIN NOT TESTED
                     source_index: second_source_index,
                     ..
                 },
             ) => second_source_index != first_source_index,
-
+            // END NOT TESTED
             (
                 SequenceStep::Emitted {
                     source_index: first_source_index,
@@ -4116,7 +4168,7 @@ impl<
         writeln!(stdout, "autonumber \" <b>#</b> \"").unwrap();
         writeln!(stdout, "skinparam shadowing false").unwrap();
         writeln!(stdout, "skinparam sequence {{").unwrap();
-        writeln!(stdout, "ArrowColor Black").unwrap();
+        writeln!(stdout, "ArrowThickness 3").unwrap();
         writeln!(stdout, "ActorBorderColor Black").unwrap();
         writeln!(stdout, "LifeLineBorderColor Black").unwrap();
         writeln!(stdout, "LifeLineBackgroundColor Black").unwrap();
@@ -4169,28 +4221,57 @@ impl<
         first_configuration: &<Self as MetaModel>::Configuration,
         stdout: &mut dyn Write,
     ) {
-        self.agent_labels
-            .iter()
-            .enumerate()
-            .for_each(|(agent_index, agent_label)| {
+        let mut agents_data: Vec<(usize, Option<&'static str>, Rc<String>, usize)> = (0..self
+            .agents_count())
+            .map(|agent_index| {
                 let agent_type = &self.agent_types[agent_index];
                 let agent_instance = self.agent_instance(agent_index);
-                writeln!(
-                    stdout,
-                    "participant \"{}\" as A{} order {}",
-                    agent_label,
-                    agent_index,
+                (
                     self.agent_scaled_order(agent_index),
+                    agent_type.instance_appearance(agent_instance).group,
+                    self.agent_labels[agent_index].clone(),
+                    agent_index,
                 )
-                .unwrap();
-                if agent_type.state_is_deferring(agent_instance, &first_configuration.state_ids) {
-                    // BEGIN NOT TESTED
-                    writeln!(stdout, "activate A{} #MediumPurple", agent_index).unwrap();
-                    // END NOT TESTED
-                } else {
-                    writeln!(stdout, "activate A{} #CadetBlue", agent_index).unwrap();
+            })
+            .collect();
+
+        agents_data.sort();
+
+        let mut current_group: Option<&'static str> = None;
+        for (agent_order, agent_group, agent_label, agent_index) in agents_data {
+            if current_group != agent_group {
+                // BEGIN NOT TESTED
+                if current_group.is_some() {
+                    writeln!(stdout, "end box").unwrap();
                 }
-            });
+                if let Some(group) = agent_group {
+                    writeln!(stdout, "box \"{}\" #{}", group, GROUP_COLOR).unwrap();
+                }
+                current_group = agent_group;
+                // END NOT TESTED
+            }
+            writeln!(
+                stdout,
+                "participant \"{}\" as A{} order {}",
+                agent_label, agent_index, agent_order,
+            )
+            .unwrap();
+        }
+        if current_group.is_some() {
+            writeln!(stdout, "end box").unwrap(); // NOT TESTED
+        }
+
+        for agent_index in 0..self.agents_count() {
+            let agent_type = &self.agent_types[agent_index];
+            let agent_instance = self.agent_instance(agent_index);
+            if agent_type.state_is_deferring(agent_instance, &first_configuration.state_ids) {
+                // BEGIN NOT TESTED
+                writeln!(stdout, "activate A{} #{}", agent_index, DEFERRING_COLOR).unwrap();
+                // END NOT TESTED
+            } else {
+                writeln!(stdout, "activate A{} #{}", agent_index, NON_DEFERRING_COLOR).unwrap();
+            }
+        }
     }
 
     fn print_first_timelines(
@@ -4208,7 +4289,7 @@ impl<
             self.reactivate(&mut sequence_state, stdout);
             let timeline_index =
                 self.find_sequence_timeline(&mut sequence_state, *message_id, stdout);
-            writeln!(stdout, "activate T{} #Silver", timeline_index).unwrap();
+            writeln!(stdout, "activate T{} #{}", timeline_index, IN_FLIGHT_COLOR).unwrap();
             // END NOT TESTED
         }
     }
@@ -4216,7 +4297,7 @@ impl<
     fn agent_scaled_order(&self, agent_index: usize) -> usize {
         let agent_type = &self.agent_types[agent_index];
         let agent_instance = self.agent_instance(agent_index);
-        let agent_order = agent_type.instance_order(agent_instance);
+        let agent_order = agent_type.instance_appearance(agent_instance).order;
         ((agent_order + 1) * 100 + agent_index + 1) * 100
     }
 
@@ -4330,7 +4411,7 @@ impl<
                 let message = self.messages.get(message_id.unwrap());
                 writeln!(
                     stdout,
-                    "/ rnote over T{} : {}",
+                    "/ hnote over T{}: {}",
                     timeline_index,
                     self.display_sequence_message(&message, false)
                 )
@@ -4366,8 +4447,9 @@ impl<
 
                 writeln!(
                     stdout,
-                    "note over A{} : {}",
+                    "hnote over A{} #{}: {}",
                     target_index,
+                    ACTIVITY_COLOR,
                     self.display_sequence_message(&message, true)
                 )
                 .unwrap();
@@ -4387,17 +4469,11 @@ impl<
                     .get(&minimal_message_id)
                     .unwrap();
 
-                let arrow = match message.order {
-                    MessageOrder::Immediate => "-[#Crimson]>",
-                    MessageOrder::Unordered => "->",
-                    MessageOrder::Ordered(_) => "-[#Blue]>",
-                };
-
                 writeln!(
                     stdout,
-                    "T{} {} A{} : {}",
+                    "T{} -[#{}]> A{} : {}",
                     timeline_index,
-                    arrow,
+                    order_color(message.order),
                     message.target_index,
                     self.display_sequence_message(&message, true)
                 )
@@ -4441,22 +4517,17 @@ impl<
                     None => self.find_sequence_timeline(&mut sequence_state, *message_id, stdout),
                 };
                 let message = self.messages.get(*message_id);
-                let arrow = match message.order {
-                    MessageOrder::Immediate => "-[#Crimson]>",
-                    MessageOrder::Unordered => "->",
-                    MessageOrder::Ordered(_) => "-[#Blue]>",
-                };
                 writeln!(
                     stdout,
-                    "A{} {} T{} : {}",
+                    "A{} -[#{}]> T{} : {}",
                     source_index,
-                    arrow,
+                    order_color(message.order),
                     timeline_index,
                     self.display_sequence_message(&message, false)
                 )
                 .unwrap();
                 if replaced.is_none() {
-                    writeln!(stdout, "activate T{} #Silver", timeline_index).unwrap();
+                    writeln!(stdout, "activate T{} #{}", timeline_index, IN_FLIGHT_COLOR).unwrap();
                 }
                 sequence_state.has_reactivation_message = true;
             }
@@ -4488,16 +4559,11 @@ impl<
                     None
                 };
                 let message = self.messages.get(*message_id);
-                let arrow = match message.order {
-                    MessageOrder::Immediate => "-[#Crimson]>",
-                    MessageOrder::Unordered => "->",
-                    MessageOrder::Ordered(_) => "-[#Blue]>",
-                };
                 writeln!(
                     stdout,
-                    "A{} {} A{} : {}",
+                    "A{} -[#{}]> A{} : {}",
                     source_index,
-                    arrow,
+                    order_color(message.order),
                     target_index,
                     self.display_sequence_message(&message, false)
                 )
@@ -4520,11 +4586,12 @@ impl<
                 is_deferring,
             } => {
                 self.reactivate(&mut sequence_state, stdout);
-                if *is_deferring {
-                    writeln!(stdout, "activate A{} #MediumPurple", agent_index).unwrap();
+                let color = if *is_deferring {
+                    DEFERRING_COLOR
                 } else {
-                    writeln!(stdout, "activate A{} #CadetBlue", agent_index).unwrap();
-                }
+                    NON_DEFERRING_COLOR
+                };
+                writeln!(stdout, "activate A{} #{}", agent_index, color).unwrap();
                 let agent_type = &self.agent_types[*agent_index];
                 let agent_state = agent_type.display_state(*state_id);
                 writeln!(stdout, "rnote over A{} : {}", agent_index, agent_state).unwrap();
@@ -4536,11 +4603,11 @@ impl<
 
                 for new_state in new_states.iter() {
                     let color = if new_state.is_deferring {
-                        "#MediumPurple"
+                        DEFERRING_COLOR
                     } else {
-                        "#CadetBlue"
+                        NON_DEFERRING_COLOR
                     };
-                    writeln!(stdout, "activate A{} {}", new_state.agent_index, color).unwrap();
+                    writeln!(stdout, "activate A{} #{}", new_state.agent_index, color).unwrap();
                 }
 
                 for (state_index, new_state) in new_states.iter().enumerate() {

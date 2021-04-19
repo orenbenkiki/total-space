@@ -2,7 +2,7 @@
 autonumber " <b>#</b> "
 skinparam shadowing false
 skinparam sequence {
-ArrowColor Black
+ArrowThickness 3
 ActorBorderColor Black
 LifeLineBorderColor Black
 LifeLineBackgroundColor Black
@@ -11,13 +11,13 @@ ParticipantBorderColor Black
 skinparam ControlBorderColor White
 skinparam ControlBackgroundColor White
 participant "C(0)" as A0 order 10100
-activate A0 #CadetBlue
 participant "C(1)" as A1 order 10200
-activate A1 #CadetBlue
 participant "MGR" as A2 order 10300
-activate A2 #CadetBlue
 participant "SRV" as A3 order 10400
-activate A3 #CadetBlue
+activate A0 #PaleTurquoise
+activate A1 #PaleTurquoise
+activate A2 #PaleTurquoise
+activate A3 #PaleTurquoise
 rnote over A0 : IDL
 / rnote over A1 : IDL
 / rnote over A3 : LST
@@ -25,60 +25,60 @@ autonumber stop
 [<[#White]-- A0
 autonumber resume
 deactivate A0
-note over A0 : Need
-A0 -> A3 : REQ(C=0)
+hnote over A0 #SandyBrown: Need
+A0 -[#PaleGreen]> A3 : REQ(C=0)
 deactivate A3
 autonumber stop
 [<[#White]-- A0
 autonumber resume
-activate A0 #CadetBlue
-activate A3 #MediumPurple
+activate A0 #PaleTurquoise
+activate A3 #Plum
 rnote over A0 : WAT
 / rnote over A3 : WRK(C=0)
 autonumber stop
 [<[#White]-- A0
 autonumber resume
 deactivate A1
-note over A1 : Need
+hnote over A1 #SandyBrown: Need
 control " " as T0 order 10201
-A1 -> T0 : REQ(C=1)
-activate T0 #Silver
-activate A1 #CadetBlue
+A1 -[#PaleGreen]> T0 : REQ(C=1)
+activate T0 #LightGray
+activate A1 #PaleTurquoise
 rnote over A1 : WAT
 autonumber stop
 [<[#White]-- A0
 autonumber resume
 deactivate A3
-note over A3 : Completed
-A3 -> A0 : RSP
+hnote over A3 #SandyBrown: Completed
+A3 -[#PaleGreen]> A0 : RSP
 deactivate A0
 autonumber stop
 [<[#White]-- A0
 autonumber resume
-activate A3 #CadetBlue
-activate A0 #CadetBlue
+activate A3 #PaleTurquoise
+activate A0 #PaleTurquoise
 rnote over A3 : LST
 / rnote over A0 : IDL
-T0 -> A3 : REQ(C=1)
+T0 -[#PaleGreen]> A3 : REQ(C=1)
 deactivate T0
 deactivate A3
 autonumber stop
 [<[#White]-- A0
 autonumber resume
-activate A3 #MediumPurple
+activate A3 #Plum
 rnote over A3 : WRK(C=1)
 autonumber stop
 [<[#White]-- A0
 autonumber resume
 deactivate A3
-note over A3 : Completed
-A3 -> A1 : RSP
+hnote over A3 #SandyBrown: Completed
+A3 -[#PaleGreen]> A1 : RSP
 deactivate A1
 autonumber stop
 [<[#White]-- A0
 autonumber resume
-activate A1 #CadetBlue
-activate A3 #CadetBlue
+activate A1 #PaleTurquoise
+activate A3 #PaleTurquoise
 rnote over A1 : IDL
 / rnote over A3 : LST
 autonumber stop
