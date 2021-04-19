@@ -64,6 +64,12 @@ pub(crate) struct SequenceState<
     /// For each message in the current configuration, the timeline it is on, if any.
     pub(crate) message_timelines: HashMap<MessageId, usize>,
 
+    /// The leftmost agent in the same group as each agent.
+    pub(crate) left_agent: Vec<usize>,
+
+    /// The rightmost agent in the same group as each agent.
+    pub(crate) right_agent: Vec<usize>,
+
     /// The additional control timelines of each agent.
     pub(crate) agents_timelines: Vec<AgentTimelines>,
 

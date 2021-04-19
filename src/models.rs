@@ -4216,7 +4216,6 @@ impl<
         }
 
         self.print_sequence_final(&mut sequence_state, stdout);
-        self.separate_groups(&mut sequence_state, stdout);
 
         writeln!(stdout, "@enduml").unwrap();
     }
@@ -4247,21 +4246,21 @@ impl<
 
         let mut group_left_agent: usize = 0;
         let mut current_group: Option<&'static str> = None;
-        for (agent_order, agent_group, agent_label, agent_index) in agents_data {
-            if current_group.is_none() || current_group != agent_group {
-                group_left_agent = agent_index;
+        for (agent_order, agent_group, agent_label, agent_index) in agents_data.iter() {
+            if current_group.is_none() || current_group != *agent_group {
+                group_left_agent = *agent_index;
             }
-            left_agent[agent_index] = group_left_agent;
+            left_agent[*agent_index] = group_left_agent;
 
-            if current_group != agent_group {
+            if current_group != *agent_group {
                 // BEGIN NOT TESTED
                 if current_group.is_some() {
                     writeln!(stdout, "end box").unwrap();
                 }
-                if let Some(group) = agent_group {
+                if let Some(group) = *agent_group {
                     writeln!(stdout, "box \"{}\" #{}", group, GROUP_COLOR).unwrap();
                 }
-                current_group = agent_group;
+                current_group = *agent_group;
                 // END NOT TESTED
             }
             writeln!(
@@ -4274,12 +4273,12 @@ impl<
 
         let mut group_right_agent: usize = self.agents_count() - 1;
         let mut current_group: Option<&'static str> = None;
-        for (agent_order, agent_group, agent_label, agent_index) in agents_data.rev() {
-            if current_group.is_none() || current_group != agent_group {
-                group_right_agent = agent_index;
+        for (_agent_order, agent_group, _agent_label, agent_index) in agents_data.iter().rev() {
+            if current_group.is_none() || current_group != *agent_group {
+                group_right_agent = *agent_index;
             }
-            right_agent[agent_index] = group_right_agent;
-            current_group = agent_group;
+            right_agent[*agent_index] = group_right_agent;
+            current_group = *agent_group;
         }
 
         if current_group.is_some() {
@@ -4297,6 +4296,8 @@ impl<
                 writeln!(stdout, "activate A{} #{}", agent_index, NON_DEFERRING_COLOR).unwrap();
             }
         }
+
+        (left_agent, right_agent)
     }
 
     fn print_first_timelines(
@@ -4376,7 +4377,7 @@ impl<
             sequence_state.agents_timelines[sequence_state.right_agent[message.source_index]]
                 .right
                 .push(timeline_index);
-            self.agent_scaled_order(message.source_index)
+            self.agent_scaled_order(sequence_state.right_agent[message.source_index])
                 + sequence_state.agents_timelines[sequence_state.right_agent[message.source_index]]
                     .right
                     .len()
@@ -4385,7 +4386,7 @@ impl<
             sequence_state.agents_timelines[sequence_state.left_agent[message.source_index]]
                 .left
                 .push(timeline_index);
-            self.agent_scaled_order(message.source_index)
+            self.agent_scaled_order(sequence_state.left_agent[message.source_index])
                 - sequence_state.agents_timelines[sequence_state.left_agent[message.source_index]]
                     .left
                     .len()
