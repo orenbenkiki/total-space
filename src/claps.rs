@@ -6,7 +6,11 @@ use clap::App;
 use clap::Arg;
 use clap::ArgMatches;
 use clap::SubCommand;
+use std::fs::File;
+use std::io::stdout;
+use std::io::BufWriter;
 use std::io::Write;
+use std::process::exit;
 use std::str::FromStr;
 
 /// Add clap commands and flags to a clap application.
@@ -41,6 +45,17 @@ pub fn add_clap<'a, 'b>(app: App<'a, 'b>) -> App<'a, 'b> {
             .short("i")
             .long("invalid")
             .help("allow for invalid configurations (but do not explore beyond them)"),
+    )
+    .arg(
+        Arg::with_name("output")
+            .short("o")
+            .long("output")
+            .value_name("FILE")
+            .help(
+                "redirect stdout to a file (or to '-' for the default); \
+                 NOTE: to repeat commands, prefix each one with this, \
+                 e.g. `main -p 100 -o - agents -o conditions.txt conditional`."
+            )
     )
     .subcommand(
         SubCommand::with_name("agents")
@@ -107,24 +122,112 @@ pub fn add_clap<'a, 'b>(app: App<'a, 'b>) -> App<'a, 'b> {
     )
 }
 
+fn get_arg_matches<'a>(app: &'a mut App, args: &[String]) -> ArgMatches<'a> {
+    match app.get_matches_from_safe_borrow(args.iter()) {
+        Ok(arg_matches) => arg_matches,
+        Err(reason) => {
+            eprintln!("{}", reason);
+            exit(1);
+        }
+    }
+}
+
+fn next_output_flag_position(base: usize, args: &[String]) -> Option<usize> {
+    args.iter()
+        .position(|arg| *arg == "-o" || *arg == "--output")
+        .map(|position| base + position)
+}
+
+fn first_sub_command_position(args: &[String]) -> Option<usize> {
+    match next_output_flag_position(0, args) {
+        None => None,
+        Some(first_position) => {
+            match next_output_flag_position(first_position + 1, &args[first_position + 1..]) {
+                None => None,
+                Some(_) => Some(first_position),
+            }
+        }
+    }
+}
+
+/// Return arg matches for building the model.
+///
+/// This strips away the repeated commands, if any.
+pub fn get_model_arg_matches<'a>(app: &'a mut App) -> ArgMatches<'a> {
+    let args: Vec<String> = std::env::args().collect();
+    match first_sub_command_position(&args) {
+        None => get_arg_matches(app, &args),
+        Some(first_position) => get_arg_matches(app, &args[..first_position]),
+    }
+}
+
 /// Execute operations on a model using clap commands.
 pub trait ClapModel {
-    /// Execute the chosen clap subcommand.
-    ///
-    /// Return whether a command was executed.
-    fn do_clap(&mut self, arg_matches: &ArgMatches, stdout: &mut dyn Write) {
-        let did_clap = self.do_clap_agents(arg_matches, stdout)
-            || self.do_clap_conditions(arg_matches, stdout)
-            || self.do_clap_compute(arg_matches, stdout)
-            || self.do_clap_configurations(arg_matches, stdout)
-            || self.do_clap_transitions(arg_matches, stdout)
-            || self.do_clap_path(arg_matches, stdout)
-            || self.do_clap_sequence(arg_matches, stdout)
-            || self.do_clap_states(arg_matches, stdout);
-        assert!(
-            did_clap,
-            "no command specified; use --help to list the commands"
-        );
+    /// Execute a full clap system command line (possibly with multiple commands).
+    fn do_clap(&mut self, app: &mut App) {
+        let args: Vec<String> = std::env::args().collect();
+        match first_sub_command_position(&args) {
+            None => {
+                self.do_clap_command(&get_arg_matches(app, &args), &mut BufWriter::new(stdout()));
+            }
+            Some(very_first_position) => {
+                let mut prefix: Vec<String> = args[..very_first_position].to_vec();
+                let mut first_position = very_first_position;
+                loop {
+                    match next_output_flag_position(first_position + 1, &args[first_position + 1..])
+                    {
+                        None => {
+                            prefix.extend_from_slice(&args[first_position..]);
+                            self.do_clap_command(
+                                &get_arg_matches(app, &prefix),
+                                &mut BufWriter::new(stdout()),
+                            );
+                            return;
+                        }
+                        Some(next_position) => {
+                            prefix.extend_from_slice(&args[first_position..next_position]);
+                            self.do_clap_command(
+                                &get_arg_matches(app, &prefix),
+                                &mut BufWriter::new(stdout()),
+                            );
+                            prefix.truncate(very_first_position);
+                            first_position = next_position;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// Execute a single clap subcommand (including the output redirection flag).
+    fn do_clap_command(&mut self, arg_matches: &ArgMatches, default_stdout: &mut dyn Write) {
+        if let Some(output) = arg_matches.value_of("output") {
+            // BEGIN NOT TESTED
+            if output != "-" {
+                self.dispatch_clap_command(arg_matches, &mut File::create(output).unwrap());
+                return;
+            }
+            // END NOT TESTED
+        }
+        self.dispatch_clap_command(arg_matches, default_stdout);
+    }
+
+    /// Dispatch a single clap subcommand (after processing the output redirection flag).
+    fn dispatch_clap_command(&mut self, arg_matches: &ArgMatches, stdout: &mut dyn Write) {
+        if !self.do_clap_agents(arg_matches, stdout)
+            && !self.do_clap_conditions(arg_matches, stdout)
+            && !self.do_clap_compute(arg_matches, stdout)
+            && !self.do_clap_configurations(arg_matches, stdout)
+            && !self.do_clap_transitions(arg_matches, stdout)
+            && !self.do_clap_path(arg_matches, stdout)
+            && !self.do_clap_sequence(arg_matches, stdout)
+            && !self.do_clap_states(arg_matches, stdout)
+        {
+            // BEGIN NOT TESTED
+            eprintln!("no command specified; use --help to list the commands");
+            exit(1);
+            // END NOT TESTED
+        }
     }
 
     /// Compute the model.

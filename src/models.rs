@@ -845,7 +845,9 @@ impl<
 {
     /// Compute all the configurations of the model.
     pub(crate) fn compute(&mut self) {
-        assert!(self.configurations.len() == 1);
+        if self.configurations.len() > 1 {
+            return;
+        }
 
         if self.ensure_init_is_reachable {
             assert!(self.incomings.is_empty());
@@ -2093,9 +2095,11 @@ impl<
     > Model<StateId, MessageId, InvalidId, ConfigurationId, Payload, MAX_AGENTS, MAX_MESSAGES>
 {
     pub(crate) fn assert_init_is_reachable(&mut self) {
-        assert!(self.reachable_configurations_count == 0);
-        assert!(self.reachable_configurations_mask.is_empty());
+        if self.reachable_configurations_count > 0 {
+            return;
+        }
 
+        assert!(self.reachable_configurations_mask.is_empty());
         self.reachable_configurations_mask
             .resize(self.configurations.len(), false);
 

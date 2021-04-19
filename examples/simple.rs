@@ -9,8 +9,6 @@ use num_traits::cast::ToPrimitive;
 use std::fmt::Display;
 use std::fmt::Formatter;
 use std::fmt::Result as FormatterResult;
-use std::io::stdout;
-use std::io::BufWriter;
 use std::rc::Rc;
 use std::str;
 use std::str::FromStr;
@@ -585,7 +583,7 @@ assert_configuration_hash_entry_size!(SimpleModel, 32);
 
 fn main() {
     // Define and parse the command line options.
-    let arg_matches = add_clap(
+    let mut app = add_clap(
         App::new("clients-server")
             .arg(
                 // Argument for number of workers.
@@ -605,15 +603,13 @@ fn main() {
                     .help("set the number of clients")
                     .default_value("1"),
             ),
-    )
-    .get_matches();
+    );
 
-    // Build the model using the command line options.
-    let mut model = example_model(&arg_matches);
+    // Build the model using the global flags.
+    // Technically this also includes the flags of the 1st command, which don't affect the model.
+    let mut model = example_model(&get_model_arg_matches(&mut app));
 
-    // Buffering stdout is a really good idea, especially for large models.
-    let mut output = BufWriter::new(stdout());
-
-    // Perform the operation(s) specified in the command line options.
-    model.do_clap(&arg_matches, &mut output);
+    // Perform the commands(s) specified in the command line options.
+    // This will loop on each command (separated by '-o') and execute it.
+    model.do_clap(&mut app);
 }

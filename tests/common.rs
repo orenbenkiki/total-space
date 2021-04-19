@@ -27,7 +27,7 @@ macro_rules! test_case {
             let arg_matches = app.get_matches_from($flags.iter());
             let mut model = test_model(&arg_matches);
             let mut stdout = Vec::new();
-            model.do_clap(&arg_matches, &mut stdout);
+            model.do_clap_command(&arg_matches, &mut stdout);
             common::impl_assert_output(module_path!(), test_name!(), $suffix, &stdout);
         }
     };
