@@ -14,7 +14,6 @@ participant "W(0)" as A0 order 10100
 participant "S" as A1 order 110200
 box "clients" #WhiteSmoke
 participant "C(0)" as A2 order 210300
-end box
 activate A0 #PaleTurquoise
 activate A1 #Plum
 activate A2 #PaleTurquoise
