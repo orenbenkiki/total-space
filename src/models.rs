@@ -4176,6 +4176,7 @@ impl<
         writeln!(stdout, "}}").unwrap();
         writeln!(stdout, "skinparam ControlBorderColor White").unwrap();
         writeln!(stdout, "skinparam ControlBackgroundColor White").unwrap();
+        writeln!(stdout, "skinparam BoxPadding 50").unwrap();
 
         let agents_timelines = vec![
             AgentTimelines {
@@ -4424,7 +4425,7 @@ impl<
                 if note_index > 0 {
                     write!(stdout, "/ ").unwrap();
                 }
-                writeln!(stdout, "rnote over A{} : {}", agent_index, agent_state,).unwrap();
+                writeln!(stdout, "rnote over A{} : {}", agent_index, agent_state).unwrap();
             });
 
         sequence_state

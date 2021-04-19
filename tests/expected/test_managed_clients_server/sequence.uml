@@ -10,6 +10,7 @@ ParticipantBorderColor Black
 }
 skinparam ControlBorderColor White
 skinparam ControlBackgroundColor White
+skinparam BoxPadding 50
 participant "C(0)" as A0 order 10100
 participant "C(1)" as A1 order 10200
 participant "MGR" as A2 order 10300

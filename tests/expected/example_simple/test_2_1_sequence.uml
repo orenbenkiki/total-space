@@ -10,6 +10,7 @@ ParticipantBorderColor Black
 }
 skinparam ControlBorderColor White
 skinparam ControlBackgroundColor White
+skinparam BoxPadding 50
 participant "W(0)" as A0 order 10100
 participant "S" as A1 order 110200
 box "clients" #WhiteSmoke
