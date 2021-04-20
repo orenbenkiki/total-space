@@ -2718,18 +2718,18 @@ impl<
         let mut distinct_delivered_message_ids: Vec<Vec<MessageId>> = vec![];
         for delivered_message_ids_key in delivered_keys.iter() {
             let delivered_message_ids: &Vec<MessageId> = delivered_message_ids_key;
-            let delivered_sent_message_ids = sent_by_delivered.get(delivered_message_ids).unwrap();
-
-            assert!(!delivered_sent_message_ids.is_empty());
-            if delivered_sent_message_ids.len() == 1 {
-                intersecting_delivered_message_ids.push(delivered_message_ids.to_vec());
-                continue;
-            }
 
             if intersecting_delivered_message_ids
                 .iter()
                 .any(|message_ids| message_ids == delivered_message_ids)
             {
+                continue;
+            }
+
+            let delivered_sent_message_ids = sent_by_delivered.get(delivered_message_ids).unwrap();
+            assert!(!delivered_sent_message_ids.is_empty());
+            if delivered_sent_message_ids.len() == 1 {
+                intersecting_delivered_message_ids.push(delivered_message_ids.to_vec());
                 continue;
             }
 
@@ -2750,7 +2750,6 @@ impl<
                     }
                 }
                 if is_intersecting {
-                    intersecting_delivered_message_ids.push(other_delivered_message_ids.to_vec());
                     break;
                 }
                 // END NOT TESTED
