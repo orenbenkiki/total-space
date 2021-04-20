@@ -90,7 +90,13 @@ pub fn add_clap<'a, 'b>(app: App<'a, 'b>) -> App<'a, 'b> {
             .arg(Arg::with_name("CONDITION").multiple(true).help(
                 "the name of at least two conditions identifying configurations along the path, \
                           which may be prefixed with ! to negate the condition",
-            )),
+            ))
+            .arg(
+                Arg::with_name("hide-internal")
+                    .short("h")
+                    .long("hide-internal")
+                    .help("hide immediate messages internal to a group"),
+            ),
     )
     .subcommand(
         SubCommand::with_name("states")
@@ -380,6 +386,7 @@ impl<
         match arg_matches.subcommand_matches("sequence") {
             Some(matches) => {
                 let steps = self.collect_steps("sequence", matches);
+                let hide_internal = matches.is_present("hide-internal");
                 self.do_compute(arg_matches);
                 let path = self.collect_path(steps);
                 let mut sequence_steps = self.collect_sequence_steps(&path[1..]);
@@ -389,6 +396,7 @@ impl<
                     first_configuration_id,
                     last_configuration_id,
                     &mut sequence_steps,
+                    hide_internal,
                     stdout,
                 );
                 true

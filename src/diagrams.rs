@@ -100,6 +100,7 @@ pub(crate) enum SequenceStep<StateId: IndexLike, MessageId: IndexLike> {
     Received {
         source_index: usize,
         target_index: usize,
+        is_immediate: bool,
         is_activity: bool,
         did_change_state: bool,
         message_id: MessageId,

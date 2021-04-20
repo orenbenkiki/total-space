@@ -3384,12 +3384,14 @@ impl<
             let outgoing = from_outgoings[outgoing_index];
             let delivered_message = self.messages.get(path_transition.delivered_message_id);
             let is_activity = delivered_message.source_index == usize::max_value();
+            let is_immediate = delivered_message.order == MessageOrder::Immediate;
 
             sequence_steps.push(SequenceStep::Received {
                 source_index: delivered_message.source_index,
                 target_index: delivered_message.target_index,
                 did_change_state,
                 is_activity,
+                is_immediate,
                 message_id: self.minimal_message_id(path_transition.delivered_message_id),
             });
 
@@ -4152,21 +4154,78 @@ impl<
         }
     }
 
+    fn hide_internal_steps(&self, sequence_steps: &mut [<Self as ModelTypes>::SequenceStep]) {
+        for sequence_step in sequence_steps.iter_mut() {
+            let is_internal = match *sequence_step {
+                SequenceStep::Emitted {
+                    source_index,
+                    target_index,
+                    is_immediate,
+                    ..
+                } => is_immediate && self.is_same_group(source_index, target_index),
+
+                SequenceStep::Passed {
+                    source_index,
+                    target_index,
+                    is_immediate,
+                    ..
+                } => is_immediate && self.is_same_group(source_index, target_index),
+
+                SequenceStep::Received {
+                    source_index,
+                    target_index,
+                    is_immediate,
+                    ..
+                } => is_immediate && self.is_same_group(source_index, target_index),
+
+                _ => false,
+            };
+            if is_internal {
+                *sequence_step = SequenceStep::NoStep; // NOT TESTED
+            }
+        }
+    }
+
+    fn is_same_group(&self, left_agent_index: usize, right_agent_index: usize) -> bool {
+        let left_agent_type = &self.agent_types[left_agent_index];
+        let left_agent_instance = self.agent_instance(left_agent_index);
+        let left_agent_group = left_agent_type
+            .instance_appearance(left_agent_instance)
+            .group;
+        let right_agent_type = &self.agent_types[right_agent_index];
+        let right_agent_instance = self.agent_instance(right_agent_index);
+        let right_agent_group = right_agent_type
+            .instance_appearance(right_agent_instance)
+            .group;
+        left_agent_group.is_some()
+            // BEGIN NOT TESTED
+            && right_agent_group.is_some()
+            && left_agent_group == right_agent_group
+        // END NOT TESTED
+    }
+
     pub(crate) fn print_sequence_diagram(
         &mut self,
         first_configuration_id: ConfigurationId,
         last_configuration_id: ConfigurationId,
         mut sequence_steps: &mut [<Self as ModelTypes>::SequenceStep],
+        hide_internal: bool,
         stdout: &mut dyn Write,
     ) {
         Self::patch_sequence_steps(&mut sequence_steps);
+        if hide_internal {
+            self.hide_internal_steps(&mut sequence_steps);
+        }
 
         let first_configuration = self.configurations.get(first_configuration_id);
         let last_configuration = self.configurations.get(last_configuration_id);
 
         writeln!(stdout, "@startuml").unwrap();
+        writeln!(stdout, "hide unlinked").unwrap();
         writeln!(stdout, "autonumber \" <b>#</b> \"").unwrap();
+        writeln!(stdout, "skinparam style strictuml").unwrap();
         writeln!(stdout, "skinparam shadowing false").unwrap();
+        writeln!(stdout, "skinparam linelineStrategy solid").unwrap();
         writeln!(stdout, "skinparam sequence {{").unwrap();
         writeln!(stdout, "ArrowThickness 3").unwrap();
         writeln!(stdout, "ActorBorderColor Black").unwrap();
@@ -4176,7 +4235,8 @@ impl<
         writeln!(stdout, "}}").unwrap();
         writeln!(stdout, "skinparam ControlBorderColor White").unwrap();
         writeln!(stdout, "skinparam ControlBackgroundColor White").unwrap();
-        writeln!(stdout, "skinparam BoxPadding 50").unwrap();
+        writeln!(stdout, "skinparam ParticipantPadding 50").unwrap();
+        writeln!(stdout, "skinparam BoxPadding 25").unwrap();
 
         let agents_timelines = vec![
             AgentTimelines {

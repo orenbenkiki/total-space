@@ -1,6 +1,9 @@
 @startuml
+hide unlinked
 autonumber " <b>#</b> "
+skinparam style strictuml
 skinparam shadowing false
+skinparam linelineStrategy solid
 skinparam sequence {
 ArrowThickness 3
 ActorBorderColor Black
@@ -10,7 +13,8 @@ ParticipantBorderColor Black
 }
 skinparam ControlBorderColor White
 skinparam ControlBackgroundColor White
-skinparam BoxPadding 50
+skinparam ParticipantPadding 50
+skinparam BoxPadding 25
 participant "Client" as A0 order 10100
 participant "Server" as A1 order 10200
 activate A0 #PaleTurquoise
