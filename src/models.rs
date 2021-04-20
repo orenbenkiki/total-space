@@ -4246,6 +4246,7 @@ impl<
             self.agents_count()
         ];
 
+        let agent_is_active = vec![true; self.agents_count()];
         let (left_agent, right_agent) =
             self.print_sequence_participants(&first_configuration, stdout);
 
@@ -4255,6 +4256,7 @@ impl<
             right_agent,
             left_agent,
             agents_timelines,
+            agent_is_active,
             has_reactivation_message: false,
         };
 
@@ -4528,7 +4530,10 @@ impl<
                 if *did_change_state {
                     sequence_state.has_reactivation_message = false;
                     self.reactivate(&mut sequence_state, stdout);
-                    writeln!(stdout, "deactivate A{}", target_index).unwrap();
+                    if sequence_state.agent_is_active[*target_index] {
+                        sequence_state.agent_is_active[*target_index] = false;
+                        writeln!(stdout, "deactivate A{}", target_index).unwrap();
+                    }
                     sequence_state.has_reactivation_message = false;
                 }
 
@@ -4572,7 +4577,10 @@ impl<
                 sequence_state.message_timelines.remove(&minimal_message_id);
                 sequence_state.timelines[timeline_index] = None;
                 if *did_change_state {
-                    writeln!(stdout, "deactivate A{}", target_index).unwrap();
+                    if sequence_state.agent_is_active[*target_index] {
+                        sequence_state.agent_is_active[*target_index] = false;
+                        writeln!(stdout, "deactivate A{}", target_index).unwrap();
+                    }
                     sequence_state.has_reactivation_message = false;
                 }
             }
@@ -4662,7 +4670,10 @@ impl<
                 }
 
                 if *target_did_change_state {
-                    writeln!(stdout, "deactivate A{}", target_index).unwrap();
+                    if sequence_state.agent_is_active[*target_index] {
+                        sequence_state.agent_is_active[*target_index] = false;
+                        writeln!(stdout, "deactivate A{}", target_index).unwrap();
+                    }
                     sequence_state.has_reactivation_message = false;
                 }
             }
@@ -4678,7 +4689,10 @@ impl<
                 } else {
                     NON_DEFERRING_COLOR
                 };
-                writeln!(stdout, "activate A{} #{}", agent_index, color).unwrap();
+                if !sequence_state.agent_is_active[*agent_index] {
+                    sequence_state.agent_is_active[*agent_index] = true;
+                    writeln!(stdout, "activate A{} #{}", agent_index, color).unwrap();
+                }
                 let agent_type = &self.agent_types[*agent_index];
                 let agent_state = agent_type.display_state(*state_id);
                 writeln!(stdout, "rnote over A{} : {}", agent_index, agent_state).unwrap();
@@ -4694,7 +4708,10 @@ impl<
                     } else {
                         NON_DEFERRING_COLOR
                     };
-                    writeln!(stdout, "activate A{} #{}", new_state.agent_index, color).unwrap();
+                    if !sequence_state.agent_is_active[new_state.agent_index] {
+                        sequence_state.agent_is_active[new_state.agent_index] = true;
+                        writeln!(stdout, "activate A{} #{}", new_state.agent_index, color).unwrap();
+                    }
                 }
 
                 for (state_index, new_state) in new_states.iter().enumerate() {
@@ -4731,7 +4748,10 @@ impl<
         sequence_state.has_reactivation_message = false;
         self.reactivate(&mut sequence_state, stdout);
         for agent_index in 0..self.agents_count() {
-            writeln!(stdout, "deactivate A{}", agent_index).unwrap();
+            if sequence_state.agent_is_active[agent_index] {
+                sequence_state.agent_is_active[agent_index] = false;
+                writeln!(stdout, "deactivate A{}", agent_index).unwrap();
+            }
         }
         for (timeline_index, message_id) in sequence_state.timelines.iter().enumerate() {
             if message_id.is_some() {

@@ -70,6 +70,9 @@ pub(crate) struct SequenceState<
     /// The rightmost agent in the same group as each agent.
     pub(crate) right_agent: Vec<usize>,
 
+    /// Whether each agent is activated.
+    pub(crate) agent_is_active: Vec<bool>,
+
     /// The additional control timelines of each agent.
     pub(crate) agents_timelines: Vec<AgentTimelines>,
 
