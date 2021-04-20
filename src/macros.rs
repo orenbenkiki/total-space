@@ -320,9 +320,9 @@ macro_rules! reaction_alternatives {
     };
     ($action1:expr, $action2:expr, $action3:expr $(,)?) => {
         total_space::Reaction::Do1Of([
-            Some(action1),
-            Some(action2),
-            Some(action3),
+            Some($action1),
+            Some($action2),
+            Some($action3),
             None,
             None,
             None,
@@ -330,32 +330,32 @@ macro_rules! reaction_alternatives {
     };
     ($action1:expr, $action2:expr, $action3:expr, $action4:expr $(,)?) => {
         total_space::Reaction::Do1Of([
-            Some(action1),
-            Some(action2),
-            Some(action3),
-            Some(action4),
+            Some($action1),
+            Some($action2),
+            Some($action3),
+            Some($action4),
             None,
             None,
         ])
     };
     ($action1:expr, $action2:expr, $action3:expr, $action4:expr, $action5:expr $(,)?) => {
         total_space::Reaction::Do1Of([
-            Some(action1),
-            Some(action2),
-            Some(action3),
-            Some(action4),
-            Some(action5),
+            Some($action1),
+            Some($action2),
+            Some($action3),
+            Some($action4),
+            Some($action5),
             None,
         ])
     };
     ($action1:expr, $action2:expr, $action3:expr, $action4:expr, $action5:expr, $action6:expr $(,)?) => {
         total_space::Reaction::Do1Of([
-            Some(action1),
-            Some(action2),
-            Some(action3),
-            Some(action4),
-            Some(action5),
-            Some(action6),
+            Some($action1),
+            Some($action2),
+            Some($action3),
+            Some($action4),
+            Some($action5),
+            Some($action6),
         ])
     };
     ($_:tt) => {
