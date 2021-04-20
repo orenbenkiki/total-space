@@ -2479,7 +2479,9 @@ impl<
     > Model<StateId, MessageId, InvalidId, ConfigurationId, Payload, MAX_AGENTS, MAX_MESSAGES>
 {
     fn compute_terse(&mut self, condense: &Condense) {
-        assert!(self.terse_of_message_id.is_empty());
+        if !self.terse_of_message_id.is_empty() {
+            return;
+        }
         assert!(self.message_of_terse_id.is_empty());
 
         if condense.names_only {
