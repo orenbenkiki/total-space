@@ -11,7 +11,6 @@ use hashbrown::hash_map::Entry;
 use hashbrown::HashMap;
 use std::cell::RefCell;
 use std::cmp::max;
-use std::cmp::min;
 use std::collections::VecDeque;
 use std::fmt::Debug;
 use std::io::stderr;
@@ -3600,12 +3599,8 @@ impl<
         sequence_steps: &mut [<Self as ModelTypes>::SequenceStep],
         main_agent_index: usize,
     ) -> Option<(usize, usize, usize)> {
-        let mut related_steps = Self::compute_related_steps(
-            first_step_index,
-            received_step_index,
-            sequence_steps,
-            main_agent_index,
-        );
+        let mut related_steps =
+            Self::compute_related_steps(received_step_index, sequence_steps, main_agent_index);
 
         let limit_step_index = first_step_index;
         first_step_index += 1;
@@ -3640,7 +3635,7 @@ impl<
         }
 
         Self::find_next_received_step(
-            min(limit_step_index, received_step_index) + 1,
+            received_step_index + 1,
             limit_step_index,
             sequence_steps,
             &related_steps,
@@ -3649,7 +3644,6 @@ impl<
     }
 
     fn compute_related_steps(
-        first_step_index: usize,
         received_step_index: usize,
         sequence_steps: &mut [<Self as ModelTypes>::SequenceStep],
         main_agent_index: usize,
@@ -3658,11 +3652,8 @@ impl<
         let mut next_unrelated_message_id: Option<MessageId> = None;
         let mut related_steps = vec![false; sequence_steps.len()];
         let mut agent_impacts = [AgentImpact::Oblivious; MAX_AGENTS];
-        if received_step_index < first_step_index {
-            agent_impacts[main_agent_index] = AgentImpact::Received;
-        }
 
-        for next_step_index in first_step_index..sequence_steps.len() {
+        for next_step_index in received_step_index..sequence_steps.len() {
             related_steps[next_step_index] = match &sequence_steps[next_step_index] {
                 SequenceStep::Emitted {
                     message_id,
@@ -3739,7 +3730,9 @@ impl<
                         if *target_index == main_agent_index
                             && agent_impacts[main_agent_index] == AgentImpact::Received
                         {
+                            // BEGIN NOT TESTED
                             agent_impacts[main_agent_index] = AgentImpact::Responded;
+                            // END NOT TESTED
                         }
                         if next_unrelated_message_id.is_none() {
                             next_unrelated_message_id = Some(*message_id);
@@ -3788,7 +3781,7 @@ impl<
             || found_received_step_index.is_none()
         {
             if found_step_index.is_none()
-                && next_step_index > limit_step_index
+                && next_step_index >= limit_step_index
                 && !related_steps[next_step_index]
             {
                 found_step_index = Some(next_step_index);
@@ -4139,10 +4132,19 @@ impl<
                             *second_step = SequenceStep::NoStep;
                         }
 
-                        SequenceStep::NewStates { .. } => {
-                            unreachable!();
+                        // BEGIN NOT TESTED
+                        SequenceStep::NewStates(more_states) => {
+                            if more_states
+                                .iter()
+                                .all(|more_state| allowed_agent_indices[more_state.agent_index])
+                            {
+                                for more_state in more_states {
+                                    allowed_agent_indices[more_state.agent_index] = false;
+                                    merged_states.push(*more_state);
+                                }
+                            }
                         }
-
+                        // END NOT TESTED
                         _ => {}
                     }
                 }
@@ -4215,6 +4217,7 @@ impl<
         Self::patch_sequence_steps(&mut sequence_steps);
         if hide_internal {
             self.hide_internal_steps(&mut sequence_steps);
+            Self::merge_states(&mut sequence_steps);
         }
 
         let first_configuration = self.configurations.get(first_configuration_id);
@@ -4261,7 +4264,7 @@ impl<
         };
 
         self.print_first_timelines(&mut sequence_state, &first_configuration, stdout);
-        self.print_sequence_first_notes(&sequence_state, &first_configuration, stdout);
+        self.print_sequence_first_notes(&mut sequence_state, &first_configuration, stdout);
 
         for sequence_step in sequence_steps.iter() {
             self.print_sequence_step(&mut sequence_state, sequence_step, stdout);
@@ -4468,7 +4471,7 @@ impl<
 
     fn print_sequence_first_notes(
         &self,
-        sequence_state: &<Self as ModelTypes>::SequenceState,
+        sequence_state: &mut <Self as ModelTypes>::SequenceState,
         first_configuration: &<Self as MetaModel>::Configuration,
         stdout: &mut dyn Write,
     ) {
@@ -4624,6 +4627,7 @@ impl<
                 if replaced.is_none() {
                     writeln!(stdout, "activate T{} #{}", timeline_index, IN_FLIGHT_COLOR).unwrap();
                 }
+
                 sequence_state.has_reactivation_message = true;
             }
 

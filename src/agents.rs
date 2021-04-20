@@ -503,7 +503,7 @@ impl<State: DataLike + PartialOrd, StateId: IndexLike, Payload: DataLike>
     ) -> Reaction<StateId, Payload> {
         match reaction {
             Reaction::Unexpected => Reaction::Unexpected,
-            Reaction::Ignore => Reaction::Ignore,
+            Reaction::Ignore => Reaction::Ignore, // MAYBE TESTED
             Reaction::Defer => Reaction::Defer,
             Reaction::Do1(action) => Reaction::Do1(self.translate_action(action)),
             Reaction::Do1Of(actions) => Reaction::Do1Of(self.translate_actions(&actions)), // NOT TESTED

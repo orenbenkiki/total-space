@@ -1,4 +1,4 @@
-mod common;
+mod common; // MAYBE TESTED
 
 use clap::App;
 use clap::ArgMatches;
