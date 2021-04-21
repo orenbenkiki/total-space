@@ -316,7 +316,7 @@ macro_rules! activity_alternatives {
 #[macro_export]
 macro_rules! reaction_alternatives {
     ($action1:expr, $action2:expr $(,)?) => {
-        total_space::Reaction::Do1Of([Some(action1), Some(action2), None, None, None, None])
+        total_space::Reaction::Do1Of([Some($action1), Some($action2), None, None, None, None])
     };
     ($action1:expr, $action2:expr, $action3:expr $(,)?) => {
         total_space::Reaction::Do1Of([
