@@ -69,6 +69,9 @@ pub trait AgentInstances<StateId: IndexLike, Payload: DataLike>: Name {
 
     /// Return the name of the terse state (just the state name).
     fn display_terse(&self, name_id: StateId) -> String;
+
+    /// If true, the specified agent is a part of this container agent.
+    fn does_contain(&self, agent_index: usize) -> bool;
 }
 
 /// A trait fully describing some agent instances of the same type.
@@ -634,6 +637,10 @@ impl<State: DataLike + PartialOrd, StateId: IndexLike, Payload: DataLike>
     fn display_terse(&self, terse_id: StateId) -> String {
         self.name_of_terse.borrow()[terse_id.to_usize()].clone()
     }
+
+    fn does_contain(&self, _agent_index: usize) -> bool {
+        false
+    }
 }
 
 impl<
@@ -680,6 +687,12 @@ impl<
 
     fn display_terse(&self, terse_id: StateId) -> String {
         self.agent_type_data.display_terse(terse_id)
+    }
+
+    fn does_contain(&self, agent_index: usize) -> bool {
+        let part_first_index = self.part_type.part_first_index();
+        let parts_count = self.part_type.parts_count();
+        part_first_index <= agent_index && agent_index < part_first_index + parts_count
     }
     // END NOT TESTED
 }
@@ -729,6 +742,15 @@ impl<
 
     fn display_terse(&self, terse_id: StateId) -> String {
         self.agent_type_data.display_terse(terse_id)
+    }
+
+    fn does_contain(&self, agent_index: usize) -> bool {
+        let part1_first_index = self.part1_type.part_first_index();
+        let parts1_count = self.part1_type.parts_count();
+        let part2_first_index = self.part2_type.part_first_index();
+        let parts2_count = self.part2_type.parts_count();
+        (part1_first_index <= agent_index && agent_index < part1_first_index + parts1_count)
+            || (part2_first_index <= agent_index && agent_index < part2_first_index + parts2_count)
     }
 }
 // END NOT TESTED

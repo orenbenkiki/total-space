@@ -3449,15 +3449,23 @@ impl<
         sequence_steps
     }
 
-    fn patch_sequence_steps(sequence_steps: &mut [<Self as ModelTypes>::SequenceStep]) {
+    fn patch_sequence_steps(
+        &self,
+        sequence_steps: &mut [<Self as ModelTypes>::SequenceStep],
+        hide_internal: bool,
+    ) {
         Self::merge_message_steps(sequence_steps);
         loop {
-            Self::move_steps_up(sequence_steps);
+            self.move_steps_up(sequence_steps);
             if !Self::merge_message_steps(sequence_steps) {
                 break;
             }
         }
         Self::merge_states(sequence_steps, false);
+        if hide_internal {
+            self.hide_internal_steps(sequence_steps);
+            Self::merge_states(sequence_steps, true);
+        }
     }
 
     /*
@@ -3570,7 +3578,7 @@ impl<
     }
     */
 
-    fn move_steps_up(mut sequence_steps: &mut [<Self as ModelTypes>::SequenceStep]) {
+    fn move_steps_up(&self, mut sequence_steps: &mut [<Self as ModelTypes>::SequenceStep]) {
         let mut first_step_index: usize = 0;
         let mut received_step_index: usize = 0;
         let mut main_agent_index =
@@ -3580,8 +3588,8 @@ impl<
                 unreachable!();
             };
 
-        while let Some((next_step_index, next_received_step_index, next_agent_index)) =
-            Self::move_remaining_steps_up(
+        while let Some((next_step_index, next_received_step_index, next_agent_index)) = self
+            .move_remaining_steps_up(
                 first_step_index,
                 received_step_index,
                 &mut sequence_steps,
@@ -3595,6 +3603,7 @@ impl<
     }
 
     fn move_remaining_steps_up(
+        &self,
         mut first_step_index: usize,
         received_step_index: usize,
         sequence_steps: &mut [<Self as ModelTypes>::SequenceStep],
@@ -3613,7 +3622,7 @@ impl<
                 continue;
             }
 
-            if !Self::can_swap(first_step_index, second_step_index, &sequence_steps) {
+            if !self.can_swap(first_step_index, second_step_index, &sequence_steps) {
                 first_step_index = second_step_index;
                 continue;
             }
@@ -3851,7 +3860,16 @@ impl<
         }
     }
 
+    fn disjoint_agents(&self, left_agent_index: usize, right_agent_index: usize) -> bool {
+        let left_agent_type = &self.agent_types[left_agent_index];
+        let right_agent_type = &self.agent_types[right_agent_index];
+        left_agent_index != right_agent_index
+            && !left_agent_type.does_contain(right_agent_index)
+            && !right_agent_type.does_contain(left_agent_index)
+    }
+
     fn can_swap(
+        &self,
         mut first_step_index: usize,
         mut second_step_index: usize,
         sequence_steps: &[<Self as ModelTypes>::SequenceStep],
@@ -3875,7 +3893,7 @@ impl<
                     target_index: second_target_index,
                     ..
                 },
-            ) => second_target_index != first_target_index,
+            ) => self.disjoint_agents(*second_target_index, *first_target_index),
 
             (
                 SequenceStep::Received {
@@ -3888,8 +3906,8 @@ impl<
                     ..
                 },
             ) => {
-                second_source_index != first_target_index
-                    && second_target_index != first_target_index
+                self.disjoint_agents(*second_source_index, *first_target_index)
+                    && self.disjoint_agents(*second_target_index, *first_target_index)
             }
 
             (
@@ -3903,7 +3921,10 @@ impl<
                     source_index: second_source_index,
                     ..
                 },
-            ) => second_message_id != first_message_id && second_source_index != first_target_index,
+            ) => {
+                second_message_id != first_message_id
+                    && self.disjoint_agents(*second_source_index, *first_target_index)
+            }
 
             (
                 SequenceStep::Received {
@@ -3914,7 +3935,7 @@ impl<
                     agent_index: second_agent_index,
                     ..
                 },
-            ) => second_agent_index != first_target_index,
+            ) => self.disjoint_agents(*second_agent_index, *first_target_index),
 
             // BEGIN NOT TESTED
             (
@@ -3931,10 +3952,10 @@ impl<
                     ..
                 },
             ) => {
-                second_source_index != first_source_index
-                    && second_source_index != first_target_index
-                    && second_target_index != first_source_index
-                    && second_target_index != first_target_index
+                self.disjoint_agents(*second_source_index, *first_source_index)
+                    && self.disjoint_agents(*second_source_index, *first_target_index)
+                    && self.disjoint_agents(*second_target_index, *first_source_index)
+                    && self.disjoint_agents(*second_target_index, *first_target_index)
             }
 
             (
@@ -3948,8 +3969,8 @@ impl<
                     ..
                 },
             ) => {
-                second_source_index != first_source_index
-                    && second_source_index != first_target_index
+                self.disjoint_agents(*second_source_index, *first_source_index)
+                    && self.disjoint_agents(*second_source_index, *first_target_index)
             }
             // END NOT TESTED
             (
@@ -3963,7 +3984,8 @@ impl<
                     ..
                 },
             ) => {
-                second_agent_index != first_source_index && second_agent_index != first_target_index
+                self.disjoint_agents(*second_agent_index, *first_source_index)
+                    && self.disjoint_agents(*second_agent_index, *first_target_index)
             }
 
             // BEGIN NOT TESTED
@@ -3978,7 +4000,7 @@ impl<
                     source_index: second_source_index,
                     ..
                 },
-            ) => second_source_index != first_source_index,
+            ) => self.disjoint_agents(*second_source_index, *first_source_index),
             // END NOT TESTED
             (
                 SequenceStep::Emitted {
@@ -3989,7 +4011,7 @@ impl<
                     agent_index: second_agent_index,
                     ..
                 },
-            ) => second_agent_index != first_source_index,
+            ) => self.disjoint_agents(*second_agent_index, *first_source_index),
 
             (
                 SequenceStep::NewState {
@@ -4000,7 +4022,7 @@ impl<
                     agent_index: second_agent_index,
                     ..
                 },
-            ) => second_agent_index != first_agent_index,
+            ) => self.disjoint_agents(*second_agent_index, *first_agent_index),
 
             (_, SequenceStep::NoStep) => true,
 
@@ -4224,11 +4246,7 @@ impl<
         hide_internal: bool,
         stdout: &mut dyn Write,
     ) {
-        Self::patch_sequence_steps(&mut sequence_steps);
-        if hide_internal {
-            self.hide_internal_steps(&mut sequence_steps);
-            Self::merge_states(&mut sequence_steps, true);
-        }
+        self.patch_sequence_steps(&mut sequence_steps, hide_internal);
 
         let first_configuration = self.configurations.get(first_configuration_id);
         let last_configuration = self.configurations.get(last_configuration_id);
