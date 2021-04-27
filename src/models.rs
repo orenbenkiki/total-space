@@ -3457,7 +3457,7 @@ impl<
                 break;
             }
         }
-        Self::merge_states(sequence_steps);
+        Self::merge_states(sequence_steps, false);
     }
 
     /*
@@ -4083,7 +4083,7 @@ impl<
         did_merge_messages
     }
 
-    fn merge_states(sequence_steps: &mut [<Self as ModelTypes>::SequenceStep]) {
+    fn merge_states(sequence_steps: &mut [<Self as ModelTypes>::SequenceStep], after_hiding: bool) {
         for first_step_index in 0..(sequence_steps.len() - 1) {
             if let SequenceStep::NewState {
                 agent_index,
@@ -4103,6 +4103,9 @@ impl<
                 for second_step in sequence_steps.iter_mut().skip(first_step_index + 1) {
                     match second_step {
                         SequenceStep::Emitted { source_index, .. } => {
+                            if after_hiding {
+                                break;
+                            }
                             allowed_agent_indices[*source_index] = false;
                         }
 
@@ -4111,11 +4114,17 @@ impl<
                             target_index,
                             ..
                         } => {
+                            if after_hiding {
+                                break;
+                            }
                             allowed_agent_indices[*source_index] = false;
                             allowed_agent_indices[*target_index] = false;
                         }
 
                         SequenceStep::Received { target_index, .. } => {
+                            if after_hiding {
+                                break;
+                            }
                             allowed_agent_indices[*target_index] = false;
                         }
 
@@ -4218,7 +4227,7 @@ impl<
         Self::patch_sequence_steps(&mut sequence_steps);
         if hide_internal {
             self.hide_internal_steps(&mut sequence_steps);
-            Self::merge_states(&mut sequence_steps);
+            Self::merge_states(&mut sequence_steps, true);
         }
 
         let first_configuration = self.configurations.get(first_configuration_id);
