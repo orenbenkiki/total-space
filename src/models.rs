@@ -3454,10 +3454,10 @@ impl<
         sequence_steps: &mut [<Self as ModelTypes>::SequenceStep],
         hide_internal: bool,
     ) {
-        Self::merge_message_steps(sequence_steps);
+        self.merge_message_steps(sequence_steps);
         loop {
             self.move_steps_up(sequence_steps);
-            if !Self::merge_message_steps(sequence_steps) {
+            if !self.merge_message_steps(sequence_steps) {
                 break;
             }
         }
@@ -4032,7 +4032,10 @@ impl<
         }
     }
 
-    fn merge_message_steps(sequence_steps: &mut [<Self as ModelTypes>::SequenceStep]) -> bool {
+    fn merge_message_steps(
+        &self,
+        sequence_steps: &mut [<Self as ModelTypes>::SequenceStep],
+    ) -> bool {
         let mut did_merge_messages = false;
         for first_step_index in 0..(sequence_steps.len() - 1) {
             if let SequenceStep::Emitted {
@@ -4043,6 +4046,7 @@ impl<
                 is_immediate,
             } = sequence_steps[first_step_index]
             {
+                let is_internal = !self.disjoint_agents(first_source_index, first_target_index);
                 for second_index in (first_step_index + 1)..sequence_steps.len() {
                     match sequence_steps[second_index] {
                         SequenceStep::NoStep => {
@@ -4076,7 +4080,9 @@ impl<
                         SequenceStep::Emitted {
                             source_index: second_source_index,
                             ..
-                        } if second_source_index != first_target_index => {
+                        } if is_internal
+                            || self.disjoint_agents(second_source_index, first_target_index) =>
+                        {
                             continue;
                         }
 
@@ -4084,14 +4090,18 @@ impl<
                         SequenceStep::Passed {
                             source_index: second_source_index,
                             ..
-                        } if second_source_index != first_target_index => {
+                        } if is_internal
+                            || self.disjoint_agents(second_source_index, first_target_index) =>
+                        {
                             continue;
                         }
                         // END NOT TESTED
                         SequenceStep::NewState {
-                            agent_index: state_agent_index,
+                            agent_index: second_agent_index,
                             ..
-                        } if state_agent_index != first_target_index => {
+                        } if is_internal
+                            || self.disjoint_agents(second_agent_index, first_target_index) =>
+                        {
                             continue;
                         }
 
