@@ -210,5 +210,5 @@ Both types of diagrams use the same colors [legend](legend.html).
 
 ## License
 
-`total-space` is distributed under the GNU General Public License (Version 3.0). See the
+`total-space` is distributed under the GNU AFFERO General Public License (Version 3.0). See the
 [LICENSE](LICENSE.txt) for details.
